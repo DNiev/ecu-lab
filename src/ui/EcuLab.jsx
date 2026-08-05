@@ -543,7 +543,11 @@ export default function EngineManagementSandbox() {
   const [pullCount, setPullCount] = useState(0);
   const [turbineIdx, setTurbineIdx] = useState(1);
   const [compressorIdx, setCompressorIdx] = useState(1);
-  const [exhaustDiaIdx, setExhaustDiaIdx] = useState(1);
+  // Pinned by diameter, not by position: adding sizes to the catalogue must not
+  // silently change which pipe a new build starts with.
+  const [exhaustDiaIdx, setExhaustDiaIdx] = useState(
+    () => EXHAUST_DIA_OPTS.findIndex((o) => o.dia === 3.0),
+  );
   const [buildSection, setBuildSection] = useState('engine');
   const [ecuInjectorCc, setEcuInjectorCc] = useState(315);
   const [tuneView, setTuneView] = useState('ve');
@@ -590,14 +594,30 @@ export default function EngineManagementSandbox() {
     turbine: turboOn ? TURBINE_OPTS[turbineIdx] : null,
     exhaustDia: EXHAUST_DIA_OPTS[exhaustDiaIdx].dia,
     fuel,
-  }), [turboOn, turbineIdx, exhaustDiaIdx, fuel]);
+    peakBoostPsi: turboOn ? Math.max(...boostCurve) : 0,
+  }), [turboOn, turbineIdx, exhaustDiaIdx, fuel, boostCurve]);
 
-  const recalcVE = () => setVe(computeHardwareVE(engineConfig, mods, hwForVe));
+  // TRUE cylinder filling for the hardware as currently built. The player's `ve` table
+  // is only the ECU's BELIEF about this; the gap between the two is what makes the
+  // mixture drift off target and what the fuel-trim histogram measures and corrects.
+  const veTruth = useMemo(
+    () => computeHardwareVE(engineConfig, mods, hwForVe),
+    [engineConfig, mods, hwForVe],
+  );
+
+  const recalcVE = () => setVe(veTruth);
+
+  // Every boost-curve write goes through here. Rebuilding from the RPM axis makes it
+  // structurally impossible for the curve to be the wrong length or to contain a
+  // non-number, which is what previously let a single edit poison the whole sim.
+  const setBoostAt = (i, value) => setBoostCurve(
+    RPM.map((_, idx) => clamp(Number(idx === i ? value : boostCurve[idx]) || 0, 0, 25)),
+  );
   const calAdvice = useMemo(() => calibrationAdvice({
-    ve, timing, afr, derived: engineDerived, octaneBonus, fuel, mods, turboOn, boostCurve,
+    ve, veTruth, timing, afr, derived: engineDerived, octaneBonus, fuel, mods, turboOn, boostCurve,
     compressor: COMPRESSOR_OPTS[compressorIdx], turbine: TURBINE_OPTS[turbineIdx],
     injectorCc, ecuInjectorCc, mafScalar, mafErrorBase,
-  }), [ve, timing, afr, engineDerived, octaneBonus, fuel, mods, turboOn, boostCurve,
+  }), [ve, veTruth, timing, afr, engineDerived, octaneBonus, fuel, mods, turboOn, boostCurve,
        compressorIdx, turbineIdx, injectorCc, ecuInjectorCc, mafScalar, mafErrorBase]);
 
   const veAdvice = useMemo(
@@ -723,7 +743,7 @@ export default function EngineManagementSandbox() {
     setRunning(true);
     setRevealCount(0);
     const r = simulateSweep({
-      loadKpa, ve, timing, afr, turboOn, boostCurve, octaneBonus, octaneLabel: OCTANE_OPTS[octaneIdx].label,
+      loadKpa, ve, veTruth, timing, afr, turboOn, boostCurve, octaneBonus, octaneLabel: OCTANE_OPTS[octaneIdx].label,
       fuel, injectorCc, ecuInjectorCc, injectorLabel: INJECTOR_OPTS[injIdx].label, mods, mafScalar, derived: engineDerived,
       turbine: TURBINE_OPTS[turbineIdx], compressor: COMPRESSOR_OPTS[compressorIdx], exhaustDiaError,
     });
@@ -758,7 +778,7 @@ export default function EngineManagementSandbox() {
   // Keep the live-engine config in a ref so the loop always uses current tuning
   // without needing to restart the interval every time a table changes.
   liveCfgRef.current = {
-    ve, timing, afr, derived: engineDerived, fuel, injectorCc, ecuInjectorCc, mods, mafScalar, mafErrorBase,
+    ve, veTruth, timing, afr, derived: engineDerived, fuel, injectorCc, ecuInjectorCc, mods, mafScalar, mafErrorBase,
     turboOn, boostCurve, octaneBonus, turbine: TURBINE_OPTS[turbineIdx],
     compressor: COMPRESSOR_OPTS[compressorIdx], exhaustDiaError,
   };
@@ -837,8 +857,16 @@ export default function EngineManagementSandbox() {
       LOAD.forEach((m, i) => { const d = Math.abs(m - p.map); if (d < best) { best = d; ri = i; } });
       let ci = 0, bc = Infinity;
       RPM.forEach((r, i) => { const d = Math.abs(r - p.rpm); if (d < bc) { bc = d; ci = i; } });
-      // error % = how far actual lambda sat from commanded
-      const err = ((p.afrCommanded / p.afr) - 1) * 100;
+      // Airflow error % = how far the ACTUAL mixture sat from what was commanded.
+      //
+      // Sign convention, because getting it backwards makes the tool teach the exact
+      // wrong reflex: the ECU fuels from the VE table, so
+      //     actualAfr / commandedAfr  =  trueVE / tableVE
+      // A positive number therefore means the engine ran LEANER than commanded, which
+      // means it swallowed MORE air than the table claimed, which means the table is
+      // reading low and must come UP by that percentage. Multiplying the cell by
+      // (1 + err/100) drives the table onto the truth in one pass.
+      const err = ((p.afr / p.afrCommanded) - 1) * 100;
       cells[ri][ci].sum += err; cells[ri][ci].n += 1;
     });
     setHistogram(cells.map((row) => row.map((c) => (c.n ? c.sum / c.n : null))));
@@ -1445,11 +1473,11 @@ export default function EngineManagementSandbox() {
                       </span>
                     </div>
                     <input type="range" min={0} max={25} step={1} value={boostCurve[boostSel]}
-                      onChange={(e) => { const n = [...boostCurve]; n[boostSel] = Number(e.target.value); setBoostCurve(n); }}
+                      onChange={(e) => setBoostAt(boostSel, Number(e.target.value))}
                       style={{ width: '100%', accentColor: T.amber }} />
                     <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
                       {[-5, -1, 1, 5].map((d) => (
-                        <button key={d} onClick={() => { const n = [...boostCurve]; n[boostSel] = clamp(n[boostSel] + d, 0, 25); setBoostCurve(n); }}
+                        <button key={d} onClick={() => setBoostAt(boostSel, (boostCurve[boostSel] ?? 0) + d)}
                           style={{ flex: 1, padding: '11px 0', borderRadius: 8, border: `1px solid ${T.line}`, background: T.panel,
                             color: d < 0 ? '#ff9d7a' : T.green, fontWeight: 800, fontFamily: T.mono, fontSize: 14 }}>
                           {d > 0 ? '+' : ''}{d}
@@ -1457,7 +1485,7 @@ export default function EngineManagementSandbox() {
                       ))}
                     </div>
                     <div style={{ display: 'flex', gap: 6, marginTop: 6 }}>
-                      <button onClick={() => setBoostCurve(boostCurve.map(() => boostCurve[boostSel]))}
+                      <button onClick={() => setBoostCurve(RPM.map(() => clamp(Number(boostCurve[boostSel]) || 0, 0, 25)))}
                         style={{ flex: 1, padding: '9px 0', borderRadius: 8, border: `1px solid ${T.line}`, background: T.panel, color: T.ink2, fontWeight: 700, fontSize: 11 }}>
                         FLAT ACROSS ALL
                       </button>
@@ -1465,7 +1493,11 @@ export default function EngineManagementSandbox() {
                         style={{ flex: 1, padding: '9px 0', borderRadius: 8, border: `1px solid ${T.line}`, background: T.panel, color: T.ink2, fontWeight: 700, fontSize: 11 }}>
                         SPOOL RAMP
                       </button>
-                      <button onClick={() => setBoostCurve([0, 0, 0, 0, 0, 0, 0])}
+                      {/* Built from RPM so the curve can never be shorter than the
+                          axis. A hand-written literal previously had seven entries
+                          for eight breakpoints, and the next edit put NaN through
+                          the entire simulation. */}
+                      <button onClick={() => setBoostCurve(RPM.map(() => 0))}
                         style={{ flex: 1, padding: '9px 0', borderRadius: 8, border: `1px solid ${T.line}`, background: T.panel, color: T.ink2, fontWeight: 700, fontSize: 11 }}>
                         ZERO
                       </button>
@@ -1878,7 +1910,11 @@ export default function EngineManagementSandbox() {
 
                         // Each row: label, what was asked, what happened, and a verdict.
                         const rows = [
-                          { k: 'Airflow', asked: null, got: `${p.maf} g/s`, note: `${p.map} kPa manifold · ${p.ve}% VE`, ok: true },
+                          { k: 'Airflow', asked: p.veTable !== p.ve ? `${p.veTable}% VE` : null, got: `${p.maf} g/s`,
+                            note: p.veTable !== p.ve
+                              ? `${p.map} kPa manifold · table says ${p.veTable}% VE, engine actually flowed ${p.ve}%`
+                              : `${p.map} kPa manifold · ${p.ve}% VE`,
+                            ok: Math.abs(p.veTable - p.ve) / Math.max(1, p.ve) < 0.03 },
                           { k: 'Timing', asked: `${p.commandedTiming}°`, got: `${p.timing}°`,
                             note: p.knock ? `ECU pulled ${p.knockPull.toFixed(1)}° — too advanced for this cylinder pressure` : 'ran your commanded value',
                             ok: !p.knock },
@@ -1933,7 +1969,8 @@ export default function EngineManagementSandbox() {
                     <Eyebrow icon={Grid3x3}>Fuel Trim Histogram</Eyebrow>
                     <ExpandableInfo title="How real tuners actually correct a VE table">
                       This is the workflow every professional platform is built around. You log a pull, bin the difference between commanded and actual mixture onto the same RPM x MAP grid as your VE table, then apply that error back into the cells.
-                      <br /><br />A cell reading +6% means the engine actually pulled 6% more air than your VE table claimed — so the VE number there should go up 6%. Green cells are within tolerance; red means your table is lying to the ECU at that point. Correct, re-pull, repeat until it is flat.
+                      <br /><br />A cell reading <b style={{ color: T.ink }}>+6%</b> means the engine ran 6% leaner than you commanded, which can only happen if it actually pulled 6% <i>more</i> air than your VE table claimed — so that cell should go <b style={{ color: T.ink }}>up</b> 6%. A negative cell means the opposite: the table is over-reporting airflow, the ECU is over-fuelling, and the number should come down.
+                      <br /><br />The ECU has no way to measure cylinder filling directly. It fuels from your table and nothing else, so a wrong table means wrong fuel, every time. Blue cells are within tolerance; red means your table is lying to the ECU at that point. Correct, re-pull, repeat until it is flat. A cell you hit squarely lands on the truth in one pass; the rest take a couple, because every logged point is interpolated between four cells.
                     </ExpandableInfo>
                     {!histogram ? (
                       <button onClick={buildHistogram} style={{ width: '100%', padding: '12px 0', borderRadius: 10, border: `1px solid ${T.cyan}`, background: T.cyanBg, color: T.cyan, fontWeight: 800, fontSize: 12.5, marginBottom: 16 }}>

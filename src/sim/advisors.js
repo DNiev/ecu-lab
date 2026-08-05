@@ -78,7 +78,7 @@ export function veRecommendations(currentVe, cfg, mods, hw) {
  * @returns {{spark: object[], fuelAdv: object[], overAdvanced: object[], underAdvanced: object[], wrongMix: object[]}}
  */
 export function calibrationAdvice({
-  ve, timing, afr, derived, octaneBonus, fuel, mods, turboOn, boostCurve,
+  ve, veTruth, timing, afr, derived, octaneBonus, fuel, mods, turboOn, boostCurve,
   compressor, turbine, injectorCc, ecuInjectorCc, mafScalar, mafErrorBase,
 }) {
   const spark = [], fuelAdv = [];
@@ -94,7 +94,8 @@ export function calibrationAdvice({
       const boostPsi = Math.max(0, (useMap - BARO_KPA) / PSI_TO_KPA);
       const pt = evaluatePoint({
         rpm, mapKpa: useMap, boostPsi,
-        veVal: ve[ri][ci], timingVal: timing[ri][ci], afrCommanded: afr[ri][ci],
+        veVal: ve[ri][ci], veActualVal: veTruth?.[ri]?.[ci],
+        timingVal: timing[ri][ci], afrCommanded: afr[ri][ci],
         octaneBonus, fuel, mods: { ...mods, turboFitted: turboOn }, mafScalar, mafErrorBase,
         injectorCc, ecuInjectorCc, derived, compressor,
       });

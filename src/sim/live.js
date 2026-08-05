@@ -69,8 +69,8 @@ export function makeLiveState() {
 export function liveStep(st, dt, input, cfg) {
   const s = { ...st };
   const {
-    ve, timing, afr, derived, fuel, injectorCc, ecuInjectorCc, mods, mafScalar, mafErrorBase,
-    turboOn, boostCurve, octaneBonus, turbine, compressor,
+    ve, veTruth, timing, afr, derived, fuel, injectorCc, ecuInjectorCc, mods, mafScalar,
+    mafErrorBase, turboOn, boostCurve, octaneBonus, turbine, compressor,
   } = cfg;
 
   s.prevRpm = st.rpm;
@@ -137,6 +137,7 @@ export function liveStep(st, dt, input, cfg) {
     const boostTarget = turboOn ? interp1(RPM, boostCurve, rpmClamped) : 0;
     const man = computeManifold(rpmClamped, loadKpa, turboOn, boostTarget, turbine, compressor);
     const veVal = interp2(ve, rpmClamped, man.mapKpa);
+    const veActualVal = veTruth ? interp2(veTruth, rpmClamped, man.mapKpa) : undefined;
     // Spark-based idle stabilisation: the air path is slow (throttle -> manifold ->
     // cylinder takes several cycles), so real ECUs hold idle with IGNITION timing,
     // which changes torque on the very next firing event. Air trim handles the slow
@@ -149,7 +150,7 @@ export function liveStep(st, dt, input, cfg) {
     const afrCmd = interp2(afr, rpmClamped, man.mapKpa) / coldEnrich;
     pt = evaluatePoint({
       rpm: rpmClamped, mapKpa: man.mapKpa, boostPsi: man.boostPsi,
-      veVal, timingVal, afrCommanded: afrCmd, octaneBonus, fuel,
+      veVal, veActualVal, timingVal, afrCommanded: afrCmd, octaneBonus, fuel,
       mods: { ...mods, turboFitted: turboOn },
       mafScalar: mafScalar * (1 + s.ltft / 100 + s.stft / 100),
       mafErrorBase, injectorCc, ecuInjectorCc, derived, compressor,

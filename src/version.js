@@ -4,4 +4,4 @@
  *
  * Bump this whenever behaviour changes, and keep it in step with `package.json`.
  */
-export const BUILD_VERSION = 'v1.1';
+export const BUILD_VERSION = 'v1.2';

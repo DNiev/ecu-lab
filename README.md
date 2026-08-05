@@ -22,8 +22,8 @@ delivery, and power is whatever falls out of the physics. If you contribute a fe
 add it as a physical mechanism — never as a bonus multiplier.
 
 That rule is why the numbers mean something. A stock 3.5 L V6 on 91 octane makes about
-235 whp here because the ideal gas law, the Otto cycle and the friction model say so,
-not because someone typed 235.
+237 whp here because the ideal gas law, the Otto cycle and the friction model say so,
+not because someone typed 237.
 
 ## What it actually models
 
@@ -112,8 +112,7 @@ source.
 
 Working and playable. Known gaps and planned work are tracked in
 [CONTRIBUTING.md](CONTRIBUTING.md#good-places-to-start); the short version is that the
-UI is still one large component pending decomposition, accessibility needs work, and
-the VE histogram workflow has a known correctness bug that is being fixed.
+UI is still one large component pending decomposition, and accessibility needs work.
 
 ## Credits
 

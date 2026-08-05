@@ -73,12 +73,21 @@ export const COMPRESSOR_OPTS = [
 /**
  * Exhaust diameter is not simply "bigger is better" — undersized chokes high-RPM
  * flow, oversized loses low-RPM scavenging velocity.
+ *
+ * The range must span everything {@link idealExhaustDiameter} can return (2.0"–5.0"),
+ * in steps small enough that some option always lands inside the Engineer Score's
+ * 0.3" tolerance. Otherwise builds at the extremes — a small naturally aspirated
+ * engine, or anything on serious boost — carry a penalty no purchasable part can
+ * clear. Half-inch steps put the worst-case gap at 0.25".
  */
 export const EXHAUST_DIA_OPTS = [
+  { label: '2.0"', dia: 2.0 },
   { label: '2.5"', dia: 2.5 },
   { label: '3.0"', dia: 3.0 },
   { label: '3.5"', dia: 3.5 },
   { label: '4.0"', dia: 4.0 },
+  { label: '4.5"', dia: 4.5 },
+  { label: '5.0"', dia: 5.0 },
 ];
 
 /** Largest exhaust diameter the player can actually buy, inches. */
@@ -91,6 +100,11 @@ export const MAX_EXHAUST_DIA = EXHAUST_DIA_OPTS[EXHAUST_DIA_OPTS.length - 1].dia
  * rule is about one inch of total pipe diameter per 100 crank horsepower. Boost
  * roughly scales power with pressure ratio, so a boosted build genuinely needs more
  * pipe than the same engine naturally aspirated.
+ *
+ * THIS IS THE SINGLE SOURCE OF TRUTH for exhaust sizing. The VE model, the on-screen
+ * advice and the Engineer Score all call it. There was previously a second,
+ * displacement-only formula buried in the airflow model, so the score rewarded a
+ * diameter the physics then penalised — do not reintroduce one.
  *
  * @param {number} displacementL engine displacement, litres
  * @param {number} [peakBoostPsi] peak boost target, psi

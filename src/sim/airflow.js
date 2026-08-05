@@ -8,7 +8,7 @@
 
 import { BARO_KPA } from './constants.js';
 import { COEFF } from './coefficients.js';
-import { CYL_COUNT, MOD_BONUS } from './hardware.js';
+import { CYL_COUNT, MOD_BONUS, idealExhaustDiameter } from './hardware.js';
 import { CAM_BASE_DURATION, camPeakShiftRpm, charMultiplier, valveFloatRpm } from './engine.js';
 import { clamp, interp1 } from './math.js';
 import { DEFAULT_VE, LOAD, RPM } from './tables.js';
@@ -28,15 +28,19 @@ import { DEFAULT_VE, LOAD, RPM } from './tables.js';
  * @param {{topEndMult: number}|null} [hw.turbine]
  * @param {number|null} [hw.exhaustDia] exhaust diameter, inches
  * @param {{stoich: number}|null} [hw.fuel]
+ * @param {number} [hw.peakBoostPsi] peak boost target, psi — raises the ideal exhaust
+ *   diameter, because sizing follows power and boost makes power
  * @returns {number[][]} VE table, percent, indexed [LOAD][RPM]
  */
 export function computeHardwareVE(cfg, mods, hw = {}) {
-  const { turboOn = false, turbine = null, exhaustDia = null, fuel = null } = hw;
+  const { turboOn = false, turbine = null, exhaustDia = null, fuel = null, peakBoostPsi = 0 } = hw;
   const ratio = cfg.bore / cfg.stroke;
   const cyl = CYL_COUNT[cfg.configuration];
   const displacementL = (Math.PI / 4 * Math.pow(cfg.bore / 10, 2) * (cfg.stroke / 10) * cyl) / 1000;
   const perCylL = displacementL / cyl;
-  const idealDia = 2.2 + displacementL * 0.25;
+  // Shared with the advisory and the Engineer Score, so the physics and the advice
+  // can no longer disagree about what "correctly sized" means.
+  const idealDia = idealExhaustDiameter(displacementL, turboOn ? peakBoostPsi : 0);
   const diaError = exhaustDia != null ? exhaustDia - idealDia : 0;
 
   // Smaller individual cylinders carry proportionally more valve area for their

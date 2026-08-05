@@ -52,6 +52,15 @@ const BOOSTS = {
 };
 
 /**
+ * Exhaust diameter used by the sweep matrix, as a VALUE not an index.
+ *
+ * Indexing into `EXHAUST_DIA_OPTS` made the fingerprint shift the moment a new size
+ * was added to the catalogue, which silently compared different hardware between
+ * revisions and buried the real diff in noise. Pin the physical quantity instead.
+ */
+const SWEEP_EXHAUST_DIA = 3.0;
+
+/**
  * Builds the full fingerprint from a simulation module.
  *
  * @param {object} S the `src/sim` public API
@@ -129,7 +138,7 @@ export function buildFingerprint(S) {
               const ve = S.computeHardwareVE(cfg, mods, {
                 turboOn,
                 turbine: turboOn ? S.TURBINE_OPTS[1] : null,
-                exhaustDia: S.EXHAUST_DIA_OPTS[1].dia,
+                exhaustDia: SWEEP_EXHAUST_DIA,
                 fuel: S.OCTANE_OPTS[fi],
               });
               const r = S.simulateSweep({

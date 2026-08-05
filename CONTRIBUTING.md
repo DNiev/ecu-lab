@@ -93,20 +93,6 @@ Never update the fixture just to make CI green. That defeats the entire point.
 
 Roughly in order of value to the project:
 
-**Known bugs** (verified, reproducible)
-
-- **VE histogram corrects in the wrong direction, and cannot converge.** The bigger
-  half is architectural: the model uses one VE number for both *actual cylinder
-  filling* (physics) and *the ECU's belief about it* (calibration). The histogram
-  exists to drag belief toward actual, so with one variable there is no gap to close.
-  Splitting them makes the app's centrepiece workflow work properly.
-- **`ZERO` on the boost curve writes an array shorter than the RPM axis**, and the next
-  edit puts `NaN` through the whole app. Build boost curves with `RPM.map(...)`.
-- **Two disagreeing "ideal exhaust diameter" formulas** — one drives the UI advice and
-  the Engineer Score, another drives the VE physics. Under boost the advisory also
-  targets a diameter larger than the largest purchasable option, so the penalty becomes
-  unavoidable.
-
 **Improvements**
 
 - Decompose `src/ui/EcuLab.jsx` into `ui/primitives/` and `ui/screens/`. It is still

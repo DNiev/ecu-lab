@@ -27,7 +27,7 @@ export const SWEEP_STEP_RPM = 100;
  * @returns {{points: object[], events: object[], wear: object, peakHp: number, peakTq: number, loadKpa: number, needsMafRecal: boolean}}
  */
 export function simulateSweep({
-  loadKpa, ve, timing, afr, turboOn, boostCurve, octaneBonus, octaneLabel,
+  loadKpa, ve, veTruth, timing, afr, turboOn, boostCurve, octaneBonus, octaneLabel,
   fuel, injectorCc, ecuInjectorCc, injectorLabel, mods, mafScalar, derived,
   turbine, compressor,
 }) {
@@ -44,11 +44,14 @@ export function simulateSweep({
     // Tables are indexed by ACTUAL manifold pressure, so adding boost walks the
     // calibration up into the high-MAP rows automatically.
     const veVal = interp2(ve, rpm, man.mapKpa);
+    // `veTruth` is what the hardware actually flows. When it is omitted the ECU's
+    // table is taken as correct, which is the "perfectly calibrated" case.
+    const veActualVal = veTruth ? interp2(veTruth, rpm, man.mapKpa) : undefined;
     const timingVal = interp2(timing, rpm, man.mapKpa);
     const afrCommanded = interp2(afr, rpm, man.mapKpa);
     points.push(evaluatePoint({
       rpm, mapKpa: man.mapKpa, boostPsi: man.boostPsi,
-      veVal, timingVal, afrCommanded, octaneBonus, fuel, mods: modsWithTurbo,
+      veVal, veActualVal, timingVal, afrCommanded, octaneBonus, fuel, mods: modsWithTurbo,
       mafScalar, mafErrorBase, injectorCc, ecuInjectorCc, derived, compressor,
     }));
   }

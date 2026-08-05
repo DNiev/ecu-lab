@@ -25,7 +25,11 @@ import { chargeTempK } from './thermo.js';
  * @property {number} rpm engine speed
  * @property {number} mapKpa manifold absolute pressure, kPa
  * @property {number} boostPsi gauge boost, psi
- * @property {number} veVal volumetric efficiency at this point, percent
+ * @property {number} veVal the ECU's VE table value at this point, percent — what the
+ *   ECU BELIEVES the cylinder filling is. Drives the fuel calculation.
+ * @property {number} [veActualVal] TRUE cylinder filling at this point, percent — what
+ *   the hardware really flows. Drives torque, knock and the measured airflow. Defaults
+ *   to `veVal`, which models a perfectly calibrated VE table.
  * @property {number} timingVal commanded spark advance, degrees BTDC
  * @property {number} afrCommanded commanded air:fuel ratio, gasoline-equivalent
  * @property {number} octaneBonus knock margin from fuel octane, degrees
@@ -46,7 +50,7 @@ import { chargeTempK } from './thermo.js';
  * @returns {object} the full datalog record for this point
  */
 export function evaluatePoint({
-  rpm, mapKpa, boostPsi, veVal, timingVal, afrCommanded,
+  rpm, mapKpa, boostPsi, veVal, veActualVal, timingVal, afrCommanded,
   octaneBonus, fuel, mods, mafScalar, mafErrorBase,
   injectorCc, ecuInjectorCc, derived, compressor,
 }) {
@@ -57,9 +61,26 @@ export function evaluatePoint({
   // --- AIR CHARGE: ideal gas law. MAP already carries load, so VE is used purely as
   // an efficiency term here — no separate throttle multiplier (that would
   // double-count load, which is exactly the Alpha-N mistake).
+  //
+  // TWO VE NUMBERS, DOING DIFFERENT JOBS. This distinction is the whole basis of
+  // closed-loop VE tuning and it must not be collapsed back into one variable:
+  //
+  //   veActual   what the hardware genuinely flows. Physics. Sets the air that is
+  //              really in the cylinder, so it sets torque, knock and measured MAF.
+  //   veVal      what the ECU's table CLAIMS the cylinder flows. Calibration. The ECU
+  //              has no airflow oracle — it fuels from this number and nothing else.
+  //
+  // When the table is wrong, the ECU fuels for air that is not there (or misses air
+  // that is), and the mixture comes back off target. That gap is the entire signal a
+  // fuel-trim histogram measures, and correcting the table toward the truth is what
+  // makes it converge. With a single shared VE the gap is identically zero, the
+  // histogram has nothing to read, and no amount of iterating can ever close it.
+  const veActual = veActualVal ?? veVal;
   const vCylM3 = (derived.displacementL / derived.cyl) / 1000;
   const airDensity = (mapKpa * 1000) / (R_AIR * chargeK);
-  const airChargeG = (veVal / 100) * vCylM3 * airDensity * 1000;
+  const airChargeG = (veActual / 100) * vCylM3 * airDensity * 1000;
+  const airChargeBelievedG = (veVal / 100) * vCylM3 * airDensity * 1000;
+  // The MAF reading reports real airflow — a sensor cannot read a table.
   const mafGps = (airChargeG * derived.cyl * (rpm / 2)) / 60;
 
   // --- MAF error / fuel trim. Open loop above ~85 kPa (near WOT).
@@ -68,9 +89,10 @@ export function evaluatePoint({
   const effFactor = 1 + (netFactor - 1) * (openLoop ? 1 : 0.25);
   const trimPct = (effFactor - 1) * 100;
 
-  // --- FUEL MASS from lambda and the fuel's own stoichiometric ratio.
+  // --- FUEL MASS from lambda and the fuel's own stoichiometric ratio. Computed from
+  // the air the ECU BELIEVES it has, because that is all the ECU knows.
   const lambdaCommanded = (afrCommanded / 14.7) / effFactor;
-  const fuelMassG = airChargeG / (lambdaCommanded * fuel.stoich);
+  const fuelMassG = airChargeBelievedG / (lambdaCommanded * fuel.stoich);
 
   // --- INJECTOR: the ECU computes pulse width for the injector size it has been TOLD
   // it has. Fit bigger injectors without rescaling and every pulse delivers
@@ -97,7 +119,9 @@ export function evaluatePoint({
   // manifold pressure alone. Two engines at the same MAP but different volumetric
   // efficiency see different peak pressures — which is exactly why a big-cam engine
   // that breathes better also needs a few degrees less timing than a stock one.
-  const chargeIndex = (veVal / 100) * (mapKpa / BARO_KPA);
+  // Uses ACTUAL filling: knock is caused by the charge really in the cylinder, and the
+  // end gas does not care what the ECU's table claims.
+  const chargeIndex = (veActual / 100) * (mapKpa / BARO_KPA);
   // Knock margin is not linear in charge. Doubling the trapped mass roughly doubles
   // peak pressure, so margin scales with the RATIO of charge to the reference, not
   // the difference. At deep vacuum an engine effectively cannot knock at all — which
@@ -162,7 +186,10 @@ export function evaluatePoint({
 
   return {
     rpm, hp: Math.round(hp), torque: Math.round(torque),
-    ve: Number(veVal.toFixed(1)),
+    // `ve` is the measured (true) filling, which is what a datalog and the fuel-trim
+    // histogram need; `veTable` is what the ECU was working from.
+    ve: Number(veActual.toFixed(1)),
+    veTable: Number(veVal.toFixed(1)),
     afr: Number(actualAfr.toFixed(2)), afrCommanded: Number(afrCommanded.toFixed(2)),
     lambda: Number(lambdaActual.toFixed(3)),
     timing: Number(usedTiming.toFixed(1)), commandedTiming: Number(timingVal.toFixed(1)),
