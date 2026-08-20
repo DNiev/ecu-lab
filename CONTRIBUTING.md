@@ -59,12 +59,18 @@ reason.
 
 ```bash
 npm test          # physics intent tests + behavioural fingerprint
-npm run lint
+npm run lint      # warnings fail too — see below
 npm run typecheck # JSDoc types are checked with tsc --checkJs
 npm run build     # make sure it still builds
 ```
 
 CI runs all four on every PR.
+
+`lint` runs with `--max-warnings 0`, so a warning fails the build exactly like an error
+does. That is deliberate: `react-hooks/exhaustive-deps` is a warning by default, and a
+missing dependency in this app does not throw — it shows the player a score computed from
+hardware they have since changed, silently and with no visual cue. A rule that cannot fail
+the build is a rule nobody fixes.
 
 `main` is protected: every change lands through a pull request with CI green and the
 branch up to date. That applies to maintainers too — nobody pushes to `main` directly.
