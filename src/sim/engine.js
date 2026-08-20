@@ -6,7 +6,7 @@
  * player-editable and feed real physics downstream.
  */
 
-import { CHAR_SCALE } from './constants.js';
+import { AMBIENT_K, CHAR_SCALE, GAMMA_AIR, R_AIR, SONIC_AMBIENT_MS } from './constants.js';
 import { COEFF } from './coefficients.js';
 import { BASELINE_MAIN_BEARINGS, CYL_COUNT, MAIN_BEARINGS, hasBalanceShafts } from './hardware.js';
 
@@ -69,6 +69,69 @@ export function valveFloatRpm(springRate, camDuration) {
  */
 export function springFrictionPa(springRate) {
   return Math.max(0, (springRate - 50) * COEFF.SPRING_FMEP_PER_RATE);
+}
+
+/**
+ * Mean piston speed, m/s.
+ *
+ * The speed that actually limits an engine, more than RPM does. A long-stroke engine
+ * reaches a given piston speed at fewer revolutions, which is why it cannot rev as far.
+ *
+ * @param {number} strokeMm stroke, mm
+ * @param {number} rpm engine speed
+ * @returns {number} mean piston speed, m/s
+ */
+export function meanPistonSpeedMs(strokeMm, rpm) {
+  return 2 * (strokeMm / 1000) * (rpm / 60);
+}
+
+/**
+ * Inlet Mach index — how close the charge is to choking on its way past the valve.
+ *
+ * Taylor's index: the gas velocity through the inlet valve, as a fraction of the speed
+ * of sound. Velocity through the valve is the piston speed scaled by how much smaller
+ * the valve is than the bore, so
+ *
+ *     Z = (bore / D_valve)^2 * meanPistonSpeed / sonicVelocity
+ *
+ * Past a critical value the flow chokes, the cylinder stops filling, and VE falls away
+ * however hard the engine is turning. This is the term the model was missing: without it
+ * VE kept climbing at the limiter and no naturally aspirated engine had a power peak
+ * before its redline (issue #15).
+ *
+ * The bore-to-valve factor is lumped into a coefficient because the model has no valve
+ * geometry — see COEFF.MACH_BORE_VALVE_FACTOR for what it is worth on a real head, and
+ * for the honest note on which parts of this are derived and which are fitted.
+ *
+ * @param {number} boreMm bore, mm — unused directly; kept for the geometry it represents
+ * @param {number} strokeMm stroke, mm
+ * @param {number} rpm engine speed
+ * @param {number} [sonicMs] speed of sound in the intake charge, m/s
+ * @returns {number} Mach index, dimensionless
+ */
+export function inletMachIndex(boreMm, strokeMm, rpm, sonicMs = SONIC_AMBIENT_MS) {
+  return COEFF.MACH_BORE_VALVE_FACTOR * meanPistonSpeedMs(strokeMm, rpm) / sonicMs;
+}
+
+/**
+ * How much volumetric efficiency the inlet Mach index costs at this speed.
+ *
+ * Flat until the flow starts to choke, then falling quadratically — the shape of
+ * Taylor's measured VE-against-Z curves. Floored, because a real engine still breathes
+ * something at the limiter.
+ *
+ * @param {number} boreMm bore, mm
+ * @param {number} strokeMm stroke, mm
+ * @param {number} rpm engine speed
+ * @returns {number} multiplier on VE, 0..1
+ */
+export function machVeMultiplier(boreMm, strokeMm, rpm, chargeK = AMBIENT_K) {
+  // Sonic velocity in the charge as it actually is, not as ambient. A boosted engine
+  // runs a hotter intake, sound travels faster in it, and it therefore chokes LATER —
+  // a real effect, and one of the reasons forced induction tolerates more piston speed.
+  const sonicMs = Math.sqrt(GAMMA_AIR * R_AIR * chargeK);
+  const over = Math.max(0, inletMachIndex(boreMm, strokeMm, rpm, sonicMs) - COEFF.MACH_Z_CRIT);
+  return Math.max(COEFF.MACH_VE_FLOOR, 1 - COEFF.MACH_VE_LOSS * over * over);
 }
 
 /**

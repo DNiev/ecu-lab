@@ -762,6 +762,86 @@ describe('engine configuration and friction', () => {
   });
 });
 
+/**
+ * THE HIGH-SPEED BREATHING LIMIT — issue #15.
+ *
+ * The app teaches that power "rises with RPM, then falls as the valves cannot flow fast
+ * enough", and the model then contradicted it: nothing made VE fall at speed, so every
+ * naturally aspirated engine climbed monotonically into its limiter and had no power peak
+ * at all. Two presets carried a written exception saying exactly that.
+ *
+ * The missing term is the inlet Mach index — how close the charge is to choking on its
+ * way past the valve. What makes it worth doing as physics rather than as a curve fit
+ * against RPM is the dependence it brings for free: it keys on MEAN PISTON SPEED against
+ * the speed of sound, so a long-stroke engine chokes at fewer revolutions, and a hotter
+ * charge chokes later.
+ */
+describe('the inlet Mach index', () => {
+  const STROKE = S.DEFAULT_ENGINE_CONFIG.stroke;
+  const BORE = S.DEFAULT_ENGINE_CONFIG.bore;
+
+  it('is mean piston speed against the speed of sound', () => {
+    // 2 x stroke x rev/s, the standard definition.
+    expect(S.meanPistonSpeedMs(81.4, 6000)).toBeCloseTo(2 * 0.0814 * 100, 6);
+    // And the index is that, scaled by the bore-to-valve geometry.
+    const z = S.inletMachIndex(BORE, 81.4, 6000);
+    expect(z).toBeCloseTo(
+      S.COEFF.MACH_BORE_VALVE_FACTOR * S.meanPistonSpeedMs(81.4, 6000) / S.SONIC_AMBIENT_MS, 6,
+    );
+  });
+
+  it('costs nothing through the mid-range and bites at the top', () => {
+    expect(S.machVeMultiplier(BORE, STROKE, 3000)).toBe(1);
+    expect(S.machVeMultiplier(BORE, STROKE, 7500)).toBeLessThan(1);
+    // Monotonic once it starts, so there is no speed at which revving harder helps.
+    const at = (rpm) => S.machVeMultiplier(BORE, STROKE, rpm);
+    expect(at(7500)).toBeLessThan(at(6500));
+    expect(at(6500)).toBeLessThanOrEqual(at(5500));
+  });
+
+  it('chokes a long-stroke engine at fewer revolutions than a short-stroke one', () => {
+    // The payoff for keying on piston speed rather than RPM: this is why an undersquare
+    // engine cannot rev, and it now falls out of the model instead of being asserted.
+    const longStroke = S.machVeMultiplier(BORE, 100, 6500);
+    const shortStroke = S.machVeMultiplier(BORE, 70, 6500);
+    expect(longStroke).toBeLessThan(shortStroke);
+  });
+
+  it('chokes later on a hot charge, because sound travels faster in it', () => {
+    const cold = S.machVeMultiplier(BORE, STROKE, 7500, 298);
+    const hot = S.machVeMultiplier(BORE, STROKE, 7500, 400);
+    expect(hot).toBeGreaterThan(cold);
+  });
+
+  it('never starves the engine completely', () => {
+    expect(S.machVeMultiplier(BORE, 120, 9000)).toBeGreaterThanOrEqual(S.COEFF.MACH_VE_FLOOR);
+  });
+
+  it('gives a naturally aspirated engine a power peak before its redline', () => {
+    // The headline of the issue, asserted on the shipped engines rather than in the
+    // abstract: both naturally aspirated presets used to climb into the limiter.
+    for (const preset of S.ENGINE_PRESETS) {
+      const p = S.applyPreset(preset);
+      if (p.turboOn) continue;                       // a boost curve places these itself
+      const derived = S.deriveEngine(p.engineConfig);
+      const r = S.simulateSweep({
+        loadKpa: 100, ve: p.ve, veTruth: p.ve, timing: p.timing, afr: p.afr,
+        turboOn: false, boostCurve: p.boostCurve,
+        octaneBonus: S.OCTANE_OPTS[p.octaneIdx].bonus, octaneLabel: 'x',
+        fuel: S.OCTANE_OPTS[p.octaneIdx], injectorCc: S.INJECTOR_OPTS[p.injIdx].cc,
+        ecuInjectorCc: p.ecuInjectorCc, injectorLabel: 'x', mods: p.mods, mafScalar: 1,
+        derived, turbine: S.presetTurbine(preset),
+        compressor: S.COMPRESSOR_OPTS[p.compressorIdx],
+      });
+      const peakHp = Math.max(...r.points.map((x) => x.hp));
+      const peakRpm = Math.max(...r.points.filter((x) => x.hp === peakHp).map((x) => x.rpm));
+      const atRedline = r.points[r.points.length - 1].hp;
+      expect(peakRpm, `${preset.id} still peaks at its limiter`).toBeLessThan(derived.redline);
+      expect(atRedline, `${preset.id} does not fall away after its peak`).toBeLessThan(peakHp);
+    }
+  });
+});
+
 describe('per-engine redline', () => {
   const sweepTo = (redline) => {
     const cfg = { ...STOCK, redline };

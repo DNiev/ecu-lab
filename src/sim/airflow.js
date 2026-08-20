@@ -9,8 +9,11 @@
 import { BARO_KPA } from './constants.js';
 import { COEFF } from './coefficients.js';
 import { CYL_COUNT, MOD_BONUS, idealExhaustDiameter } from './hardware.js';
-import { CAM_BASE_DURATION, camPeakShiftRpm, charMultiplier, valveFloatRpm } from './engine.js';
+import {
+  CAM_BASE_DURATION, camPeakShiftRpm, charMultiplier, machVeMultiplier, valveFloatRpm,
+} from './engine.js';
 import { clamp, interp1 } from './math.js';
+import { chargeTempK } from './thermo.js';
 import { DEFAULT_VE, LOAD, RPM } from './tables.js';
 
 /**
@@ -70,6 +73,10 @@ export function computeHardwareVE(cfg, mods, hw = {}) {
   // More open time = more flow area-seconds.
   const flowGain = 1 + (camDuration - CAM_BASE_DURATION) * COEFF.CAM_FLOW_GAIN_PER_DEG;
   const floatRpm = valveFloatRpm(springRate, camDuration);
+  // Charge temperature to take the Mach limit against. Peak boost, because choking binds
+  // at the top end and that is where the boost curve is highest — so a boosted engine is
+  // judged on the hot charge it actually breathes there, not on ambient air.
+  const machChargeK = chargeTempK(turboOn ? peakBoostPsi : 0, !!mods.intercooler);
 
   return DEFAULT_VE.map((row, ri) => row.map((v, ci) => {
     const rpm = RPM[ci];
@@ -84,6 +91,13 @@ export function computeHardwareVE(cfg, mods, hw = {}) {
     // Valve float: past the spring's limit the valve stops following the lobe and
     // cylinder filling collapses. This is the cliff you feel at the top of an
     // over-cammed, under-sprung engine.
+    // Inlet choking. Flat through the mid-range, then falling away as the charge
+    // approaches sonic velocity past the valve — the term that gives a naturally
+    // aspirated engine a power peak before its redline instead of climbing into the
+    // limiter (#15). Keyed on stroke, so a long-stroke engine runs out of breath at
+    // fewer revolutions than a short-stroke one, which is the real reason it cannot rev.
+    val *= machVeMultiplier(cfg.bore, cfg.stroke, rpm, machChargeK);
+
     if (rpm > floatRpm) {
       val *= clamp(1 - (rpm - floatRpm) / COEFF.FLOAT_COLLAPSE_RPM, COEFF.FLOAT_COLLAPSE_FLOOR, 1);
     }

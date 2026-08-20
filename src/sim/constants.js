@@ -24,6 +24,24 @@ export const KELVIN_OFFSET = 273.15;
 export const AMBIENT_K = 298;
 
 /**
+ * Ratio of specific heats for air, cold-air-standard.
+ *
+ * Named because two places need it and a bare 1.4 in an expression is unreadable.
+ * DISTINCT from `GAMMA_EXP` below, which is (gamma-1)/gamma for the same gas, and from
+ * `COEFF.GAMMA_BURNED`, which is the much lower value the COMBUSTION PRODUCTS have at
+ * cycle temperature. Do not substitute one for another.
+ */
+export const GAMMA_AIR = 1.4;
+
+/**
+ * Speed of sound in ambient intake air, m/s.
+ *
+ * sqrt(gamma * R * T) — 346 m/s at 25 C. The reference the inlet Mach index is taken
+ * against; see `inletMachIndex` in engine.js.
+ */
+export const SONIC_AMBIENT_MS = Math.sqrt(GAMMA_AIR * R_AIR * AMBIENT_K);
+
+/**
  * The same ambient temperature in Celsius, 24.85 °C.
  *
  * Derived rather than written out, because two places used to state ambient

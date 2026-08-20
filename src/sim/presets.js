@@ -99,10 +99,15 @@ export const ENGINE_PRESETS = [
       // out as a coin toss rather than a fit.
       //
       // `springRate` 60 does not change power; it sets where the valvetrain gives up.
-      // `valveFloatRpm` lands ~8640, about 1640 RPM clear of the 7000 redline, mid-pack
+      // `valveFloatRpm` lands ~8530, about 1530 RPM clear of the 7000 redline, mid-pack
       // against the rest of the set. No pull should ever show a `float` event here — if
       // one appears that is a bug, not "the character".
-      camDuration: 202, springRate: 60,
+      //
+      // REFITTED from 202 for the inlet Mach index (#15). That term takes volumetric
+      // efficiency out of the top end, so duration comes back up to pay for it: power
+      // lands +1.6% on the published figure, and peak power now falls at 6500 against a
+      // published 6400 instead of climbing into the 7000 limiter.
+      camDuration: 210, springRate: 60,
       redline: 7000,
     },
     induction: { turboOn: false, turbineIdx: 1, compressorIdx: 1, boost: RPM.map(() => 0) },
@@ -129,22 +134,25 @@ export const ENGINE_PRESETS = [
       // move. `camDuration` and `springRate` are not published, so they are where this
       // preset is fitted.
       //
-      // REFITTED for the crank-angle cycle. It was 228 degrees, chosen against the old
-      // algebraic combustion model; with work now integrated from a pressure trace the
-      // same cam reads 10% over the published power. 214 lands +0.7% on power and +1.0%
-      // on torque — a better fit than the number it replaces, on both figures at once.
-      // The spring rate carries it easily: valve float sits near 8940 RPM, well clear of
-      // the 7500 redline, and at 2.2 degrees of overlap this cam never trips the
-      // cam advisory.
+      // REFITTED TWICE. It was 228 degrees against the old algebraic combustion model,
+      // then 214 when work started being integrated from a pressure trace. 218 is the
+      // refit for the inlet Mach index (#15): that term takes real volumetric efficiency
+      // out of the top end, so a little more duration comes back to pay for it. Power
+      // lands +1.9% and torque +3.6% on the published figures.
       //
-      // WHAT THIS PRESET DOES NOT REPRODUCE: the real engine makes peak power at 6800
-      // and falls away after it. Simulated power does not fall — it climbs monotonically
-      // into the 7500 limiter, so peak power reads 7500, 700 RPM high. That is a limit of
-      // the shared physics, not of this data: the real rolloff comes from cam profile,
-      // VVEL variable lift and intake-tract tuning, and the model has no term for any of
-      // them. The boosted presets roll over only because their factory boost curves taper.
-      // `tests/presets.test.js` asserts the climb-to-limiter rather than a peak location.
-      camDuration: 214, springRate: 68,
+      // The spring rate carries it easily: valve float sits near 8880 RPM, well clear of
+      // the 7500 redline, and at 4.4 degrees of overlap this cam never trips the cam
+      // advisory.
+      //
+      // THE ROLLOFF NOW EXISTS. This preset used to climb monotonically into its limiter
+      // and read peak power at 7500, 700 RPM above the published 6800, because nothing in
+      // the shared physics made VE fall at speed. The Mach index is that term, and
+      // simulated peak power now lands at 6500 — 300 RPM under the rating rather than 700
+      // over, and inside what `tests/presets.test.js` allows. What remains missing is
+      // still worth naming: the real engine's rolloff is cam profile, VVEL variable lift
+      // and intake-tract tuning, and the Mach term stands in for all three at once rather
+      // than reproducing any of them.
+      camDuration: 218, springRate: 68,
       redline: 7500,
     },
     induction: { turboOn: false, turbineIdx: 1, compressorIdx: 1, boost: RPM.map(() => 0) },

@@ -169,29 +169,19 @@ function flatTopRpm(points) {
   return [Math.min(...tied), Math.max(...tied)];
 }
 
-/**
- * Presets whose peak-power RPM this model cannot place, and why.
+/*
+ * There was a NO_PEAK_BEFORE_LIMITER map here, listing the two naturally aspirated
+ * presets whose power peak the model could not place: nothing in the shared physics made
+ * VE fall at speed, so both climbed monotonically into the limiter and the assertion
+ * below could only certify that shape rather than a peak location.
  *
- * This is not a tolerance to widen when a fit gets awkward. Each entry states a known
- * limit of the shared physics, and the assertion below certifies what the model can
- * actually show — a monotonic climb into the limiter — instead of asserting a peak
- * location that does not exist. If one of these engines ever does start peaking before
- * its redline, this test fails: that means the model gained the term it was missing,
- * and the entry should be deleted rather than updated.
+ * Its own docstring said that if either engine ever started peaking before its redline
+ * the entry should be DELETED rather than updated, because that would mean the model had
+ * gained the term it was missing. The inlet Mach index (issue #15) is that term, both
+ * engines now peak where they are rated to, and so the map is gone and every preset goes
+ * through the ordinary rated-RPM assertions.
  */
-const NO_PEAK_BEFORE_LIMITER = {
-  'vq35de-revup': 'Naturally aspirated, and nothing in the shared physics makes its '
-    + 'power fall before the redline: the real engine\'s rolloff around 6400 comes from '
-    + 'cam profile and intake tuning, neither of which the model has a term for. The '
-    + 'simulated curve therefore climbs to the factory 7000 RPM limiter.',
-  vq35hr: 'Naturally aspirated, and nothing in the shared physics makes its power fall '
-    + 'before the redline: the real engine\'s rolloff past 6800 comes from cam profile, '
-    + 'VVEL and intake tuning, none of which the model has a term for, so at every cam '
-    + 'duration that reaches this engine\'s published power VE is still climbing at '
-    + '7500. Simulated peak power therefore lands at the 7500 limiter, 700 RPM above '
-    + 'the published 6800. The boosted presets roll over only because their factory '
-    + 'boost curves taper.',
-};
+
 
 describe('factory calibration validates against real published figures', () => {
   S.ENGINE_PRESETS.forEach((preset) => {
@@ -210,21 +200,10 @@ describe('factory calibration validates against real published figures', () => {
         expect(r.peakTq).toBeLessThan(target * 1.10);
       });
 
-      const limitation = NO_PEAK_BEFORE_LIMITER[preset.id];
-
-      it(limitation
-        ? 'climbs to the limiter — the model cannot place this engine\'s power peak'
-        : 'peaks where the manufacturer says it does', () => {
+      it('peaks where the manufacturer says it does', () => {
         const [lo, hi] = flatTopRpm(r.points);
         const rated = preset.factory.crankHpRpm;
-        if (limitation) {
-          // Nothing about the published peak RPM is asserted, because the model cannot
-          // reproduce it. What IS asserted is the shape it does produce, so the day
-          // that changes this test says so.
-          expect(hi, limitation).toBe(preset.engine.redline);
-          expect(r.points.every((p, i) => i === 0 || p.hp >= r.points[i - 1].hp), limitation)
-            .toBe(true);
-        } else if (Array.isArray(rated)) {
+        if (Array.isArray(rated)) {
           // Plateau-rated: the manufacturer publishes a band, and so does the sim (the
           // flat top). Correct means those two bands overlap, within the same 500 RPM
           // grace the point-rated branch below already allows. That grace is the only

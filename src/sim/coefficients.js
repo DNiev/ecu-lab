@@ -347,6 +347,37 @@ export const COEFF = {
   // (~65 bar averaged), so it means "boosted-engine loading", not "you drove it".
   BEARING_EVENT_BAR: 60,
 
+  // --- Inlet Mach index: the high-speed breathing limit (see engine.js) ---
+  // Lumped (bore / inlet valve diameter)^2 from Taylor's index. DERIVED, not fitted: a
+  // modern four-valve head runs two intake valves at roughly 0.36 of the bore each, so
+  // the equivalent single valve is 0.36 * sqrt(2) = 0.509 of the bore, and the factor is
+  // 1 / 0.509^2 = 3.86.
+  MACH_BORE_VALVE_FACTOR: 3.86,
+  // Where choking starts to cost volumetric efficiency, and how fast it costs it.
+  //
+  // THESE TWO ARE FITTED, and it is worth being straight about to what. Taylor's own
+  // 2-valve data puts the knee near Z = 0.5-0.6; a modern 4-valve head with the geometry
+  // above never gets near that, which is precisely WHY these engines rev as far as they
+  // do. So the absolute threshold here is not Taylor's — it stands in for everything
+  // else that stops a real engine breathing at speed and that this model has no term
+  // for: cam profile running out of area, intake runner tuning falling off its resonant
+  // peak, and port velocity. Those are what actually roll a VQ35HR over at 6800.
+  //
+  // What IS carried over from the physics, and what makes this worth doing as a Mach
+  // index rather than as a curve fit against RPM, is the DEPENDENCE: rolloff scales with
+  // mean piston speed against the speed of sound, so a long-stroke engine chokes at
+  // fewer revolutions than a short-stroke one of the same displacement, and a hotter
+  // charge chokes later. Both are real, both fall out for free, and neither was in the
+  // model before.
+  //
+  // Fitted against the published peak-power RPM of the shipped naturally aspirated
+  // engines, which are the only engines here whose peak the boost curve does not already
+  // place. See the note in presets.js on what moved as a result.
+  MACH_Z_CRIT: 0.155,
+  MACH_VE_LOSS: 10,
+  // A choked engine still breathes something at the limiter.
+  MACH_VE_FLOOR: 0.55,
+
   // --- Camshaft & valvetrain ---
   CAM_PEAK_SHIFT_PER_DEG: 32,  // RPM the VE peak moves per degree of extra duration
   CAM_OVERLAP_PER_DEG: 0.55,   // overlap degrees gained per degree of duration
