@@ -146,3 +146,74 @@ export const accAlpha = (alpha) => `rgba(${tokens.accRgb}, ${alpha})`;
  * @returns {string} an rgba() colour
  */
 export const shadowAlpha = (alpha) => `rgba(${tokens.shadowRgb}, ${alpha})`;
+
+/**
+ * The drag strip's ART PALETTE — the illustrated scene, not the interface.
+ *
+ * SEPARATE FROM `tokens` ON PURPOSE, and worth explaining because the split is the
+ * whole point. The palette above is a semantic UI system: `acc` means "this is the
+ * action", `ok`/`warn`/`danger` mean engine state. A car, a road surface and a
+ * christmas tree have none of those meanings — a yellow car is not a warning — so
+ * routing them through the status ramp would make the system say something it does not
+ * mean, and would repaint the scene the next time anyone tunes the interface.
+ *
+ * It lives in THIS file regardless, because the rule `no-hardcoded-colours.test.js`
+ * enforces is that a colour must never be invisible to the token layer. Here it is
+ * visible: a palette change lands in one file and finds every colour in the app,
+ * scenery included.
+ *
+ * Not mirrored into `tokens.css`, unlike the palette above, because nothing styles the
+ * strip from a stylesheet — the scene is inline SVG and inline styles, so a CSS custom
+ * property would be an unused declaration and `tokens.test.js` checks that CSS declares
+ * nothing JS does not use.
+ */
+export const strip = Object.freeze({
+  // Bodywork: a four-stop gradient down the flank, plus its highlight edge.
+  paintHi: '#ffdf6b',
+  paint: '#f7c02a',
+  paintMid: '#d99a10',
+  paintLow: '#9c6c05',
+  paintEdge: '#ffe89a',
+  // Panel lines and the rocker, a darker shade of the same paint.
+  paintLine: '#8f6206',
+  paintShadow: '#7c5405',
+  // Glass, lit at the top and dark at the base.
+  glassHi: '#54677a',
+  glassLow: '#131b23',
+  // Lamps.
+  headlight: '#f2f7fa',
+  taillight: '#cf3535',
+  // Tyre, rim and spokes.
+  tyre: '#0c1015',
+  tyreWall: '#333c46',
+  rim: '#242c35',
+  rimEdge: '#414b57',
+  spoke: '#525d69',
+
+  // The scene behind it: night sky down to the track surface.
+  sky: '#070a0e',
+  skyLow: '#0d141c',
+  horizon: '#1b232c',
+  ground: '#232c36',
+  groundLow: '#1a2029',
+  wall: '#2c343d',
+  wallTop: '#3a444f',
+  wallPost: '#1b222a',
+  surface: '#12171d',
+  groove: '#1e262f',
+  texture: '#232b34',
+  // The finish stripe, alternating light and dark.
+  stripeLight: '#eef2f6',
+  stripeDark: '#0f141a',
+
+  // Christmas tree: an unlit bulb and its rim, and the white stage lamps.
+  bulbOff: '#1a1f26',
+  bulbRim: '#232a33',
+  stage: '#e8eef4',
+});
+
+/** Tyre smoke at a given opacity — it fades as it drifts, so alpha is a parameter. */
+export const smokeAlpha = (alpha) => `rgba(214, 222, 230, ${alpha})`;
+
+/** The low sun behind the treeline, at a given opacity. */
+export const horizonGlowAlpha = (alpha) => `rgba(255, 150, 60, ${alpha})`;

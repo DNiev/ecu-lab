@@ -259,6 +259,76 @@ export function buildFingerprint(S) {
     };
   }
 
+  // ---- drag runs: the vehicle model, driven by real measured torque curves ----
+  // Fed from an actual sweep rather than a synthetic curve, so this gates the whole
+  // chain — engine to torque curve to elapsed time. The matrix spans the two regimes
+  // that behave differently (traction-limited and power-limited) and every catalogue
+  // the vehicle model reads, because a change to any of them moves a real number a
+  // player sees on the time slip.
+  out.simulateDragRun = {};
+  {
+    const dragCases = [
+      ['stockV6', 'na', 'none'],
+      ['bigV8', 'na', 'all'],
+      ['turboI6', 'heavy', 'all'],
+    ];
+    for (const [cname, bname, mname] of dragCases) {
+      const cfg = FINGERPRINT_CONFIGS[cname];
+      const boostCurve = BOOSTS[bname];
+      const mods = MODSETS[mname];
+      const turboOn = bname !== 'na';
+      const derived = S.deriveEngine(cfg);
+      const ve = S.computeHardwareVE(cfg, mods, {
+        turboOn,
+        turbine: turboOn ? S.TURBINE_OPTS[1] : null,
+        exhaustDia: SWEEP_EXHAUST_DIA,
+        fuel: S.OCTANE_OPTS[0],
+      });
+      const sweep = S.simulateSweep({
+        loadKpa: 100, ve,
+        timing: S.clone2D(S.DEFAULT_TIMING),
+        afr: S.clone2D(S.DEFAULT_AFR),
+        turboOn, boostCurve,
+        octaneBonus: S.OCTANE_OPTS[0].bonus,
+        octaneLabel: S.OCTANE_OPTS[0].label,
+        fuel: S.OCTANE_OPTS[0],
+        injectorCc: 850, ecuInjectorCc: 850, injectorLabel: '850cc',
+        mods, mafScalar: 1.0, derived,
+        turbine: S.TURBINE_OPTS[1], compressor: S.COMPRESSOR_OPTS[1],
+      });
+      const torqueCurveNm = S.torqueCurveFromSweep(sweep);
+      for (const bodyIdx of [0, 1, 4]) {
+        for (const gripIdx of [0, 2]) {
+          for (const driveIdx of [0, 1]) {
+            for (const boxIdx of [0, 1]) {
+              const car = {
+                ...S.DEFAULT_CAR, bodyIdx, ...S.CAR_BODIES[bodyIdx],
+                gripIdx, driveIdx, boxIdx,
+              };
+              const d = S.simulateDragRun({
+                car, torqueCurveNm, redline: derived.redline,
+                displacementL: derived.displacementL, peakHp: sweep.peakHp,
+              });
+              const key = `${cname}|${bname}|${mname}|${S.CAR_BODIES[bodyIdx].body}`
+                + `|${S.TIRE_GRIP[gripIdx].grade}|${S.DRIVETRAIN_OPTS[driveIdx].drive}`
+                + `|${S.GEARBOX_OPTS[boxIdx].box}`;
+              out.simulateDragRun[key] = {
+                et: r6(d.et), trapMph: r6(d.trapMph),
+                sixtyFootT: r6(d.sixtyFootT), zeroToSixty: r6(d.zeroToSixty),
+                eighthET: r6(d.eighthET), eighthMph: r6(d.eighthMph),
+                topGearUsed: d.topGearUsed, wheelspun: d.wheelspun, finished: d.finished,
+                nTrace: d.trace.length,
+                // Sampled rather than dumped whole: enough to catch the shape of the
+                // run moving without burying the diff in ten thousand rows.
+                samples: [0, 50, 150, 300].map((i) => d.trace[i] && roundAll(d.trace[i])),
+              };
+            }
+          }
+        }
+      }
+    }
+  }
+
   // ---- helpers ----
   out.helpers = {
     interp1: [1000, 1500, 3000, 4500, 6000, 7500, 9000].map((x) => r6(S.interp1(S.RPM, S.DEFAULT_TIMING[0], x))),
@@ -283,6 +353,9 @@ export function buildFingerprint(S) {
     OCTANE_OPTS: S.OCTANE_OPTS, INJECTOR_OPTS: S.INJECTOR_OPTS,
     TURBINE_OPTS: S.TURBINE_OPTS, COMPRESSOR_OPTS: S.COMPRESSOR_OPTS,
     EXHAUST_DIA_OPTS: S.EXHAUST_DIA_OPTS,
+    TIRE_GRIP: S.TIRE_GRIP, CAR_BODIES: S.CAR_BODIES,
+    DRIVETRAIN_OPTS: S.DRIVETRAIN_OPTS, GEARBOX_OPTS: S.GEARBOX_OPTS,
+    DEFAULT_CAR: S.DEFAULT_CAR,
   };
 
   return out;

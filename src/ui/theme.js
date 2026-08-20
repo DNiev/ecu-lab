@@ -8,7 +8,7 @@
 
 import { clamp } from '../sim/index.js';
 
-import { accAlpha, shadowAlpha, tokens } from './tokens.js';
+import { accAlpha, horizonGlowAlpha, shadowAlpha, smokeAlpha, strip, tokens } from './tokens.js';
 
 const T = {
   bg: tokens.bg,
@@ -114,4 +114,4 @@ function deltaHeat(delta, fullScale = 12) {
   return `hsl(${delta > 0 ? 8 : 200}, 60%, ${14 + mag * 22}%)`;
 }
 
-export { T, accAlpha, deltaHeat, heat, shadowAlpha };
+export { T, accAlpha, deltaHeat, heat, horizonGlowAlpha, shadowAlpha, smokeAlpha, strip };

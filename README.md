@@ -47,6 +47,10 @@ model say so, not because someone typed 250.
   stalls, hits a rev limiter with hysteresis, and cuts fuel on overrun
 - **Cam and valvetrain** — duration shifts the VE peak, overlap costs idle vacuum, and
   springs set the speed at which the valves stop following the lobe
+- **A quarter mile** — the measured torque curve goes into a car and runs the strip:
+  `F = μN` grip, `ΔN = m·a·h/L` weight transfer, `F_aero = ½ρCdAv²` drag, gearing that
+  multiplies torque and divides speed by the same factor, and rotating inertia that
+  behaves as extra mass in proportion to the square of the ratio
 
 Units are real throughout: kPa, K, grams, ms, J, Nm, Pa, g/s, W.
 
@@ -79,6 +83,7 @@ src/
     point.js         evaluatePoint — the heart of it
     sweep.js         a full dyno pull + the event log
     live.js          real-time crank dynamics + ECU control loop
+    drivetrain.js    the car: gearing, grip, weight transfer, the quarter mile
     advisors.js      what the hardware wants vs. what your tables say
     scoring.js       tuning / engineer / pull scores
   ui/            presentation only — no physics below this line
@@ -97,9 +102,10 @@ has.
 
 Two layers, doing different jobs:
 
-- **`tests/physics.test.js`** asserts on direction and relationship — "a longer cam
-  gives away bottom end and gains top end", "lean under load costs knock margin but
-  lean at cruise does not". Readable failures that say what broke.
+- **`tests/physics.test.js`** and **`tests/drivetrain.test.js`** assert on direction and
+  relationship — "a longer cam gives away bottom end and gains top end", "a
+  traction-limited launch is independent of mass". Readable failures that say what
+  broke.
 - **`tests/fingerprint.test.js`** hashes the entire simulation across 6,480 operating
   points, 432 full sweeps and 144 VE tables. It catches the coupled changes you did not
   think to check.

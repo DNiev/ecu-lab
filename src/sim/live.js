@@ -118,7 +118,7 @@ export function liveStep(st, dt, input, cfg) {
   // into the cut. That rapid cut-restore cycle IS the bounce you hear.
   if (s.running) {
     if (s.rpm >= limiterCutRpm) s.limiterCut = true;
-    else if (s.rpm < limiterCutRpm - 320) s.limiterCut = false;
+    else if (s.rpm < limiterCutRpm - COEFF.LIMITER_RESTORE_BAND_RPM) s.limiterCut = false;
   } else s.limiterCut = false;
   s.fuelCut = (s.running && s.limiterCut) || overrun;
 

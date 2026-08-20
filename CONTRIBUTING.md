@@ -188,8 +188,6 @@ Roughly in order of value to the project:
 
 - Scenario/challenge mode — "here is a broken tune, diagnose it in three pulls".
 - Save/load/share a calibration as JSON.
-- Drivetrain and vehicle simulation (gearing, mass, 0–60) so powerband *shape* matters,
-  not just peak horsepower.
 - Knock audio. The Web Audio engine is already there; detonation ping is the most
   recognisable sound in tuning and it is missing.
 - CSV datalog export.

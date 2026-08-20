@@ -19,20 +19,23 @@ import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import {
   Gauge, Grid3x3, Zap, Droplets, Wind, Activity, RotateCcw, Play, AlertTriangle, Info,
-  Wrench, Settings, Package, Flame, ChevronDown, Trophy, TrendingUp, BookOpen, Fuel,
+  Wrench, Settings, Package, Flame, ChevronDown, Trophy, TrendingUp, BookOpen, Fuel, Flag,
 } from 'lucide-react';
 
 import {
-  BARO_KPA, COMPRESSOR_OPTS, CONFIG_OPTS, CYL_COUNT, DEFAULT_AFR, DEFAULT_BOOST,
-  DEFAULT_ENGINE_CONFIG, DEFAULT_MODS, DEFAULT_TIMING, ENGINE_PRESETS, EXHAUST_DIA_OPTS,
-  INJ_DEADTIME_MS, INJECTOR_OPTS, LOAD, MATERIAL_OPTS, MOD_INFO, OCTANE_OPTS,
-  PRESET_GROUPS, PSI_TO_KPA, SPARK_MAX_DEG, SPARK_MIN_DEG,
-  R_AIR, RPM, TURBINE_OPTS, applyPreset, calibrationAdvice, chargeTempK, clamp, clone2D,
-  computeEngineerScore, computeHardwareVE, computePullScore, computeTuningScore,
-  deriveEngine, idealExhaustDiameter, interp2, liveStep, makeLiveState, presetById,
-  simulateSweep, turbineWithCount, veRecommendations
+  BARO_KPA, CAR_BODIES, COMPRESSOR_OPTS, CONFIG_OPTS, CYL_COUNT, DEFAULT_AFR, DEFAULT_BOOST,
+  DEFAULT_CAR, DEFAULT_ENGINE_CONFIG, DEFAULT_MODS, DEFAULT_TIMING, DRIVETRAIN_OPTS,
+  ENGINE_PRESETS, EXHAUST_DIA_OPTS, GEARBOX_OPTS, INJ_DEADTIME_MS, INJECTOR_OPTS, LOAD,
+  MATERIAL_OPTS, MOD_INFO, MPH_PER_MS, OCTANE_OPTS, PRESET_GROUPS, PSI_TO_KPA, QUARTER_MILE_M,
+  R_AIR, RPM, SIXTY_FEET_M, SPARK_MAX_DEG, SPARK_MIN_DEG, TIRE_GRIP, TURBINE_OPTS,
+  applyPreset, calibrationAdvice, chargeTempK, clamp, clone2D, computeEngineerScore,
+  computeHardwareVE, computePullScore, computeTuningScore, deriveEngine, idealExhaustDiameter,
+  interp2, liveStep, makeLiveState, presetById, roadSpeedMs, simulateDragRun, simulateSweep,
+  torqueCurveFromSweep, turbineWithCount, veRecommendations
 } from '../sim/index.js';
-import { T, accAlpha, deltaHeat, heat, shadowAlpha, statusColor } from './theme.js';
+import {
+  T, accAlpha, deltaHeat, heat, horizonGlowAlpha, shadowAlpha, smokeAlpha, statusColor, strip,
+} from './theme.js';
 import { BUILD_VERSION } from '../version.js';
 import { loadCareer, saveCareer } from '../storage.js';
 import { StartScreen } from './screens/StartScreen.jsx';
@@ -211,6 +214,9 @@ const JOURNEY = [
     cta: 'Sounds good — put it on the dyno', next: 'dyno' },
   { tab: 'dyno', title: 'Step 4 · Measure it',
     body: 'Run a pull. Then read the Pull Log before you look at the power number — it explains anything that went wrong and what to change. From here the loop is: adjust, pull again, compare.',
+    cta: 'Measured — now race it', next: 'drag' },
+  { tab: 'drag', title: 'Step 5 · Race it',
+    body: 'Put that torque curve in a car and run a quarter mile. Body, gearing, tyres and driven wheels all change the time without touching the engine — because a torque curve is only half of acceleration. Read the 60-foot time for traction and the trap speed for power.',
     cta: 'Finish — let me explore freely', next: null },
 ];
 
@@ -485,6 +491,8 @@ const TUTORIAL_STEPS = [
     body: 'Knock, mixture and MAF errors are calibration faults — tables fix them completely. Injectors out of duty cycle, valve float, a compressor past its range: those are physical limits, and the log will tell you so. Recognising which kind you are looking at is most of the skill.' },
   { title: 'Chase the score',
     body: 'Every pull grades Tuning (how clean the calibration is) and Engineer (how sound the hardware choices are), then combines them with actual output into an uncapped Pull Score. A big, slightly dirty pull can beat a small spotless one — the same tension a real tuner balances.' },
+  { title: 'Then put it in a car',
+    body: 'On DRAG the engine goes into a car and runs a quarter mile. Gearing multiplies torque and divides speed by the same factor. Grip sets a ceiling no amount of power passes. Drag rises with the square of speed. That is why trap speed measures power while sixty-foot time measures traction, and why the fastest engine does not always win.' },
 ];
 
 function LiveGauge({ label, value, unit, color = T.ink, warn }) {
@@ -511,6 +519,209 @@ function TrimBar({ label, value }) {
         <div style={{ position: 'absolute', left: `${Math.min(50, pct)}%`, width: `${Math.abs(pct - 50)}%`, top: 0, bottom: 0, background: c, borderRadius: 2 }} />
       </div>
     </div>
+  );
+}
+
+// ============================================================
+// DRAG STRIP PRESENTATION
+// Everything below draws the run. The numbers all come from
+// `simulateDragRun`; nothing here computes physics.
+// ============================================================
+
+// Body outlines. Each is drawn to the same 420x168 box with the wheels on a common
+// ground line, so bodies can be swapped without the strip layout shifting.
+const BODY_PATHS = [
+  // Sports coupe — low nose, cab rearward, fastback
+  { body: 'M 22 104 L 44 92 L 92 84 L 132 82 L 168 52 L 246 46 L 300 62 L 352 76 L 388 88 L 400 100 L 400 116 L 22 116 Z',
+    glass: 'M 176 56 L 244 51 L 292 65 L 300 78 L 150 80 Z', wheels: [112, 316], wr: 30 },
+  // Supercar — very low, long tail, cab far forward
+  { body: 'M 16 106 L 40 96 L 96 88 L 140 60 L 214 52 L 268 58 L 340 70 L 396 84 L 406 102 L 406 116 L 16 116 Z',
+    glass: 'M 150 62 L 212 56 L 258 62 L 268 78 L 132 80 Z', wheels: [104, 320], wr: 30 },
+  // Sedan — three-box, taller greenhouse, longer roof
+  { body: 'M 20 100 L 44 88 L 96 82 L 128 54 L 258 50 L 300 76 L 372 82 L 400 94 L 402 116 L 20 116 Z',
+    glass: 'M 136 58 L 254 54 L 288 76 L 126 78 Z', wheels: [106, 322], wr: 29 },
+  // Van — tall box, flat face, short nose
+  { body: 'M 24 108 L 30 60 L 60 36 L 300 32 L 384 44 L 402 74 L 404 116 L 24 116 Z',
+    glass: 'M 46 62 L 66 42 L 172 40 L 172 62 Z M 186 40 L 292 38 L 300 62 L 186 62 Z', wheels: [96, 330], wr: 31 },
+  // Truck — cab plus open bed
+  { body: 'M 20 104 L 34 66 L 74 44 L 196 42 L 226 68 L 236 78 L 236 62 L 400 62 L 404 116 L 20 116 Z',
+    glass: 'M 52 66 L 80 50 L 190 48 L 206 66 Z', wheels: [98, 332], wr: 32 },
+];
+
+function CarSprite({ w = 190, squat = 0, spinning = false, bodyIdx = 0 }) {
+  const B = BODY_PATHS[bodyIdx] || BODY_PATHS[0];
+  return (
+    // The car travels left to right, so the nose must point right. The artwork is
+    // drawn nose-left, so the whole thing is mirrored here.
+    <svg width={w} height={w * 0.40} viewBox="0 0 420 168" aria-hidden="true"
+      style={{ display: 'block', overflow: 'visible', transform: 'scaleX(-1)' }}>
+      <defs>
+        <linearGradient id="dragpaint" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor={strip.paintHi} />
+          <stop offset="38%" stopColor={strip.paint} />
+          <stop offset="72%" stopColor={strip.paintMid} />
+          <stop offset="100%" stopColor={strip.paintLow} />
+        </linearGradient>
+        <linearGradient id="dragwin" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor={strip.glassHi} />
+          <stop offset="100%" stopColor={strip.glassLow} />
+        </linearGradient>
+      </defs>
+
+      {/* Squat: the body rotates about the rear axle under acceleration, which is the
+          visible half of the weight transfer the physics is already computing. */}
+      <g transform={`rotate(${-squat * 1.5} 300 128)`}>
+        <path d={B.body} fill="url(#dragpaint)" stroke={strip.paintEdge} strokeWidth="2" strokeLinejoin="round" />
+        <path d={B.glass} fill="url(#dragwin)" />
+        <path d="M 96 96 L 384 92" stroke={strip.paintLine} strokeWidth="1.6" opacity="0.65" />
+        <path d="M 244 80 L 240 114" stroke={strip.paintLine} strokeWidth="1.6" opacity="0.5" />
+        <path d="M 24 98 L 54 94 L 54 102 L 24 104 Z" fill={strip.headlight} opacity="0.92" />
+        <path d="M 372 88 L 396 96 L 394 104 L 370 98 Z" fill={strip.taillight} />
+        <rect x="120" y="112" width="180" height="6" rx="3" fill={strip.paintShadow} opacity="0.75" />
+      </g>
+
+      {/* Wheels sit on the road regardless of body attitude. */}
+      {B.wheels.map((cx, i) => (
+        <g key={cx}>
+          <circle cx={cx} cy={122} r={B.wr} fill={strip.tyre} stroke={strip.tyreWall} strokeWidth="3" />
+          <circle cx={cx} cy={122} r="17" fill={strip.rim} stroke={spinning && i === 1 ? T.acc : strip.rimEdge} strokeWidth="3" />
+          {[0, 45, 90, 135].map((ang) => (
+            <line key={ang}
+              x1={cx - 14 * Math.cos((ang * Math.PI) / 180)} y1={122 - 14 * Math.sin((ang * Math.PI) / 180)}
+              x2={cx + 14 * Math.cos((ang * Math.PI) / 180)} y2={122 + 14 * Math.sin((ang * Math.PI) / 180)}
+              stroke={strip.spoke} strokeWidth="2.5" />
+          ))}
+        </g>
+      ))}
+      {B.wheels.map((cx) => (
+        <path key={cx} d={`M ${cx - B.wr} 116 A ${B.wr} ${B.wr} 0 0 1 ${cx + B.wr} 116`}
+          fill="none" stroke={strip.paintLine} strokeWidth="3" />
+      ))}
+    </svg>
+  );
+}
+
+/** Christmas tree: pre-stage and stage bulbs, three ambers, then green. */
+function LightTree({ phase }) {
+  const bulb = (on, color, size = 15) => (
+    <div style={{
+      width: size, height: size, borderRadius: '50%', margin: '3px auto',
+      background: on ? color : strip.bulbOff,
+      boxShadow: on ? `0 0 10px ${color}, 0 0 20px ${color}` : 'none',
+      border: `1px solid ${on ? color : strip.bulbRim}`,
+    }} />
+  );
+  return (
+    <div style={{ width: 34, padding: '6px 4px', background: T.bg, borderRadius: 8, border: `1px solid ${T.line}` }}>
+      {bulb(phase >= 1, strip.stage, 9)}
+      {bulb(phase >= 1, strip.stage, 9)}
+      {bulb(phase === 2, T.warn)}
+      {bulb(phase === 3, T.warn)}
+      {bulb(phase === 4, T.warn)}
+      {bulb(phase >= 5, T.ok)}
+    </div>
+  );
+}
+
+/** Tyre smoke: puffs spawn at the rear wheel while it spins, then drift and expand. */
+function Smoke({ puffs }) {
+  return puffs.map((p) => (
+    <div key={p.id} aria-hidden="true" style={{
+      position: 'absolute', left: p.x, bottom: p.y,
+      width: p.r * 2, height: p.r * 2, borderRadius: '50%',
+      background: `${smokeAlpha(p.a)}`, filter: 'blur(4px)', pointerEvents: 'none',
+    }} />
+  ));
+}
+
+/**
+ * The strip itself. `tNow` scrubs the completed run's trace, so playback is a replay
+ * of physics that has already been solved rather than a second, different simulation.
+ */
+function DragStrip({ res, tNow, running, treePhase, bodyIdx }) {
+  const [puffs, setPuffs] = useState([]);
+  const puffId = useRef(0);
+
+  let frac = 0, mph = 0, gear = 1, spinning = false, rpm = 0, accel = 0;
+  if (res) {
+    const pt = res.trace.find((p) => p.t >= tNow) || res.trace[res.trace.length - 1];
+    frac = clamp(pt.x / QUARTER_MILE_M, 0, 1);
+    mph = pt.v * MPH_PER_MS; gear = pt.gear; spinning = pt.spinning; rpm = pt.rpm; accel = pt.a;
+  }
+
+  useEffect(() => {
+    if (!running) { setPuffs([]); return undefined; }
+    const id = setInterval(() => {
+      setPuffs((prev) => {
+        const moved = prev
+          .map((p) => ({ ...p, x: p.x - 4, y: p.y + 1.2, r: p.r + 1.8, a: p.a - 0.05 }))
+          .filter((p) => p.a > 0.02);
+        if (spinning) {
+          for (let i = 0; i < 3; i++) {
+            moved.push({ id: puffId.current++, x: 26 + Math.random() * 30, y: 2 + Math.random() * 10,
+              r: 6 + Math.random() * 6, a: 0.45 + Math.random() * 0.25 });
+          }
+        }
+        return moved.slice(-45);
+      });
+    }, 40);
+    return () => clearInterval(id);
+  }, [running, spinning]);
+
+  return (
+    <Panel tight style={{ marginBottom: 12, overflow: 'hidden' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 9, color: T.ink3, fontFamily: T.mono, marginBottom: 5, letterSpacing: 0.6 }}>
+        <span>START</span><span>60 FT</span><span>1/8</span><span>1/4 MILE</span>
+      </div>
+
+      <div style={{ display: 'flex', gap: 8 }}>
+        <LightTree phase={treePhase} />
+
+        <div style={{
+          position: 'relative', flex: 1, height: 150, borderRadius: 10, overflow: 'hidden',
+          border: `1px solid ${T.line}`,
+          background: `linear-gradient(180deg,${strip.sky} 0%,${strip.skyLow} 34%,${strip.horizon} 36%,${strip.ground} 62%,${strip.groundLow} 100%)`,
+        }}>
+          <div style={{ position: 'absolute', left: 0, right: 0, top: 42, height: 14,
+            background: `linear-gradient(180deg,${horizonGlowAlpha(0.10)},transparent)` }} />
+          <div style={{ position: 'absolute', left: 0, right: 0, top: 50, height: 10, background: strip.wall, borderTop: `1px solid ${strip.wallTop}` }} />
+          {[...Array(16)].map((_, i) => (
+            <div key={i} style={{ position: 'absolute', top: 50, height: 10, width: 2, background: strip.wallPost,
+              left: `${(i * 6.6 - ((frac * 260) % 6.6))}%` }} />
+          ))}
+          <div style={{ position: 'absolute', left: 0, right: 0, top: 60, bottom: 0, background: strip.surface }} />
+          <div style={{ position: 'absolute', left: 0, right: 0, top: 92, height: 1, background: strip.groove }} />
+          {/* Moving surface texture conveys speed. */}
+          {[...Array(20)].map((_, i) => (
+            <div key={i} style={{
+              position: 'absolute', bottom: 10, height: 2, width: 22, background: strip.texture, borderRadius: 1,
+              left: `${(((i * 6) - ((frac * 340) % 6)) % 108 + 108) % 108}%`,
+            }} />
+          ))}
+          {/* Distance boards, placed at the real fractions of the strip. */}
+          {[[SIXTY_FEET_M / QUARTER_MILE_M, '60'], [0.5, '660']].map(([f, lbl]) => (
+            <div key={lbl} style={{ position: 'absolute', left: `${f * 92}%`, top: 34, fontSize: 8, color: T.ink3, fontFamily: T.mono }}>{lbl}</div>
+          ))}
+          <div style={{ position: 'absolute', right: 4, top: 58, bottom: 6, width: 6,
+            background: `repeating-linear-gradient(180deg,${strip.stripeLight} 0 5px,${strip.stripeDark} 5px 10px)` }} />
+
+          <div style={{ position: 'absolute', bottom: 14, left: `calc(${frac * 78}% + 4px)`, transition: 'left .04s linear' }}>
+            <div style={{ position: 'relative' }}>
+              <Smoke puffs={puffs} />
+              <div style={{ filter: mph > 100 ? 'blur(0.5px)' : 'none' }}>
+                <CarSprite w={132} squat={clamp(accel / 8, 0, 1)} spinning={spinning} bodyIdx={bodyIdx} />
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 9, fontFamily: T.mono, fontSize: 12.5 }}>
+        <span style={{ color: T.ink, fontWeight: 700 }}>{mph.toFixed(0)}<span style={{ color: T.ink3, fontSize: 10 }}> MPH</span></span>
+        <span style={{ color: spinning ? T.danger : T.ink2, fontWeight: 700 }}>{spinning ? 'WHEELSPIN' : `GEAR ${gear}`}</span>
+        <span style={{ color: T.ink2 }}>{Math.round(rpm)}<span style={{ color: T.ink3, fontSize: 10 }}> RPM</span></span>
+      </div>
+    </Panel>
   );
 }
 
@@ -566,6 +777,17 @@ export default function EngineManagementSandbox() {
   const [live, setLive] = useState(() => makeLiveState());
   const [throttleInput, setThrottleInput] = useState(0);
   const [dashSection, setDashSection] = useState('live');
+  // --- Drag strip ---
+  // `dragResult` is the whole solved run; `dragT` scrubs through it for playback, so
+  // what you watch is a replay of the physics rather than a second simulation of it.
+  const [car, setCar] = useState({ ...DEFAULT_CAR });
+  const [dragResult, setDragResult] = useState(null);
+  const [dragRunning, setDragRunning] = useState(false);
+  const [dragT, setDragT] = useState(0);
+  const [treePhase, setTreePhase] = useState(0); // 0 idle, 1 staged, 2-4 ambers, 5 green
+  const [dragSection, setDragSection] = useState('body');
+  const dragTimer = useRef(null);   // playback interval
+  const treeTimers = useRef([]);    // pending christmas-tree timeouts
   // Guided first run: BUILD -> TUNE -> LIVE -> DYNO, then free play (step 4).
   const [journeyStep, setJourneyStep] = useState(0);
   const revealTimer = useRef(null);
@@ -888,6 +1110,70 @@ export default function EngineManagementSandbox() {
   };
   useEffect(() => () => { if (revealTimer.current) clearInterval(revealTimer.current); }, []);
 
+  // The drag run needs a torque curve, and there is no torque curve until the engine
+  // has actually been measured — so a pull is a hard prerequisite, exactly as in life.
+  const torqueCurveNm = useMemo(() => (result ? torqueCurveFromSweep(result) : null), [result]);
+
+  const runDrag = () => {
+    if (!torqueCurveNm || dragRunning) return;
+    const a = ensureAudio();
+    if (a && a.ctx.state === 'suspended') a.ctx.resume();
+
+    // Solve the whole run first, then play it back. Doing it this way means the
+    // animation can never disagree with the time slip.
+    const res = simulateDragRun({
+      car, torqueCurveNm,
+      redline: engineDerived.redline,
+      displacementL: engineDerived.displacementL,
+      peakHp: result.peakHp,
+    });
+    setDragResult(res);
+    setDragT(0);
+
+    const beep = (freq, dur, vol) => {
+      const au = audioRef.current;
+      if (!au || !soundOn) return;
+      const t0 = au.ctx.currentTime;
+      const o = au.ctx.createOscillator(); o.type = 'sine'; o.frequency.value = freq;
+      const g = au.ctx.createGain(); g.gain.value = 0;
+      o.connect(g); g.connect(au.ctx.destination);
+      g.gain.setValueAtTime(0.0001, t0);
+      g.gain.exponentialRampToValueAtTime(vol, t0 + 0.01);
+      g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+      o.start(t0); o.stop(t0 + dur + 0.05);
+    };
+
+    // A sportsman tree: staged, then three ambers half a second apart, then green.
+    const GREEN_MS = 1900;
+    setTreePhase(1);
+    treeTimers.current.forEach(clearTimeout);
+    treeTimers.current = [
+      setTimeout(() => { setTreePhase(2); beep(660, 0.18, 0.08); }, 400),
+      setTimeout(() => { setTreePhase(3); beep(660, 0.18, 0.08); }, 900),
+      setTimeout(() => { setTreePhase(4); beep(660, 0.18, 0.08); }, 1400),
+      setTimeout(() => {
+        setTreePhase(5); beep(990, 0.35, 0.10);
+        setDragRunning(true);
+        const t0 = Date.now();
+        clearInterval(dragTimer.current);
+        dragTimer.current = setInterval(() => {
+          const el = (Date.now() - t0) / 1000;
+          setDragT(el);
+          // Hold on the finish for a moment so the time slip is readable.
+          if (el > res.et + 1.2) {
+            clearInterval(dragTimer.current);
+            setDragRunning(false);
+            setTreePhase(0);
+          }
+        }, 40);
+      }, GREEN_MS),
+    ];
+  };
+  useEffect(() => () => {
+    clearInterval(dragTimer.current);
+    treeTimers.current.forEach(clearTimeout);
+  }, []);
+
   // Keep the live-engine config in a ref so the loop always uses current tuning
   // without needing to restart the interval every time a table changes.
   liveCfgRef.current = {
@@ -1016,13 +1302,21 @@ export default function EngineManagementSandbox() {
 
     const onDyno = tab === 'dyno' && running && result;
     const onLive = tab === 'dash' && (live.running || live.cranking);
-    const audible = onDyno || onLive;
+    // The drag run drives the same engine sound: RPM sweeps within each gear and drops
+    // on every shift, so the whole pass is audible.
+    const onDrag = tab === 'drag' && dragRunning && dragResult;
+    const dragPt = onDrag
+      ? (dragResult.trace.find((p) => p.t >= dragT) || dragResult.trace[dragResult.trace.length - 1])
+      : null;
+    const audible = onDyno || onLive || onDrag;
 
-    const rpm = onDyno ? currentRpm : live.rpm;
+    const rpm = onDrag ? (dragPt?.rpm ?? 0) : onDyno ? currentRpm : live.rpm;
     const dynoPt = onDyno ? result.points[Math.min(revealCount, result.points.length - 1)] : null;
-    const load = onDyno ? 1 : clamp((live.effThrottle ?? 0) / 100, 0, 1);
-    const boostNow = onDyno ? (dynoPt?.boostPsi ?? 0) : (live.live?.boostPsi ?? 0);
-    const cut = onLive ? live.fuelCut : false;
+    // The driver's actual throttle position is what shapes the note, which is why a
+    // car being feathered off a spinning tyre sounds different from one that hooked.
+    const load = onDrag ? (dragPt?.throttle ?? 1) : onDyno ? 1 : clamp((live.effThrottle ?? 0) / 100, 0, 1);
+    const boostNow = onDyno ? (dynoPt?.boostPsi ?? 0) : onDrag ? 0 : (live.live?.boostPsi ?? 0);
+    const cut = onLive ? live.fuelCut : onDrag ? !!dragPt?.limiter : false;
 
     const cyl = engineDerived.cyl;
     const fire = Math.max(6, (rpm / 60) * (cyl / 2));
@@ -1077,7 +1371,8 @@ export default function EngineManagementSandbox() {
     a.master.gain.setTargetAtTime(audible && soundOn ? vol * (catBack ? 1.18 : 1) : 0, t, cut ? 0.015 : 0.06);
   }, [live.rpm, live.running, live.cranking, live.effThrottle, live.fuelCut, live.live, soundOn,
       engineDerived.cyl, exhaustDiaIdx, mods.intake, mods.exhaust, mods.headers, turboOn,
-      running, currentRpm, revealCount, result, tab, engineDerived.overlapDeg]);
+      running, currentRpm, revealCount, result, tab, engineDerived.overlapDeg,
+      dragRunning, dragResult, dragT]);
 
   // Hard-stop audio on unmount or when the tab changes away from a sounding page.
   useEffect(() => {
@@ -1102,6 +1397,7 @@ export default function EngineManagementSandbox() {
     { id: 'build', label: 'BUILD', icon: Settings },
     { id: 'tune', label: 'TUNE', icon: Grid3x3 },
     { id: 'dyno', label: 'DYNO', icon: Activity },
+    { id: 'drag', label: 'DRAG', icon: Flag },
   ];
   const TUNE_VIEWS = [
     { id: 've', label: 'AIR', icon: Grid3x3 },
@@ -1419,6 +1715,52 @@ export default function EngineManagementSandbox() {
               <ExpandableInfo title="16. Habits that keep engines alive">
                 Target zero knock, not "acceptable" knock. Stay on the rich side of best power until you have confirmed margin. Never chase a number you have not measured. When something looks wrong, find the cause rather than compensating for it downstream — a MAF error corrected by bending the AFR table will be wrong again the moment load changes.
                 <br /><br />And watch engine health on HOME. Damage here accumulates the way it does in reality: a few destructive pulls, not one dramatic failure.
+              </ExpandableInfo>
+
+              <div style={{ fontSize: 11, letterSpacing: 1, color: T.accInk, fontWeight: 800, margin: '14px 0 8px' }}>PART 4 · GETTING IT TO THE GROUND</div>
+
+              <ExpandableInfo title="17. A torque curve is only half of acceleration">
+                Everything up to here has been about making torque. The DRAG page is about what happens to it next, and it runs on four equations:
+                <br /><br /><span style={{ fontFamily: T.mono, color: T.cyan, fontSize: 11.5 }}>wheelTorque = engineTorque × gearRatio × finalDrive</span><br />
+                <span style={{ fontFamily: T.mono, color: T.cyan, fontSize: 11.5 }}>F_max = μ × N</span><br />
+                <span style={{ fontFamily: T.mono, color: T.cyan, fontSize: 11.5 }}>ΔN = m × a × h ÷ L</span><br />
+                <span style={{ fontFamily: T.mono, color: T.cyan, fontSize: 11.5 }}>F_aero = ½ × ρ × Cd × A × v²</span>
+                <br /><br />Gearing multiplies torque and divides speed by exactly the same factor. Grip sets a hard ceiling no amount of power can pass. Weight transfer raises that ceiling as you accelerate. Aerodynamic drag rises with the square of speed, so it is nothing at the line and everything at the trap.
+                <br /><br />This is why two engines with the same peak horsepower can run very different times, and why the <i>shape</i> of a powerband — how much area is under the curve, and where — matters more than its highest point.
+              </ExpandableInfo>
+
+              <ExpandableInfo title="18. Gearing — torque multiplication, and what it costs">
+                A 3.79 first gear with a 3.54 final drive multiplies engine torque by <b style={{ color: T.ink }}>13.4×</b> before it reaches the tyre. Nothing about the engine changed; that multiplication is why first gear lights the tyres and sixth cannot.
+                <br /><br />The trade is exact. The same ratio divides road speed by 13.4, so you run out of revs almost immediately. Gearing never creates energy — it trades force against speed:
+                <br /><br /><span style={{ fontFamily: T.mono, color: T.cyan, fontSize: 11.5 }}>v = RPM × 2π × tyreRadius ÷ (60 × gearRatio × finalDrive)</span>
+                <br /><br />There is a second cost people forget. The engine, gearbox and wheels have to be spun up as well as pushed along, so they act as extra mass — and referred to the road that inertia scales with the <b style={{ color: T.ink }}>square</b> of the ratio. A very short first gear can add twenty per cent to a car's effective weight while it is engaged, and by top gear that penalty has almost vanished. It is also why lighter wheels help more than the same weight taken out of the boot: wheel inertia is geared to the road at 1:1 in every gear.
+                <br /><br />Choosing ratios is really choosing where in the rev range you spend your time. Keep the engine near peak torque as much as possible and you will beat a car with more peak power that falls out of its band on every shift.
+              </ExpandableInfo>
+
+              <ExpandableInfo title="19. Grip — the ceiling nothing gets past">
+                Torque you cannot transmit is just smoke:
+                <br /><br /><span style={{ fontFamily: T.mono, color: T.cyan, fontSize: 11.5 }}>F_max = μ × N</span>
+                <br /><br />Measured values: street tyres <b style={{ color: T.ink }}>0.8–0.9</b>, good summer tyres near <b style={{ color: T.ink }}>1.0</b>, racing slicks <b style={{ color: T.ink }}>1.7–1.9</b>, prepared drag surfaces higher again. Since F = ma, μ is directly a ceiling on acceleration in g — and on a rear-drive car only about 47% of the weight sits over the driven axle at rest, so the real launch limit is far below even that.
+                <br /><br /><b style={{ color: T.ink }}>Weight transfer is what rescues it.</b> Accelerating shifts load rearward by ΔN = m·a·h ÷ L, so grip grows with the very acceleration it enables. That is why a rear-drive car out-launches its static weight distribution, why a taller centre of gravity genuinely helps at the strip even though it hurts everywhere else, and why all-wheel drive wins anyway — it starts with every kilogram already over a driven wheel.
+                <br /><br /><b style={{ color: T.ink }}>One result surprises people.</b> When the tyre is the limit, every term carries the mass and it cancels:
+                <br /><br /><span style={{ fontFamily: T.mono, color: T.cyan, fontSize: 11.5 }}>a = μ·g·f ÷ (1 − μ·h/L)</span>
+                <br /><br />Adding weight to a car that is already spinning its tyres does not slow the launch at all. It slows everything after it, once grip stops being what is holding the car back. You can watch this on the DRAG page: put a huge engine on street tyres, then change the body, and the 60-foot time barely moves while the ET does.
+              </ExpandableInfo>
+
+              <ExpandableInfo title="20. What actually slows the car down">
+                Three forces oppose you, and they dominate at different points on the strip.
+                <br /><br /><span style={{ fontFamily: T.mono, color: T.cyan, fontSize: 11.5 }}>F_aero = ½ × ρ × Cd × A × v²</span>
+                <br /><br />Aerodynamic drag rises with the <b style={{ color: T.ink }}>square</b> of speed — double the speed, quadruple the force. It is almost nothing at launch and enormous at the trap, which is exactly why trap speed is a far better measure of power than elapsed time, and why elapsed time is dominated by traction and gearing instead. The ρ here is the same air density the engine model uses, from the same gas law.
+                <br /><br /><span style={{ fontFamily: T.mono, color: T.cyan, fontSize: 11.5 }}>F_roll = Crr × m × g</span>
+                <br /><br />Rolling resistance is roughly constant, typically 1–1.5% of weight, and matters most where drag does not.
+                <br /><br />And whatever is left over is acceleration: <span style={{ fontFamily: T.mono, color: T.cyan, fontSize: 11.5 }}>a = (F_tractive − F_aero − F_roll) ÷ m_effective</span>
+              </ExpandableInfo>
+
+              <ExpandableInfo title="21. Reading a time slip">
+                A time slip is a datalog, and it is read the same way — in pairs, looking for which number disagrees with which.
+                <br /><br /><b style={{ color: T.ink }}>Sixty-foot time</b> is the launch: traction, gearing, and how well the car left the line. It is the single biggest lever on elapsed time for most street cars, and it has almost nothing to do with peak power.
+                <br /><br /><b style={{ color: T.ink }}>Trap speed</b> is power to weight, because at the far end drag dominates and only sustained power holds speed against it. Two cars can share an elapsed time with very different trap speeds — the one trapping faster has more power and launched worse.
+                <br /><br /><b style={{ color: T.ink }}>Elapsed time</b> is the combination, so improving it means working out which half is costing you. High trap but poor ET means grip and gearing, not more boost. Low trap means you actually need power. That is the same diagnostic habit as reading a pull log: find the cause, do not compensate for it downstream.
               </ExpandableInfo>
 
             </BuildSection>
@@ -1992,7 +2334,7 @@ export default function EngineManagementSandbox() {
         {/* ---------- DYNO: run a pull, then curves / log / datalog / score ---------- */}
         {tab === 'dyno' && (
           <div style={{ padding: 16 }}>
-            {journeyStep === 3 && <JourneyBanner step={3} onAdvance={() => setJourneyStep(99)} onDismiss={() => setJourneyStep(99)} />}
+            {journeyStep === 3 && <JourneyBanner step={3} onAdvance={() => { setJourneyStep(4); changeTab('drag'); }} onDismiss={() => setJourneyStep(99)} />}
             <Eyebrow icon={Activity}>Dyno Cell</Eyebrow>
             <div style={{ fontSize: 12, color: T.ink2, marginBottom: 8, fontWeight: 600 }}>Manifold pressure for the pull (load)</div>
             <Seg options={[100, 70, 40].map((l) => ({ label: `${l} kPa`, value: l }))} value={loadKpa} onChange={setLoadKpa} />
@@ -2301,6 +2643,163 @@ export default function EngineManagementSandbox() {
                         )}
                   </>
                 )}
+              </>
+            )}
+          </div>
+        )}
+
+        {/* ---------- DRAG: put the engine in a car and run the quarter ---------- */}
+        {tab === 'drag' && (
+          <div style={{ padding: 16 }}>
+            {journeyStep === 4 && <JourneyBanner step={4} onAdvance={() => setJourneyStep(99)} onDismiss={() => setJourneyStep(99)} />}
+            <Eyebrow icon={Flag}>Drag Strip</Eyebrow>
+            <div style={{ fontSize: 12.5, color: T.ink2, lineHeight: 1.55, marginBottom: 12 }}>
+              A torque curve is only half of acceleration. Gearing, tyre size, grip, weight transfer and aerodynamic drag decide what actually reaches the road — which is why the powerband&apos;s <i>shape</i> matters here and not just its peak.
+            </div>
+
+            {!result ? (
+              <Note tone="warn">Run a dyno pull first — there is no torque curve to drive with until the engine has been measured.</Note>
+            ) : (
+              <>
+                <DragStrip res={dragResult} tNow={dragT} running={dragRunning} treePhase={treePhase} bodyIdx={car.bodyIdx} />
+
+                <button onClick={runDrag} disabled={dragRunning} style={{
+                  width: '100%', padding: '15px 0', borderRadius: 12, border: 'none', marginBottom: 14,
+                  background: dragRunning ? T.panel2 : T.acc, color: dragRunning ? T.ink2 : T.accOn,
+                  fontWeight: 800, fontSize: 14, letterSpacing: 0.5,
+                }}>{dragRunning ? 'RUNNING…' : 'RUN THE QUARTER MILE'}</button>
+
+                {dragResult && !dragRunning && (
+                  <Panel style={{ marginBottom: 14 }}>
+                    <div style={{ fontSize: 10, letterSpacing: 1, color: T.ink2, fontWeight: 700, marginBottom: 9 }}>TIME SLIP</div>
+                    {dragResult.finished ? (
+                      <>
+                        <div style={{ display: 'flex', gap: 10, marginBottom: 10 }}>
+                          <StatTile label="1/4 MILE ET" value={dragResult.et.toFixed(2)} unit="s" color={T.accInk} />
+                          <StatTile label="TRAP SPEED" value={dragResult.trapMph.toFixed(1)} unit="mph" color={T.cyan} />
+                        </div>
+                        <div style={{ display: 'flex', gap: 10, marginBottom: 10 }}>
+                          <StatTile label="60 FOOT" value={dragResult.sixtyFootT ? dragResult.sixtyFootT.toFixed(2) : '—'} unit="s" color={T.violet} />
+                          <StatTile label="0-60 MPH" value={dragResult.zeroToSixty ? dragResult.zeroToSixty.toFixed(2) : '—'} unit="s" />
+                        </div>
+                        <div style={{ display: 'flex', gap: 10 }}>
+                          <StatTile label="1/8 MILE" value={dragResult.eighthET ? dragResult.eighthET.toFixed(2) : '—'} unit="s" />
+                          <StatTile label="1/8 TRAP" value={dragResult.eighthMph ? dragResult.eighthMph.toFixed(1) : '—'} unit="mph" />
+                          <StatTile label="GEARS" value={dragResult.topGearUsed} />
+                        </div>
+                      </>
+                    ) : (
+                      <Note tone="warn">
+                        The car never reached the stripe. With {result.peakHp} whp against {Math.round(car.massKg)} kg it either has too little torque to overcome drag and rolling resistance, or it spent the whole run spinning its tyres. Check the wheelspin note below, then look at gearing.
+                      </Note>
+                    )}
+                    {dragResult.wheelspun && (
+                      <Note tone="warn">
+                        Wheelspin off the line. The engine asked for more force than μ×N allowed, and everything past that limit went into turning the tyres instead of the car. More grip, more static weight over the driven axle, a taller first gear, or all-wheel drive.
+                      </Note>
+                    )}
+                    <div style={{ fontSize: 11.5, color: T.ink2, lineHeight: 1.55, marginTop: 10 }}>
+                      Read it in two halves. <b style={{ color: T.ink }}>Trap speed</b> is a measure of power against drag, because at the far end aerodynamic resistance dominates and only sustained power holds speed against it. <b style={{ color: T.ink }}>Sixty-foot time</b> is a measure of traction and launch. If the trap is high but the ET poor, the answer is grip and gearing, not more boost.
+                    </div>
+                  </Panel>
+                )}
+
+                <BuildSection active={dragSection === 'body'} onClick={() => setDragSection(dragSection === 'body' ? null : 'body')}
+                  icon={Package} label="Car Body"
+                  sub={`${CAR_BODIES[car.bodyIdx].label} · ${CAR_BODIES[car.bodyIdx].massKg} kg · Cd ${CAR_BODIES[car.bodyIdx].cd.toFixed(2)}`}>
+                  <Seg options={CAR_BODIES.map((b, i) => ({ label: b.label, value: i }))}
+                    value={car.bodyIdx}
+                    onChange={(i) => setCar({ ...car, bodyIdx: i, ...CAR_BODIES[i] })} wrap />
+                  <div style={{ fontSize: 11.5, color: T.ink3, marginTop: 6, lineHeight: 1.5 }}>{CAR_BODIES[car.bodyIdx].note}</div>
+
+                  <div style={{ display: 'flex', gap: 8, marginTop: 12, flexWrap: 'wrap' }}>
+                    <StatTile label="MASS" value={CAR_BODIES[car.bodyIdx].massKg} unit="kg" />
+                    <StatTile label="Cd" value={CAR_BODIES[car.bodyIdx].cd.toFixed(2)} />
+                    <StatTile label="FRONTAL" value={CAR_BODIES[car.bodyIdx].frontalAreaM2.toFixed(2)} unit="m²" />
+                  </div>
+                  <div style={{ display: 'flex', gap: 8, marginTop: 8, flexWrap: 'wrap' }}>
+                    <StatTile label="CG HEIGHT" value={CAR_BODIES[car.bodyIdx].cgHeightM.toFixed(2)} unit="m" />
+                    <StatTile label="WHEELBASE" value={CAR_BODIES[car.bodyIdx].wheelbaseM.toFixed(2)} unit="m" />
+                    <StatTile label="REAR WEIGHT" value={Math.round(CAR_BODIES[car.bodyIdx].rearFrac * 100)} unit="%" />
+                  </div>
+
+                  <ExpandableInfo title="Why the same engine is not the same car">
+                    Nothing here is a handicap number — every figure is a term in an equation that is already running.
+                    <br /><br /><b style={{ color: T.ink }}>Mass</b> divides straight into acceleration (a = F ÷ m), and it also has to be spun up through the gearing, so it costs twice.
+                    <br /><br /><b style={{ color: T.ink }}>Cd × frontal area</b> is drag, and it grows with the square of speed. Almost nothing at the line, everything at the trap — which is why a van gives up far more trap speed than ET against a coupe.
+                    <br /><br /><b style={{ color: T.ink }}>Centre of gravity height and wheelbase</b> set weight transfer, ΔN = m·a·h ÷ L. A tall van transfers more load rearward than a low supercar, which genuinely helps it hook up — one of the few things working in its favour.
+                    <br /><br /><b style={{ color: T.ink }}>Static rear weight</b> is how much grip you start with before any transfer at all. A mid-engined supercar begins with 57% over the driven axle; a pickup has 38%.
+                  </ExpandableInfo>
+                </BuildSection>
+
+                <BuildSection active={dragSection === 'gearing'} onClick={() => setDragSection(dragSection === 'gearing' ? null : 'gearing')}
+                  icon={Settings} label="Gearbox"
+                  sub={`${car.gearCount}-speed ${GEARBOX_OPTS[car.boxIdx].label} · ${car.finalDrive.toFixed(2)} final`}>
+                  <div style={{ fontSize: 12, color: T.ink2, marginBottom: 6, fontWeight: 600 }}>Transmission</div>
+                  <Seg options={GEARBOX_OPTS.map((o, i) => ({ label: o.label, value: i }))} value={car.boxIdx} onChange={(v) => setCar({ ...car, boxIdx: v })} />
+                  <div style={{ fontSize: 11, color: T.ink3, marginTop: 4 }}>{GEARBOX_OPTS[car.boxIdx].note}</div>
+
+                  <div style={{ fontSize: 12, color: T.ink2, margin: '12px 0 6px', fontWeight: 600 }}>Number of gears: {car.gearCount}</div>
+                  <input type="range" min={4} max={6} step={1} value={car.gearCount} aria-label="Number of gears"
+                    onChange={(e) => setCar({ ...car, gearCount: Number(e.target.value) })} style={{ width: '100%', accentColor: T.acc }} />
+
+                  <div style={{ fontSize: 12, color: T.ink2, margin: '12px 0 6px', fontWeight: 600 }}>Final drive: {car.finalDrive.toFixed(2)}:1</div>
+                  <input type="range" min={2.8} max={4.8} step={0.05} value={car.finalDrive} aria-label="Final drive ratio"
+                    onChange={(e) => setCar({ ...car, finalDrive: Number(e.target.value) })} style={{ width: '100%', accentColor: T.acc }} />
+                  <div style={{ fontSize: 11, color: T.ink3, marginTop: 4 }}>Numerically higher multiplies torque but runs out of road speed sooner.</div>
+
+                  <div style={{ fontSize: 12, color: T.ink2, margin: '12px 0 6px', fontWeight: 600 }}>First gear: {car.gears[0].toFixed(2)}:1</div>
+                  <input type="range" min={2.4} max={4.6} step={0.05} value={car.gears[0]} aria-label="First gear ratio"
+                    onChange={(e) => { const g = [...car.gears]; g[0] = Number(e.target.value); setCar({ ...car, gears: g }); }}
+                    style={{ width: '100%', accentColor: T.acc }} />
+
+                  <Panel tight style={{ marginTop: 12, fontFamily: T.mono, fontSize: 11.5, color: T.ink2, lineHeight: 1.8 }}>
+                    <div style={{ fontFamily: T.sans, fontSize: 10, letterSpacing: 1, color: T.ink3, fontWeight: 800, marginBottom: 5 }}>
+                      WHAT THIS GEARING DOES
+                    </div>
+                    <div>First gear multiplies torque <span style={{ color: T.cyan }}>{(car.gears[0] * car.finalDrive).toFixed(1)}×</span></div>
+                    <div>Top gear multiplies torque <span style={{ color: T.cyan }}>{(car.gears[car.gearCount - 1] * car.finalDrive).toFixed(2)}×</span></div>
+                    <div>Redline in first is <span style={{ color: T.cyan }}>{(roadSpeedMs(engineDerived.redline, car.gears[0], car) * MPH_PER_MS).toFixed(0)} mph</span></div>
+                    <div>Redline in top is <span style={{ color: T.cyan }}>{(roadSpeedMs(engineDerived.redline, car.gears[car.gearCount - 1], car) * MPH_PER_MS).toFixed(0)} mph</span></div>
+                  </Panel>
+
+                  <ExpandableInfo title="How gearing multiplies torque">
+                    Every gear is a torque multiplier and a speed divider by exactly the same factor:
+                    <br /><br /><span style={{ fontFamily: T.mono, color: T.cyan, fontSize: 11.5 }}>wheelTorque = engineTorque × gearRatio × finalDrive</span><br />
+                    <span style={{ fontFamily: T.mono, color: T.cyan, fontSize: 11.5 }}>force = wheelTorque ÷ tyreRadius</span>
+                    <br /><br />So this box multiplies engine torque {(car.gears[0] * car.finalDrive).toFixed(1)}× in first before it reaches the tyre. That is why first gear lights the tyres and top gear cannot — the engine has not changed, the multiplication has.
+                    <br /><br />The cost is exact and unavoidable: the same ratio divides road speed by the same {(car.gears[0] * car.finalDrive).toFixed(1)}×, so you run out of revs almost immediately. Gearing never creates energy; it trades force against speed. Choosing ratios is really choosing where in the rev range you spend your time, and the answer is: as near peak torque as you can, as often as you can.
+                    <br /><br />There is a second cost that is easy to miss. The engine and gearbox have to be spun up as well as the car moved, and referred to the road that inertia scales with the <i>square</i> of the ratio — so a very short first gear carries a real weight penalty that a tall one does not.
+                  </ExpandableInfo>
+                </BuildSection>
+
+                <BuildSection active={dragSection === 'tires'} onClick={() => setDragSection(dragSection === 'tires' ? null : 'tires')}
+                  icon={Activity} label="Tyres &amp; Drive"
+                  sub={`${TIRE_GRIP[car.gripIdx].label} · ${DRIVETRAIN_OPTS[car.driveIdx].label} · ${car.tireDiameterIn}in`}>
+                  <div style={{ fontSize: 12, color: T.ink2, marginBottom: 6, fontWeight: 600 }}>Grip level</div>
+                  <Seg options={TIRE_GRIP.map((o, i) => ({ label: o.label, value: i }))} value={car.gripIdx} onChange={(v) => setCar({ ...car, gripIdx: v })} wrap />
+                  <div style={{ fontSize: 11, color: T.ink3, marginTop: 4 }}>
+                    {TIRE_GRIP[car.gripIdx].note} — coefficient of friction μ = {TIRE_GRIP[car.gripIdx].mu.toFixed(2)}
+                  </div>
+
+                  <div style={{ fontSize: 12, color: T.ink2, margin: '12px 0 6px', fontWeight: 600 }}>Driven wheels</div>
+                  <Seg options={DRIVETRAIN_OPTS.map((o, i) => ({ label: o.label, value: i }))} value={car.driveIdx} onChange={(v) => setCar({ ...car, driveIdx: v })} />
+                  <div style={{ fontSize: 11, color: T.ink3, marginTop: 4 }}>{DRIVETRAIN_OPTS[car.driveIdx].note}</div>
+
+                  <div style={{ fontSize: 12, color: T.ink2, margin: '12px 0 6px', fontWeight: 600 }}>Tyre diameter: {car.tireDiameterIn} in</div>
+                  <input type="range" min={22} max={32} step={1} value={car.tireDiameterIn} aria-label="Tyre diameter in inches"
+                    onChange={(e) => setCar({ ...car, tireDiameterIn: Number(e.target.value) })} style={{ width: '100%', accentColor: T.cyan }} />
+                  <div style={{ fontSize: 11, color: T.ink3, marginTop: 4 }}>A taller tyre is a longer lever against the engine — it acts like a numerically lower final drive, and raises the speed reached at any given RPM.</div>
+
+                  <ExpandableInfo title="Why grip is a hard ceiling on acceleration">
+                    However much torque you make, the tyre can only transmit what friction allows:
+                    <br /><br /><span style={{ fontFamily: T.mono, color: T.cyan, fontSize: 11.5 }}>F_max = μ × N</span>
+                    <br /><br />μ is the coefficient of friction, N the load pressing the driven tyres onto the road. Measured values: street tyres 0.8–0.9, good summer tyres about 1.0, racing slicks 1.7–1.9, prepared drag surfaces higher again.
+                    <br /><br />Divide by mass and μ is directly a ceiling on acceleration in g. At μ = 0.85 the very best possible is 0.85 g <i>if every kilogram sat on the driven wheels</i> — and on a rear-drive car only about 47% does at rest. Past that point, more power simply makes smoke.
+                    <br /><br /><b style={{ color: T.ink }}>Weight transfer is what rescues it.</b> Accelerating shifts load rearward by <span style={{ fontFamily: T.mono, color: T.cyan }}>ΔN = m × a × h ÷ L</span>, so grip grows with the very acceleration it enables. That is why a rear-drive car out-launches its static weight distribution, and why all-wheel drive wins anyway: it starts with all of it.
+                    <br /><br />There is one more consequence worth noticing, because it surprises people. When the tyre is the limit, a = μ·g·f ÷ (1 − μ·h/L) — the mass cancels out entirely. Adding weight to a car that is already spinning its tyres does not slow the launch at all. It slows everything after it.
+                  </ExpandableInfo>
+                </BuildSection>
               </>
             )}
           </div>
