@@ -534,6 +534,8 @@ export default function EngineManagementSandbox() {
   const [running, setRunning] = useState(false);
   const [result, setResult] = useState(null);
   const [prevResult, setPrevResult] = useState(null);
+  // The scores as measured on the pull that produced `result`, banked at pull time.
+  const [pullScores, setPullScores] = useState(null);
   const [revealCount, setRevealCount] = useState(0);
   const [bestScore, setBestScore] = useState(0);
   const [totalScore, setTotalScore] = useState(0);
@@ -761,6 +763,7 @@ export default function EngineManagementSandbox() {
     // logged on whatever was running before it.
     setResult(null);
     setPrevResult(null);
+    setPullScores(null);
     // Fresh factory calibration is not unsaved player work.
     setTablesDirty(false);
   };
@@ -847,6 +850,18 @@ export default function EngineManagementSandbox() {
   // Persistence goes through the storage adapter, which picks whichever backend is
   // available (artifact host, localStorage, or in-memory) so career stats survive a
   // refresh wherever the app is deployed.
+  // What the Engineer Score is a function of. Snapshotted at pull time so the panel can
+  // say "this grade is for the build you measured, not the one on screen" — the honest
+  // half of the fix. Deliberately a signature rather than a deep compare: it only has to
+  // detect that something scored has moved, not what.
+  const buildSignature = useMemo(() => JSON.stringify([
+    engineConfig, turboOn, turboOn ? Math.max(...boostCurve) : 0,
+    turbine?.size, COMPRESSOR_OPTS[compressorIdx].size,
+    Number(exhaustDiaError.toFixed(3)), Math.round(dutyPreview),
+    Number(engineDerived.displacementL.toFixed(4)), fuel.label, mods,
+  ]), [engineConfig, turboOn, boostCurve, turbine, compressorIdx, exhaustDiaError,
+       dutyPreview, engineDerived.displacementL, fuel, mods]);
+
   const persistCareer = (best, total, pulls) => saveCareer({ best, total, pulls });
 
   const doRun = () => {
@@ -876,8 +891,15 @@ export default function EngineManagementSandbox() {
     const nextBest = Math.max(bestScore, pull);
     const nextTotal = totalScore + pull;
     const nextPulls = pullCount + 1;
+    // Whether THIS run beat the standing best, decided against the best as it stood
+    // BEFORE this pull was banked. Reading it back off `bestScore` afterwards always
+    // says yes, because by then this pull is the best — which is how the old NEW BEST
+    // badge came to fire on every pull, and on builds that had never been run at all.
+    const wasBest = pull > bestScore;
     setBestScore(nextBest); setTotalScore(nextTotal); setPullCount(nextPulls);
     persistCareer(nextBest, nextTotal, nextPulls);
+    // Bank the scores this pull actually produced, with the build they were measured on.
+    setPullScores({ tuning: ts, engineer: es, pull, wasBest, signature: buildSignature });
     const total = r.points.length;
     let i = 0;
     revealTimer.current = setInterval(() => {
@@ -994,17 +1016,22 @@ export default function EngineManagementSandbox() {
   };
 
   const currentRpm = result ? (result.points[Math.min(revealCount, result.points.length - 1)]?.rpm ?? 1500) : 1500;
-  const scores = useMemo(() => {
-    if (!result || running) return null;
-    const tuning = computeTuningScore(result);
-    const engineer = computeEngineerScore({
-      engineConfig, turboOn, peakBoostPsi: turboOn ? Math.max(...boostCurve) : 0,
-      turbine, compressor: COMPRESSOR_OPTS[compressorIdx],
-      exhaustDiaError, dutyPreview, displacementL: engineDerived.displacementL, fuel, mods,
-    });
-    const pull = computePullScore({ peakHp: result.peakHp, peakTq: result.peakTq, tuningScore: tuning.score, engineerScore: engineer.score });
-    return { tuning, engineer, pull };
-  }, [result, running, engineConfig, turboOn, turbine, compressorIdx, exhaustDiaError, dutyPreview, engineDerived, fuel, mods, boostCurve]);
+  // A SCORE IS A MEASUREMENT, SO IT IS TAKEN ONCE AND KEPT.
+  //
+  // This used to be a memo that recomputed the Engineer and Pull scores from whatever
+  // hardware was selected RIGHT NOW, against the last pull's dyno output. Change a turbo
+  // after a pull and the old run was re-graded as though it had been made on the new
+  // build — a number the engine never produced, on a dyno session that never happened.
+  // Worse, the Pull Score moved with it and could climb past `bestScore` without anyone
+  // running anything, lighting up NEW BEST for a figure that was never banked.
+  //
+  // So `doRun` banks the scores it actually computed, and this holds them unchanged. The
+  // app's whole method is change one thing, MEASURE, revert; a score that moves without a
+  // measurement contradicts the thing it is teaching.
+  const scores = pullScores;
+
+  // True when the build has moved since the pull these scores came from.
+  const scoresStale = !!scores && scores.signature !== buildSignature;
 
   // Drive the audio from whichever engine is actually turning — and only while the
   // relevant page is open, so sound stops the moment you navigate away.
@@ -1269,11 +1296,14 @@ export default function EngineManagementSandbox() {
               </div>
               {result && scores ? (
                 <>
-                  <div style={{ display: 'flex', gap: 10, marginBottom: 10 }}>
+                  <div style={{ fontSize: 10, letterSpacing: 1, color: scoresStale ? T.warnInk : T.ink3, fontWeight: 800, marginBottom: 6 }}>
+                    {scoresStale ? 'LAST PULL · BUILD HAS CHANGED SINCE' : 'LAST PULL'}
+                  </div>
+                  <div style={{ display: 'flex', gap: 10, marginBottom: 10, opacity: scoresStale ? 0.55 : 1 }}>
                     <StatTile label="PEAK POWER" value={result.peakHp} unit="whp" color={T.accInk} />
                     <StatTile label="PEAK TORQUE" value={result.peakTq} unit="lb-ft" color={T.cyan} />
                   </div>
-                  <div style={{ display: 'flex', gap: 10 }}>
+                  <div style={{ display: 'flex', gap: 10, opacity: scoresStale ? 0.55 : 1 }}>
                     <StatTile label="PULL SCORE" value={scores.pull} color={T.accInk} />
                     <StatTile label="TUNING" value={scores.tuning.score} color={statusColor(scores.tuning.score)} />
                     <StatTile label="ENGINEER" value={scores.engineer.score} color={statusColor(scores.engineer.score)} />
@@ -2263,11 +2293,22 @@ export default function EngineManagementSandbox() {
                 {!running && dynoView === 'score' && scores && (
                       <>
                         <Eyebrow icon={Trophy}>Scorecard</Eyebrow>
+                        {scoresStale && (
+                          <Note tone="warn">
+                            <b>This is the last pull, before your latest change.</b> The build on
+                            screen is not the one these numbers were measured on, so they have been
+                            left exactly as they were rather than re-graded against hardware that
+                            never ran. Run another pull to score what you have now.
+                          </Note>
+                        )}
                         <Panel style={{ marginBottom: 10, background: T.accBg, border: `1px solid ${T.acc}`, textAlign: 'center' }}>
                           <div style={{ fontSize: 10, color: T.accInk, letterSpacing: 1.5, fontWeight: 800 }}>PULL SCORE</div>
                           <div style={{ fontSize: 40, fontWeight: 800, fontFamily: T.mono, color: T.accInk, lineHeight: 1.1 }}>{scores.pull}</div>
-                          <div style={{ fontSize: 11.5, color: scores.pull >= bestScore ? T.ok : T.ink2, fontWeight: 700, marginTop: 2 }}>
-                            {scores.pull >= bestScore ? 'NEW BEST' : `Best: ${bestScore}`}
+                          {/* NEW BEST is now a fact about the run that produced this
+                              number, decided when it was banked — not a live comparison
+                              that any hardware change could win without measuring. */}
+                          <div style={{ fontSize: 11.5, color: scores.wasBest ? T.ok : T.ink2, fontWeight: 700, marginTop: 2 }}>
+                            {scores.wasBest ? 'NEW BEST' : `Best: ${bestScore}`}
                           </div>
                         </Panel>
                         <div style={{ display: 'flex', gap: 10, marginBottom: 10 }}>
