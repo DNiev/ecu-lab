@@ -125,9 +125,17 @@ export function computeEngineerScore({
     // ignition delay of the end gas, so the tune goes knock-limited and the Tuning Score
     // deducts for the events that follow. This rule is deliberately gentler than the
     // flat penalty it replaced so the same decision is not billed twice at full price.
+    //
+    // And it moves with HOW MUCH boost, not merely whether there is any. Boost level is
+    // the largest single determinant of whether high compression survives, and this rule
+    // used to ignore it: 5 psi and 25 psi were graded identically. The reference is a
+    // swing about the boost the base was fitted at, so a factory-level build sits exactly
+    // where it always did while a 25 psi build on the same short block is charged for it.
     const headroom = COEFF.COMPRESSION_BOOST_BASE
       + fuel.bonus * COEFF.COMPRESSION_PER_OCTANE_DEG
-      + (mods.intercooler ? COEFF.COMPRESSION_INTERCOOLER_GAIN : 0);
+      + (mods.intercooler ? COEFF.COMPRESSION_INTERCOOLER_GAIN : 0)
+      - Math.max(0, peakBoostPsi - COEFF.COMPRESSION_BOOST_REF_PSI)
+        * COEFF.COMPRESSION_PER_BOOST_PSI;
     const over = engineConfig.compression - headroom;
     if (over > 0) {
       const d = Math.round(Math.min(
@@ -145,10 +153,20 @@ export function computeEngineerScore({
       // `over > 0` check above, never reaching this line.
       if (d > 0) {
         const cooling = mods.intercooler ? 'an intercooler' : 'no charge cooling';
+        // Name the levers this build has NOT already pulled. Telling someone on E85 with
+        // an intercooler that higher octane and charge cooling would buy it back is
+        // advice they cannot act on — and now that the headroom moves with boost level,
+        // backing the boost off is a real answer where before it did nothing.
+        const levers = [
+          fuel.bonus < 14 ? 'higher octane' : null,
+          mods.intercooler ? null : 'charge cooling',
+          `less boost than ${peakBoostPsi.toFixed(0)} psi`,
+          'less static compression',
+        ].filter(Boolean);
         score -= d;
         deductions.push(`-${d} ${engineConfig.compression.toFixed(1)}:1 static compression `
-          + `outruns the knock margin this build supports under boost on ${fuel.label} `
-          + `with ${cooling} — higher octane or charge cooling would buy it back`);
+          + `outruns the knock margin this build supports at ${peakBoostPsi.toFixed(0)} psi `
+          + `on ${fuel.label} with ${cooling} — ${levers.join(', ')} would buy it back`);
       }
     }
   }
