@@ -16,7 +16,13 @@ import React from 'react';
 import { LOAD, RPM } from '../../sim/index.js';
 import { T, heat, shadowAlpha } from '../theme.js';
 
-/** @typedef {{type: 'cell'|'row'|'col', row?: number, col?: number}} Selection */
+/**
+ * What is currently selected on the grid. A `range` is a rectangle taken in two taps:
+ * `complete` is false between them, so the second tap extends the anchor rather than
+ * starting a new one.
+ * @typedef {{type: 'cell'|'row'|'col', row?: number, col?: number}
+ *   | {type: 'range', r1: number, c1: number, r2: number, c2: number, complete: boolean}
+ * } Selection */
 
 /**
  * @param {object} props
@@ -26,15 +32,33 @@ import { T, heat, shadowAlpha } from '../theme.js';
  * @param {number} props.decimals how many decimal places to render each cell at
  * @param {Selection|null} props.selection the current cell/row/col selection, or none
  * @param {(next: Selection) => void} props.setSelection
+ * @param {boolean} [props.rangeMode] whether a tap starts or extends a RANGE rather
+ *   than selecting one cell. The mode is the screen's, not the grid's, because the
+ *   toggle that sets it sits beside the grid rather than inside it.
  * @returns {React.ReactElement}
  */
-export function TuningGrid({ data, min, max, decimals, selection, setSelection }) {
+export function TuningGrid({ data, min, max, decimals, selection, setSelection, rangeMode }) {
   const fmt = (v) => (decimals ? v.toFixed(decimals) : Math.round(v));
-  const selectCell = (row, col) => setSelection({ type: 'cell', row, col });
+  // Real tuning software almost never edits one cell at a time — you grab a region and
+  // move it together, because airflow and spark errors come in bands, not points. First
+  // tap sets an anchor, second tap completes the rectangle.
+  const selectCell = (row, col) => {
+    if (!rangeMode) { setSelection({ type: 'cell', row, col }); return; }
+    if (!selection || selection.type !== 'range' || selection.complete) {
+      setSelection({ type: 'range', r1: row, c1: col, r2: row, c2: col, complete: false });
+    } else {
+      setSelection({ ...selection, r2: row, c2: col, complete: true });
+    }
+  };
   const selectRow = (row) => setSelection({ type: 'row', row });
   const selectCol = (col) => setSelection({ type: 'col', col });
   const isSelected = (row, col) => {
     if (!selection) return false;
+    if (selection.type === 'range') {
+      const [ra, rb] = [Math.min(selection.r1, selection.r2), Math.max(selection.r1, selection.r2)];
+      const [ca, cb] = [Math.min(selection.c1, selection.c2), Math.max(selection.c1, selection.c2)];
+      return row >= ra && row <= rb && col >= ca && col <= cb;
+    }
     if (selection.type === 'cell') return selection.row === row && selection.col === col;
     if (selection.type === 'row') return selection.row === row;
     if (selection.type === 'col') return selection.col === col;

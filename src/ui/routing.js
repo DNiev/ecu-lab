@@ -20,9 +20,13 @@
  * @type {Record<string, string[]>}
  */
 export const ROUTES = {
-  dash: ['live', 'stats', 'health', 'learn'],
+  dash: ['jobs', 'stats', 'health', 'learn'],
   build: ['engine', 'induction', 'fuel', 'exhaust'],
   tune: ['airflow', 'spark', 'fuel', 'injectors', 'sensors'],
+  // LIVE is one screen, not an accordion, so it has a single section named for what it
+  // shows. It still needs to be in this table: `parseRoute` validates every tab against
+  // it, and a tab absent from here is not addressable at all.
+  live: ['engine'],
   dyno: ['result', 'data', 'log', 'score'],
 };
 

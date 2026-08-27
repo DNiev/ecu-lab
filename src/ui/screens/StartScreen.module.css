@@ -58,7 +58,13 @@
   color: var(--ink2);
 }
 
-.actions { display: flex; flex-direction: column; gap: 12px; width: 100%; max-width: 300px; }
+.actions { display: flex; flex-direction: column; gap: 14px; width: 100%; max-width: 300px; }
+
+.way { display: flex; flex-direction: column; gap: 6px; }
+
+/* Each way in says what it is for. Three unlabelled buttons make a newcomer guess
+   which one is the game, and the answer is not obvious from "SANDBOX". */
+.caption { font-size: var(--fs-xs); line-height: 1.4; color: var(--ink3); }
 
 .version { margin-top: 18px; font-family: var(--mono); font-size: var(--fs-xs); color: var(--ink3); }
 
@@ -68,5 +74,6 @@
    tokens.css. Kept in sync by hand with TutorialScreen.module.css. */
 @media (min-width: 560px) {
   .title { font-size: 34px; }
-  .actions { flex-direction: row; max-width: none; justify-content: center; }
+  .actions { flex-direction: row; max-width: none; justify-content: center; align-items: flex-start; }
+  .way { width: 250px; }
 }

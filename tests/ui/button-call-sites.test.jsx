@@ -49,7 +49,9 @@ const VARIANTS = ['primary', 'ghost', 'danger', 'quiet'];
 /** Renders the app and clicks past the start screen. */
 function launch() {
   render(<EcuLab />);
-  clickButton('START');
+  // The start screen offers CAREER, SANDBOX and TUTORIAL on this branch rather than a
+  // single START. SANDBOX is the free-play entry the old button was.
+  clickButton('SANDBOX');
 }
 
 /** @param {string|RegExp} name */
@@ -113,7 +115,8 @@ async function sweep() {
 
   clickButton(/HOME/);
   collect();
-  fireEvent.click(screen.getByText('Live Engine'));
+  // The live engine is its own tab on this branch, not a section of HOME.
+  clickButton(/^LIVE$/);
   collect();
   clickButton('START ENGINE'); // mounts STOP, the other branch of that variant
   collect();
@@ -302,7 +305,14 @@ describe('the Button call sites in the shell and its screens', () => {
     // still 23 because a move nets zero, not because nothing happened. Raise the floor
     // when a screen or shared component adds a real call site; lowering it is how this
     // stops guarding anything.
-    expect(openingTags().length).toBeGreaterThanOrEqual(23);
+    //
+    // 22, not 23, and this is the one lowering that is honest: the start screen now
+    // offers three ways in (CAREER, SANDBOX, TUTORIAL) rendered from `WAYS_IN` in ONE
+    // mapped `<Button>` where it previously had two hand-written tags. That is a
+    // rendered button MORE and a source tag fewer, and the scanner counts source tags.
+    // The sweep below still reaches all three, by label, which is what actually guards
+    // them.
+    expect(openingTags().length).toBeGreaterThanOrEqual(22);
   });
 
   it('names a real variant at every call site, including the ones the sweep cannot mount', () => {

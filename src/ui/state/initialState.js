@@ -58,7 +58,11 @@ import {
  * @property {boolean} tablesDirty true once VE/spark/fuel has been hand-edited since
  *   the last preset load or reset-to-stock
  * @property {{type: 'cell'|'row'|'col', row?: number, col?: number}|null} selection
- *   the currently selected calibration-grid cell, row or column, or null
+ *   the currently selected calibration-grid cell, row, column or range, or null
+ * @property {boolean} rangeMode whether a tap on the grid starts or extends a RECTANGLE
+ *   rather than selecting one cell. Beside `selection` because it is the mode that
+ *   selection is taken in, and one flag rather than three: AIR, SPARK and FUEL all
+ *   render the same grid and a tuner switching between them means the same thing by it.
  */
 
 /**
@@ -85,6 +89,13 @@ import {
  * @property {number} journeyStep guided-onboarding progress: BUILD -> TUNE -> LIVE ->
  *   DYNO, then free play (step 4). Survives navigation, so it lives here rather than
  *   as view state.
+ * @property {number|null} activeJob index into CAREER_JOBS of the customer car being
+ *   worked on, or null in free play. Career progress, which is what this slice holds:
+ *   taking a job resets the build and applies that job's fault, and it has to survive
+ *   every screen the player visits while diagnosing it.
+ * @property {number[]} completedJobs indices of the jobs already passed
+ * @property {'pass'|'fail'|null} jobResult how the last pull graded against the active
+ *   job's target, or null before one has been run against it
  */
 
 /**
@@ -125,6 +136,7 @@ export function makeInitialState() {
       afr: clone2D(DEFAULT_AFR),
       tablesDirty: false,
       selection: null,
+      rangeMode: false,
     },
     session: {
       running: false,
@@ -141,6 +153,9 @@ export function makeInitialState() {
       loadKpa: 100,
       soundOn: true,
       journeyStep: 0,
+      activeJob: null,
+      completedJobs: [],
+      jobResult: null,
     },
   };
 }

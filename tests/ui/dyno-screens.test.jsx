@@ -223,7 +223,9 @@ describe('ScoreScreen', () => {
 describe('DYNO while a pull is running', () => {
   it('shows the live curves and hides the switcher even when DATALOG was the selected view', async () => {
     render(<EcuLab />);
-    fireEvent.click(screen.getByRole('button', { name: 'START' }));
+    // The start screen offers CAREER, SANDBOX and TUTORIAL rather than a single START.
+    // SANDBOX is the free-play entry the old button was.
+    fireEvent.click(screen.getByRole('button', { name: 'SANDBOX' }));
     fireEvent.click(screen.getByRole('button', { name: /DYNO/ }));
 
     // First pull, run to completion, so the switcher and a result both exist.

@@ -44,7 +44,7 @@
  */
 
 import {
-  Activity, Gauge, Grid3x3, Info, Settings, Wrench,
+  Activity, Flame, Gauge, Grid3x3, Info, Settings, Wrench,
 } from 'lucide-react';
 import React, { useMemo } from 'react';
 
@@ -71,10 +71,14 @@ import styles from './AppShell.module.css';
  *
  * @type {Array<{id: string, label: string, icon: React.ElementType}>}
  */
+// The order is the real working order: design it, calibrate it, HEAR IT RUN, then
+// measure it. LIVE used to be a collapsed section on HOME, several taps down and easy
+// never to find — a poor place for the one screen that shows a calibration running.
 const NAV_ITEMS = [
   { id: 'dash', label: 'HOME', icon: Gauge },
   { id: 'build', label: 'BUILD', icon: Settings },
   { id: 'tune', label: 'TUNE', icon: Grid3x3 },
+  { id: 'live', label: 'LIVE', icon: Flame },
   { id: 'dyno', label: 'DYNO', icon: Activity },
 ];
 

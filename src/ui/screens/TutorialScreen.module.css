@@ -39,6 +39,18 @@
 .title { margin: 0 0 13px; font-size: 21px; font-weight: 800; letter-spacing: -0.01em; }
 .text { margin: 0; font-size: var(--fs-md); line-height: 1.7; color: var(--ink-soft); }
 
+/* A step may carry the formula it is describing. Indented lines are set as code so the
+   arithmetic reads as arithmetic, rather than being buried in a paragraph. */
+.formula {
+  margin: 0;
+  font-family: var(--mono);
+  font-size: var(--fs-sm);
+  line-height: 1.6;
+  color: var(--cyan);
+  overflow-x: auto;
+}
+.gap { height: 9px; }
+
 /* 18px is not on the spacing scale: a single-use bottom spacer ahead of the
    safe-area inset, 2px from the nearest step (--sp-xl, 16px) — further than
    the ~1px this pass snaps. Left raw. */

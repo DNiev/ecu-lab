@@ -53,7 +53,9 @@ function mount() {
 /** Renders the app and clicks past the start screen (which lands on BUILD). */
 function launch() {
   mount();
-  fireEvent.click(screen.getByRole('button', { name: 'START' }));
+  // The start screen offers CAREER, SANDBOX and TUTORIAL rather than a single START.
+  // SANDBOX is the free-play entry the old button was.
+  fireEvent.click(screen.getByRole('button', { name: 'SANDBOX' }));
 }
 
 /**
@@ -86,7 +88,7 @@ describe('a deep link on a cold load', () => {
     window.location.hash = '#/tune/spark';
     mount();
 
-    expect(screen.queryByRole('button', { name: 'START' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'SANDBOX' })).toBeNull();
     expect(screen.getByText('Ignition Timing')).toBeTruthy();
   });
 
@@ -182,7 +184,7 @@ describe('the back button', () => {
 
     // One press, from the app back to the start screen it was launched from.
     window.history.back();
-    await waitFor(() => expect(screen.getByRole('button', { name: 'START' })).toBeTruthy());
+    await waitFor(() => expect(screen.getByRole('button', { name: 'SANDBOX' })).toBeTruthy());
   });
 });
 
@@ -216,18 +218,19 @@ describe('a fully collapsed accordion', () => {
   it('is reachable on HOME too, and reopening a section puts it back in the URL', () => {
     launch();
     fireEvent.click(screen.getByRole('button', { name: 'HOME' }));
-    expect(window.location.hash).toBe('#/dash/live');
-    expect(sectionIsOpen('Live Engine')).toBe(true);
+    // HOME's first section is the job board: the live engine is its own tab now.
+    expect(window.location.hash).toBe('#/dash/jobs');
+    expect(sectionIsOpen('Customer Cars')).toBe(true);
 
-    fireEvent.click(screen.getByText('Live Engine'));
+    fireEvent.click(screen.getByText('Customer Cars'));
     expect(window.location.hash).toBe('#/dash');
-    expect(sectionIsOpen('Live Engine')).toBe(false);
+    expect(sectionIsOpen('Customer Cars')).toBe(false);
 
     // Opening a DIFFERENT section is not a toggle-to-null — it swaps which one is open.
     fireEvent.click(screen.getByText('Engine Health'));
     expect(window.location.hash).toBe('#/dash/health');
     expect(sectionIsOpen('Engine Health')).toBe(true);
-    expect(sectionIsOpen('Live Engine')).toBe(false);
+    expect(sectionIsOpen('Customer Cars')).toBe(false);
   });
 });
 

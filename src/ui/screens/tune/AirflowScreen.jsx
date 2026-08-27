@@ -14,6 +14,7 @@ import { Grid3x3 } from 'lucide-react';
 
 import { AdvisorPanel } from '../../components/AdvisorPanel.jsx';
 import { veReport } from '../../components/advisorReports.js';
+import { SelectModeBar } from '../../components/SelectModeBar.jsx';
 import { SelectionDock } from '../../components/SelectionDock.jsx';
 import { TuneAdvisory } from '../../components/TuneAdvisory.jsx';
 import { TuningGrid } from '../../components/TuningGrid.jsx';
@@ -49,9 +50,10 @@ import styles from './AirflowScreen.module.css';
  */
 export function AirflowScreen({ veAdvice, veTruth }) {
   const [tune, dispatch] = useTune();
-  const { ve, selection } = tune;
+  const { ve, selection, rangeMode } = tune;
   /** @param {Selection|null} value */
   const setSelection = (value) => dispatch({ type: ACTIONS.SET_TUNE_FIELD, field: 'selection', value });
+  const setRangeMode = (value) => dispatch({ type: ACTIONS.SET_TUNE_FIELD, field: 'rangeMode', value });
   const recalcVE = () => dispatch({ type: ACTIONS.SET_TABLE, table: 've', value: veTruth });
   // A handful of `.some()`-free array reads, no allocation in the hot path —
   // plainly on every render, matching SparkScreen/FuelScreen.
@@ -63,7 +65,8 @@ export function AirflowScreen({ veAdvice, veTruth }) {
         <div className={styles.main}>
           <Eyebrow icon={Grid3x3}>Volumetric Efficiency</Eyebrow>
           <div className={styles.intro}>How completely the cylinder fills at each engine speed and load. Rows are manifold pressure (MAP kPa &mdash; about 100 is wide open, higher is boost); columns are RPM. Tap any cell for reference data.</div>
-          <TuningGrid data={ve} min={10} max={130} decimals={0} selection={selection} setSelection={setSelection} />
+          <SelectModeBar rangeMode={rangeMode} setRangeMode={setRangeMode} setSelection={setSelection} />
+          <TuningGrid data={ve} min={10} max={130} decimals={0} selection={selection} setSelection={setSelection} rangeMode={rangeMode} />
 
           <ExpandableInfo title="What VE actually means">
             VE compares the air trapped in the cylinder to the theoretical maximum the swept volume could hold. It rises with RPM as intake tuning matches resonance, then falls as the valves cannot flow fast enough — that fall is why every N/A engine has a torque peak. More air here means more fuel needed to hit a given AFR and more potential torque; VE is really the master variable, and timing/AFR are how you extract power from whatever air is already there.
@@ -75,7 +78,7 @@ export function AirflowScreen({ veAdvice, veTruth }) {
         </AdvisorPanel>
       </div>
       <div className={styles.spacer} />
-      <SelectionDock data={ve} setData={(value) => dispatch({ type: ACTIONS.SET_TABLE, table: 've', value })} selection={selection} min={10} max={130} decimals={0} unit="%" onClose={() => setSelection(null)} kind="ve" />
+      <SelectionDock data={ve} setData={(value) => dispatch({ type: ACTIONS.SET_TABLE, table: 've', value })} selection={selection} min={10} max={130} decimals={0} unit="%" onClose={() => setSelection(null)} kind="ve" rangeMode={rangeMode} />
     </>
   );
 }

@@ -71,27 +71,60 @@ function cellReference(kind, row, col, value) {
  * @param {string} props.unit
  * @param {() => void} props.onClose
  * @param {'ve'|'timing'|'afr'} props.kind
+ * @param {boolean} [props.rangeMode] whether the grid is taking rectangles rather than
+ *   single cells. The dock only needs it to explain a half-taken range; every EDIT below
+ *   is written against `cellsIn()` and so works the same for one cell or a hundred.
  * @returns {React.ReactElement|null}
  */
-export function SelectionDock({ data, setData, selection, min, max, decimals, unit, onClose, kind }) {
+export function SelectionDock({ data, setData, selection, min, max, decimals, unit, onClose, kind, rangeMode }) {
   if (!selection) return null;
-  let current;
-  if (selection.type === 'cell') current = data[selection.row][selection.col];
-  else if (selection.type === 'row') current = data[selection.row].reduce((a, b) => a + b, 0) / data[selection.row].length;
-  else current = data.reduce((a, r) => a + r[selection.col], 0) / data.length;
+  // Resolve whatever shape the selection has to the list of cells it covers, so every
+  // operation below is written once and works identically for one cell or a hundred.
+  const cellsIn = () => {
+    const out = [];
+    if (selection.type === 'cell') out.push([selection.row, selection.col]);
+    else if (selection.type === 'row') data[selection.row].forEach((_, c) => out.push([selection.row, c]));
+    else if (selection.type === 'col') data.forEach((_, r) => out.push([r, selection.col]));
+    else if (selection.type === 'range') {
+      const [ra, rb] = [Math.min(selection.r1, selection.r2), Math.max(selection.r1, selection.r2)];
+      const [ca, cb] = [Math.min(selection.c1, selection.c2), Math.max(selection.c1, selection.c2)];
+      for (let r = ra; r <= rb; r++) for (let c = ca; c <= cb; c++) out.push([r, c]);
+    }
+    return out;
+  };
+  const cells = cellsIn();
+  const current = cells.reduce((sum, [r, c]) => sum + data[r][c], 0) / Math.max(cells.length, 1);
 
+  /** Adds a fixed amount to every selected cell. */
   const apply = (delta) => {
     const next = clone2D(data);
-    if (selection.type === 'cell') next[selection.row][selection.col] = Number(clamp(next[selection.row][selection.col] + delta, min, max).toFixed(2));
-    else if (selection.type === 'row') next[selection.row] = next[selection.row].map((v) => Number(clamp(v + delta, min, max).toFixed(2)));
-    else next.forEach((r) => { r[selection.col] = Number(clamp(r[selection.col] + delta, min, max).toFixed(2)); });
+    cells.forEach(([r, c]) => { next[r][c] = Number(clamp(next[r][c] + delta, min, max).toFixed(2)); });
+    setData(next);
+  };
+  /**
+   * Scales every selected cell by a percentage. This is the operation a tuner uses most
+   * on a VE table, because airflow error is proportional rather than absolute — a
+   * histogram correction is a percentage, so the edit that answers it should be too.
+   */
+  const scale = (pct) => {
+    const next = clone2D(data);
+    cells.forEach(([r, c]) => { next[r][c] = Number(clamp(next[r][c] * (1 + pct / 100), min, max).toFixed(2)); });
     setData(next);
   };
   const setAbs = (v) => {
     const next = clone2D(data);
-    if (selection.type === 'cell') next[selection.row][selection.col] = clamp(v, min, max);
-    else if (selection.type === 'row') next[selection.row] = next[selection.row].map(() => clamp(v, min, max));
-    else next.forEach((r) => { r[selection.col] = clamp(v, min, max); });
+    cells.forEach(([r, c]) => { next[r][c] = clamp(v, min, max); });
+    setData(next);
+  };
+  /**
+   * Pulls the selection halfway toward its own average. A histogram correction is applied
+   * cell by cell from data that had different sample counts in each, so it can leave
+   * spikes behind; smoothing them out is the same tool real scanners provide.
+   */
+  const smooth = () => {
+    const next = clone2D(data);
+    const avg = cells.reduce((sum, [r, c]) => sum + data[r][c], 0) / Math.max(cells.length, 1);
+    cells.forEach(([r, c]) => { next[r][c] = Number(clamp(data[r][c] * 0.5 + avg * 0.5, min, max).toFixed(2)); });
     setData(next);
   };
   const smallStep = decimals ? 0.1 : 1;
@@ -99,7 +132,13 @@ export function SelectionDock({ data, setData, selection, min, max, decimals, un
   let sel = 'Cell';
   if (selection.type === 'row') sel = `Row · ${LOAD[selection.row]} kPa MAP`;
   else if (selection.type === 'col') sel = `Column · ${RPM[selection.col]} RPM`;
-  else sel = `${RPM[selection.col]} RPM · ${LOAD[selection.row]} kPa MAP`;
+  else if (selection.type === 'range') {
+    const [ra, rb] = [Math.min(selection.r1, selection.r2), Math.max(selection.r1, selection.r2)];
+    const [ca, cb] = [Math.min(selection.c1, selection.c2), Math.max(selection.c1, selection.c2)];
+    sel = selection.complete
+      ? `${cells.length} cells · ${RPM[ca]}-${RPM[cb]} RPM · ${LOAD[rb]}-${LOAD[ra]} kPa`
+      : 'Tap a second cell to complete the range';
+  } else sel = `${RPM[selection.col]} RPM · ${LOAD[selection.row]} kPa MAP`;
 
   return (
     <div data-testid="selection-dock" style={{ position: 'sticky', bottom: 0, background: T.panel, borderTop: `1px solid ${T.line}`, padding: '11px 14px 13px', boxShadow: `0 -8px 20px ${shadowAlpha(0.45)}` }}>
@@ -137,6 +176,23 @@ export function SelectionDock({ data, setData, selection, min, max, decimals, un
           }}>{d > 0 ? '+' : ''}{d}</button>
         ))}
       </div>
+      <div style={{ display: 'flex', gap: 7, marginTop: 7 }}>
+        {[-5, -2, 2, 5].map((pct) => (
+          <button key={pct} onClick={() => scale(pct)} style={{
+            flex: 1, padding: '10px 0', borderRadius: 8, border: `1px solid ${T.line}`, background: T.panel,
+            color: pct < 0 ? T.accInk : T.cyan, fontWeight: 800, fontFamily: T.mono, fontSize: 12,
+          }}>{pct > 0 ? '+' : ''}{pct}%</button>
+        ))}
+        <button onClick={smooth} style={{
+          flex: 1, padding: '10px 0', borderRadius: 8, border: `1px solid ${T.line}`, background: T.panel,
+          color: T.violet, fontWeight: 800, fontSize: 11,
+        }}>SMOOTH</button>
+      </div>
+      {rangeMode && selection.type === 'range' && !selection.complete && (
+        <div style={{ fontSize: 10.5, color: T.ink3, marginTop: 7 }}>
+          Anchor set. Tap the opposite corner to select everything between.
+        </div>
+      )}
     </div>
   );
 }

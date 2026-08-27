@@ -50,7 +50,9 @@ afterEach(cleanup);
 /** Renders the app and clicks past the start screen into the build tab. */
 function launch() {
   const view = render(<EcuLab />);
-  fireEvent.click(screen.getByRole('button', { name: 'START' }));
+  // The start screen offers CAREER, SANDBOX and TUTORIAL on this branch rather than a
+  // single START. SANDBOX is the free-play entry the old button was.
+  fireEvent.click(screen.getByRole('button', { name: 'SANDBOX' }));
   return view;
 }
 
@@ -66,10 +68,13 @@ function presetPicker() {
 describe('entry', () => {
   it('opens on the start screen', () => {
     render(<EcuLab />);
-    expect(screen.getByRole('button', { name: 'START' })).toBeTruthy();
+    // Three ways in, not one: a career of customer cars, free play, and the tutorial.
+    for (const way of ['CAREER', 'SANDBOX', 'TUTORIAL']) {
+      expect(screen.getByRole('button', { name: way })).toBeTruthy();
+    }
   });
 
-  it('enters the app on START and lands on BUILD', () => {
+  it('enters the app on SANDBOX and lands on BUILD', () => {
     launch();
     expect(screen.getByRole('button', { name: /BUILD/ })).toBeTruthy();
   });
@@ -84,9 +89,9 @@ describe('entry', () => {
 });
 
 describe('navigation', () => {
-  it('moves between the four tabs', () => {
+  it('moves between the five tabs', () => {
     launch();
-    // The bottom-nav buttons (HOME/BUILD/TUNE/DYNO) are rendered unconditionally —
+    // The bottom-nav buttons (HOME/BUILD/TUNE/LIVE/DYNO) are rendered unconditionally —
     // only their active styling changes — so re-querying for the clicked button by
     // name proves nothing about whether the click actually switched tabs; it would
     // pass even if the tab body never moved. Assert on a marker that only exists
@@ -94,10 +99,13 @@ describe('navigation', () => {
     const marker = {
       TUNE: () => screen.getByRole('button', { name: 'AIRFLOW' }), // TUNE_VIEWS sub-tab
       DYNO: () => screen.getByRole('button', { name: 'RUN DYNO PULL' }),
-      HOME: () => screen.getByText('Live Engine'),
+      // The live engine is its own tab now, so HOME's marker is the jobs board it
+      // opens on and LIVE's is the panel that moved there.
+      LIVE: () => screen.getByText('Live Engine'),
+      HOME: () => screen.getByText('Customer Cars'),
       BUILD: () => screen.getByText('Garage'),
     };
-    for (const tab of ['TUNE', 'DYNO', 'HOME', 'BUILD']) {
+    for (const tab of ['TUNE', 'DYNO', 'LIVE', 'HOME', 'BUILD']) {
       fireEvent.click(screen.getByRole('button', { name: tab }));
       expect(marker[tab]()).toBeTruthy();
     }
