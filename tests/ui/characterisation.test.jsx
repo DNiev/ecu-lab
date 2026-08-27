@@ -27,7 +27,7 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-li
 import React from 'react';
 import { afterAll, afterEach, describe, expect, it } from 'vitest';
 
-import EcuLab from '../../src/ui/EcuLab.jsx';
+import EcuLab, { DYNO_PULL_MS } from '../../src/ui/EcuLab.jsx';
 
 // jsdom has no ResizeObserver. recharts' <ResponsiveContainer> (used on the DYNO
 // results panel) needs one to mount at all, so without this stub any test that
@@ -191,5 +191,5 @@ describe('running a dyno pull', () => {
       () => expect(screen.getByRole('button', { name: 'RUN DYNO PULL' })).toBeTruthy(),
       { timeout: 10000 },
     );
-  });
+  }, DYNO_PULL_MS + 4000);
 });

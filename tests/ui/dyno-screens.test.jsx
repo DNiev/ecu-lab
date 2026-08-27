@@ -25,7 +25,7 @@ import { ResultScreen } from '../../src/ui/screens/dyno/ResultScreen.jsx';
 import { ScoreScreen } from '../../src/ui/screens/dyno/ScoreScreen.jsx';
 import { ACTIONS } from '../../src/ui/state/reducer.js';
 import { StoreProvider, useSession } from '../../src/ui/state/StoreProvider.jsx';
-import EcuLab from '../../src/ui/EcuLab.jsx';
+import EcuLab, { DYNO_PULL_MS } from '../../src/ui/EcuLab.jsx';
 
 // jsdom has no ResizeObserver. recharts' <ResponsiveContainer> (ResultScreen's two
 // charts) needs one to mount at all. Same stub as characterisation.test.jsx.
@@ -257,5 +257,8 @@ describe('DYNO while a pull is running', () => {
       () => expect(screen.getByRole('button', { name: 'RUN DYNO PULL' })).toBeTruthy(),
       { timeout: 10000 },
     );
-  });
+    // TWO whole pulls, and a pull now runs settle -> sweep -> spooldown -> rest, which
+    // outlasts the runner's default per-test timeout. Named from the sequence itself so
+    // retiming it cannot silently break this.
+  }, DYNO_PULL_MS * 2 + 6000);
 });

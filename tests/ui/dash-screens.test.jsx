@@ -43,7 +43,7 @@ describe('LiveScreen', () => {
     mount(
       <LiveScreen
         active onToggle={noop} tachFullScaleRpm={7500}
-        onStart={noop} onStop={noop} onToggleSound={noop} onThrottle={noop}
+        onStart={noop} onStop={noop} onToggleSound={noop} onTestSound={noop} onThrottle={noop}
       />,
     );
     // The engine's own state machine, straight from `session.live`: nothing above this
@@ -61,7 +61,7 @@ describe('LiveScreen', () => {
     mount(
       <LiveScreen
         active={false} onToggle={onToggle} tachFullScaleRpm={7500}
-        onStart={noop} onStop={noop} onToggleSound={noop} onThrottle={noop}
+        onStart={noop} onStop={noop} onToggleSound={noop} onTestSound={noop} onThrottle={noop}
       />,
     );
     fireEvent.click(screen.getByText('Live Engine'));
@@ -73,7 +73,7 @@ describe('LiveScreen', () => {
     mount(
       <LiveScreen
         active onToggle={noop} tachFullScaleRpm={7500}
-        onStart={noop} onStop={noop} onToggleSound={noop} onThrottle={onThrottle}
+        onStart={noop} onStop={noop} onToggleSound={noop} onTestSound={noop} onThrottle={onThrottle}
       />,
     );
     const pad = screen.getByText('START THE ENGINE FIRST').parentElement;

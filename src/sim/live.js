@@ -32,6 +32,22 @@ export const STALL_RPM = 380;
 export const REDLINE_CUT = 7600;
 /** How far past the redline the limiter cuts fuel. */
 export const LIMITER_OVERSHOOT_RPM = 100;
+/**
+ * Below this crank speed a crank sensor produces no usable signal, so the ECU reports
+ * zero rather than a small number, RPM.
+ *
+ * A variable-reluctance pickup's output voltage is proportional to how fast a tooth goes
+ * past it; with nothing turning there are no teeth and no signal, and reading noise off a
+ * stationary crank is not a measurement. Without this the tachometer sat at about 28 RPM
+ * for ever after the engine was switched off, which is what a stopped engine looked like:
+ * still running.
+ *
+ * Here rather than in COEFF deliberately. The fingerprint hashes COEFF whole, so a
+ * coefficient added there moves the fixture even when — as here — it cannot move a single
+ * dyno figure. This is a property of the tachometer, it sits with the rest of the live
+ * model's own constants above, and the gate stays meaningful.
+ */
+export const CRANK_SENSOR_MIN_RPM = 30;
 
 /**
  * A simulated sensor: real ones are noisy and lag behind the true value.
@@ -246,7 +262,14 @@ export function liveStep(st, dt, input, cfg) {
   const lag = clamp(dt / 0.09, 0, 1);
   const lopeAmp = s.running && s.rpm < 1500 ? (derived.overlapDeg || 0) * 0.9 : 0;
   s.lope = lopeAmp;
-  s.sensedRpm = sensorRead(s.sensedRpm, s.rpm, lag, 14 + lopeAmp);
+  // A CRANK SENSOR THAT IS NOT TURNING READS ZERO, and reads it exactly. Everything else
+  // here is a real transducer with lag and noise, but a stationary crank presents no teeth
+  // to the pickup, so there is no signal to be noisy — the ECU sees no pulses and reports
+  // no speed. Left as a noisy reading it never settled, and a switched-off engine showed a
+  // tachometer wandering around 28 RPM for as long as you cared to watch it.
+  s.sensedRpm = s.rpm < CRANK_SENSOR_MIN_RPM
+    ? 0
+    : sensorRead(s.sensedRpm, s.rpm, lag, 14 + lopeAmp);
   s.sensedMaf = sensorRead(s.sensedMaf, pt ? pt.maf : 0, lag * 0.8, 1.4);
   s.sensedMap = sensorRead(s.sensedMap, pt ? pt.map : BARO_KPA, lag, 0.7);
   s.sensedIat = sensorRead(s.sensedIat, pt ? pt.iat : 25, 0.05, 0.3);

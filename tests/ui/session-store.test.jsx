@@ -27,7 +27,7 @@ import React from 'react';
 import { afterAll, afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { loadCareer } from '../../src/storage.js';
-import EcuLab, { EcuLabApp } from '../../src/ui/EcuLab.jsx';
+import EcuLab, { DYNO_PULL_MS, EcuLabApp } from '../../src/ui/EcuLab.jsx';
 import { StoreProvider, useSession } from '../../src/ui/state/StoreProvider.jsx';
 import { ACTIONS } from '../../src/ui/state/reducer.js';
 
@@ -232,7 +232,7 @@ describe('the live engine', () => {
 });
 
 describe('running a dyno pull', () => {
-  it('flips the button to SWEEPING… and sweeps the tach to the top of the run', async () => {
+  it('flips the button through the pull phases and sweeps the tach to the top of the run', async () => {
     // Two session writes nothing else pins. `running` is only legible as the RUN
     // button's label while the sweep is live — characterisation.test.jsx waits for the
     // idle label to come BACK, which a permanently-idle button satisfies immediately.
@@ -244,7 +244,12 @@ describe('running a dyno pull', () => {
     expect(tachReading()).toBe(1500);
 
     fireEvent.click(screen.getByRole('button', { name: 'RUN DYNO PULL' }));
-    expect(screen.getByRole('button', { name: 'SWEEPING…' })).toBeTruthy();
+    // A pull opens by holding idle before it loads, so this is the first phase label.
+    expect(screen.getByRole('button', { name: 'IDLING…' })).toBeTruthy();
+    await waitFor(
+      () => expect(screen.getByRole('button', { name: 'SWEEPING…' })).toBeTruthy(),
+      { timeout: DYNO_PULL_MS },
+    );
 
     await waitFor(
       () => expect(screen.getByRole('button', { name: 'RUN DYNO PULL' })).toBeTruthy(),
@@ -253,7 +258,10 @@ describe('running a dyno pull', () => {
     // The reveal ran to the end of the sweep, so the needle is up at the last logged
     // point rather than still on the first one.
     expect(tachReading()).toBeGreaterThan(1500);
-  });
+    // A whole pull now runs settle -> sweep -> spooldown -> rest, which outlasts the
+    // runner's default per-test timeout — hence the explicit budget, named from the
+    // sequence itself so retiming the pull cannot silently break this.
+  }, DYNO_PULL_MS + 4000);
 
   it('puts the histogram controls away once the correction is applied', async () => {
     // `applyHistogram` clears `histogram` after writing the VE table. Drop that write
@@ -276,7 +284,7 @@ describe('running a dyno pull', () => {
 
     expect(screen.queryByRole('button', { name: 'APPLY CORRECTIONS TO VE' })).toBeNull();
     expect(screen.getByRole('button', { name: 'BUILD HISTOGRAM FROM THIS PULL' })).toBeTruthy();
-  });
+  }, DYNO_PULL_MS + 4000);
 
   it('resets the tach to the start of the sweep when a second pull begins', async () => {
     // `doRun` (EcuLab.jsx:846) dispatches `revealCount: 0` before the reveal interval
@@ -311,7 +319,7 @@ describe('running a dyno pull', () => {
     // frame of the second pull — waiting for anything would let the 55 ms interval
     // catch up and paper over exactly the flash a player would see.
     expect(tachReading()).toBeLessThan(afterFirstPull);
-  });
+  }, DYNO_PULL_MS + 4000);
 });
 
 /**
@@ -417,7 +425,7 @@ describe('banking a pull', () => {
     expect(saved.pulls).toBe(1);
     expect(saved.total).toBeGreaterThan(0);
     expect(saved.best).toBe(saved.total);
-  });
+  }, DYNO_PULL_MS + 4000);
 });
 
 describe('career stats saved from a previous session', () => {

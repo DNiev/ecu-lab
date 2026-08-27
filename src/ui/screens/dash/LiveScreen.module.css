@@ -70,6 +70,48 @@
   color: var(--acc-ink);
 }
 
+/* --- volume and the audio self-test ------------------------------------- */
+
+.volume {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.volumeLabel {
+  font-size: var(--fs-xs);
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  color: var(--ink2);
+}
+
+.volumeSlider {
+  flex: 1;
+  accent-color: var(--acc);
+}
+
+/* Fixed width and right-aligned so the track does not jump as the figure goes from
+   two digits to three. */
+.volumeValue {
+  width: 34px;
+  font-family: var(--mono);
+  font-size: var(--fs-sm);
+  color: var(--ink2);
+  text-align: right;
+}
+
+/* A verdict, so it takes a status colour: `ok` is the only good outcome, and both
+   failures are things the player can act on rather than errors. */
+.audioStatus {
+  margin-top: 8px;
+  font-size: var(--fs-sm);
+  line-height: 1.5;
+  color: var(--warn);
+}
+
+.audioStatus[data-ok='true'] { color: var(--ok); }
+
 /* --- throttle pad ------------------------------------------------------- */
 
 .pad {

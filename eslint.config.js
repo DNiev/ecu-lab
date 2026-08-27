@@ -27,6 +27,8 @@ export default [
         Float32Array: 'readonly',
         process: 'readonly',
         URL: 'readonly',
+        Blob: 'readonly',
+        AudioWorkletNode: 'readonly',
       },
     },
     plugins: { react, 'react-hooks': reactHooks },

@@ -21,6 +21,7 @@ import { Button } from '../../primitives/Button.jsx';
 import { DialMark } from '../../components/DialMark.jsx';
 import { ExpandableInfo } from '../../components/ExpandableInfo.jsx';
 import { Panel } from '../../primitives/Panel.jsx';
+import { ACTIONS } from '../../state/reducer.js';
 import { useSession } from '../../state/StoreProvider.jsx';
 import { T } from '../../theme.js';
 
@@ -90,12 +91,13 @@ function TrimBar({ label, value }) {
  * @param {() => void} props.onStart
  * @param {() => void} props.onStop
  * @param {() => void} props.onToggleSound
+ * @param {() => void} props.onTestSound plays one note through the engine's own graph
  * @param {(percent: number) => void} props.onThrottle driver throttle input, 0 or 100
  * @returns {React.ReactElement}
  */
-export function LiveScreen({ active, onToggle, tachFullScaleRpm, onStart, onStop, onToggleSound, onThrottle }) {
-  const [session] = useSession();
-  const { soundOn, throttleInput } = session;
+export function LiveScreen({ active, onToggle, tachFullScaleRpm, onStart, onStop, onToggleSound, onTestSound, onThrottle }) {
+  const [session, dispatch] = useSession();
+  const { soundOn, throttleInput, volume, audioStatus } = session;
   // `SessionState.live` is typed `object` because the live model it holds is built in
   // src/sim/live.js, which has no typedef to point at and which this PR may not touch.
   // One cast here, named and explained, rather than a suppression on each of the
@@ -139,6 +141,11 @@ export function LiveScreen({ active, onToggle, tachFullScaleRpm, onStart, onStop
                 style={{ flex: 1 }}
                 onClick={live.running || live.cranking ? onStop : onStart}
               >{live.running || live.cranking ? 'STOP' : 'START ENGINE'}</Button>
+              {/* Plays one note through the same graph the engine uses, so a player
+                  whose browser has blocked audio finds out here rather than by
+                  wondering why a running engine is silent. `ghost` for the same
+                  reason STOP is: it is a secondary action. */}
+              <Button variant="ghost" title="Test sound" onClick={onTestSound}>TEST</Button>
               <button
                 className={styles.sound}
                 data-on={soundOn ? 'true' : 'false'}
@@ -162,6 +169,31 @@ export function LiveScreen({ active, onToggle, tachFullScaleRpm, onStart, onStop
             {!live.running ? 'START THE ENGINE FIRST' : throttleInput > 0 ? 'WIDE OPEN THROTTLE' : 'PRESS AND HOLD TO REV'}
           </span>
         </div>
+
+        {/* An engine is the loudest thing in the app and the one a player is most
+            likely to want turned down without turning off. It writes the same session
+            field the waveguide's output trim reads. */}
+        <div className={styles.volume}>
+          <span className={styles.volumeLabel}>VOL</span>
+          <input
+            type="range" min={0} max={2} step={0.05} value={volume}
+            onChange={(e) => dispatch({ type: ACTIONS.SET_SESSION_FIELD, field: 'volume', value: Number(e.target.value) })}
+            aria-label="Engine volume"
+            className={styles.volumeSlider}
+          />
+          <span className={styles.volumeValue}>{Math.round(volume * 100)}%</span>
+        </div>
+
+        {audioStatus && (
+          <div className={styles.audioStatus} data-ok={audioStatus === 'ok' ? 'true' : 'false'}>
+            {audioStatus === 'ok'
+              ? 'Audio is running. If you heard the test beep but not the engine, start it and hold the throttle.'
+              : audioStatus === 'blocked'
+                ? 'The browser is still blocking audio — tap START, or any tab, then try TEST again.'
+                : 'This browser did not provide Web Audio, so engine sound is unavailable.'}
+            <br />On iPhone the physical ring/silent switch mutes web audio even at full volume.
+          </div>
+        )}
 
         <div className={`${styles.gaugeRow} ${styles.gaugeRowFirst}`}>
           <LiveGauge label="MAF" value={live.sensedMaf.toFixed(1)} unit="g/s" color={T.cyan} />

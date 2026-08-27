@@ -13,6 +13,13 @@
  * declared, so MOVING a coefficient fails the fingerprint exactly as if you had changed
  * its value. Add new keys at the end of their section; do not reshuffle.
  *
+ * ONE DELIBERATE EXCEPTION. The sound model's calibration lives in `ACOUSTIC`, in
+ * `acoustics.js`, not here. Its numbers cannot move a single dyno figure, but this object
+ * is hashed WHOLE by the fingerprint — so putting them here would demand a fixture update
+ * on a change that altered nothing measurable, and that is how a regression gate gets
+ * updated without being read. The rule those numbers still follow is this file's real
+ * one: named, explained, and never bare in a formula.
+ *
  * Changing anything here will move the dyno numbers, which means the behavioural
  * fingerprint tests in `tests/` will fail. That is intentional: review the diff,
  * confirm the new numbers are what you meant, then refresh the fixture with

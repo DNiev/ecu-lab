@@ -27,7 +27,7 @@ import {
   applyPreset, computeHardwareVE, turbineWithCount,
 } from '../../src/sim/index.js';
 import { LOAD, RPM } from '../../src/sim/tables.js';
-import EcuLab, { EcuLabApp } from '../../src/ui/EcuLab.jsx';
+import EcuLab, { DYNO_PULL_MS, EcuLabApp } from '../../src/ui/EcuLab.jsx';
 import { Bar } from '../../src/ui/primitives/Bar.jsx';
 import { StoreProvider, useBuild, useTune } from '../../src/ui/state/StoreProvider.jsx';
 import { ACTIONS } from '../../src/ui/state/reducer.js';
@@ -454,7 +454,7 @@ describe('applying a fuel-trim histogram', () => {
     fireEvent.click(applyBtn);
 
     expect(tune.ve).not.toEqual(veBefore);
-  });
+  }, DYNO_PULL_MS + 4000);
 });
 
 describe('choosing Custom build from the preset picker', () => {

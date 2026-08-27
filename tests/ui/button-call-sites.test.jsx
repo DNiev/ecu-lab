@@ -25,7 +25,7 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-li
 import React from 'react';
 import { afterAll, afterEach, describe, expect, it } from 'vitest';
 
-import EcuLab from '../../src/ui/EcuLab.jsx';
+import EcuLab, { DYNO_PULL_MS } from '../../src/ui/EcuLab.jsx';
 import styles from '../../src/ui/primitives/Button.module.css';
 
 // jsdom has no ResizeObserver, and the sweep runs a dyno pull — whose result panel
@@ -123,10 +123,14 @@ async function sweep() {
   clickButton('RUN DYNO PULL');
   collect();
   // `disabled={running}` is the entire mechanism behind the disabled-state
-  // contrast fix, and losing it also lets a second pull fire mid-sweep. The
-  // label switches to SWEEPING… while running, so query for that.
-  expect(/** @type {HTMLButtonElement} */ (screen.getByRole('button', { name: 'SWEEPING…' })).disabled).toBe(true);
-  await waitFor(() => expect(screen.getByRole('button', { name: 'DATALOG' })).toBeTruthy(), { timeout: 5000 });
+  // contrast fix, and losing it also lets a second pull fire mid-sweep. The label
+  // names the PHASE while running, and a pull opens by holding idle, so the first
+  // label after the click is IDLING… rather than SWEEPING….
+  expect(/** @type {HTMLButtonElement} */ (screen.getByRole('button', { name: 'IDLING…' })).disabled).toBe(true);
+  // A pull now runs settle -> sweep -> spooldown -> rest, so the wait is named from the
+  // sequence rather than carrying a number that has to be remembered if it is retimed.
+  await waitFor(() => expect(screen.getByRole('button', { name: 'DATALOG' })).toBeTruthy(),
+    { timeout: DYNO_PULL_MS + 2000 });
   clickButton('DATALOG');
   collect();
   clickButton('BUILD HISTOGRAM FROM THIS PULL'); // mounts APPLY CORRECTIONS / DISCARD
@@ -146,7 +150,7 @@ function variantsOn(el) {
 // below would go on passing over the shorter list.
 const EXPECTED = [
   'SKIP GUIDE', 'RESET ALL TO STOCK', 'FLAT ACROSS ALL', 'SPOOL RAMP', 'ZERO',
-  'ACCEPT RE-LOGGED VALUES', 'DONE', 'RESCALE ECU TO', 'STOP', 'RUN DYNO PULL',
+  'ACCEPT RE-LOGGED VALUES', 'DONE', 'RESCALE ECU TO', 'STOP', 'TEST', 'RUN DYNO PULL',
   'BUILD HISTOGRAM FROM THIS PULL', 'APPLY CORRECTIONS TO VE', 'DISCARD',
 ];
 

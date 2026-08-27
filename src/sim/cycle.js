@@ -52,8 +52,14 @@ import { BARO_KPA, KPA_PER_BAR, R_AIR } from './constants.js';
 import { clamp } from './math.js';
 import { evaporativeCoolingK, residualFraction, trappedChargeK } from './thermo.js';
 
-/** Crank angle at which the exhaust valve opens, degrees after TDC firing. */
-const EVO_ATDC = 180 - 50;
+/**
+ * Crank angle at which the exhaust valve opens, degrees after TDC firing.
+ *
+ * Exported because the acoustics model needs the same angle: the exhaust note is the
+ * blowdown pulse that starts here, and two files holding their own idea of when the
+ * valve cracks would drift apart silently.
+ */
+export const EVO_ATDC = 180 - 50;
 
 /**
  * Cylinder volume at a crank angle, from the slider-crank geometry.
