@@ -733,7 +733,7 @@ describe('ResultScreen event bands', () => {
         <ResultScreen chartData={CHART} engineDerived={{ redline: 7000 }} bands={BANDS} wholePullCount={0} onSelectRpm={() => {}} />
       </StoreProvider>,
     );
-    expect(screen.queryByRole('button', { name: /apply to the whole pull/ })).toBe(null);
+    expect(screen.queryByRole('button', { name: /to the whole pull/ })).toBe(null);
   });
 
   it('sends null when the whole-pull note is activated', () => {
@@ -847,5 +847,71 @@ describe('ResultScreen chart click (mouse)', () => {
       expect(rpm).toBeGreaterThanOrEqual(4200);
       expect(rpm).toBeLessThanOrEqual(5100);
     }
+  });
+});
+
+// ---------------------------------------------------------------------------------
+// The shell-level half of the bands feature, which nothing above this point covers:
+// `bands` and `wholePullCount` are memoised on `result`, and `result` is banked at
+// sweep START, not at its end. So during the reveal the store already holds the NEXT
+// pull's findings while the chart has drawn none of its trace — every band would paint
+// over an empty plot area, and a click on one would navigate to a log that is itself
+// gated on `!running`. EcuLab.jsx passes `running ? [] : bands` for exactly that, and
+// deleting the guard leaves every other test in this file green.
+// ---------------------------------------------------------------------------------
+describe('DYNO event bands during the reveal', () => {
+  const RESULT_WITH_EVENTS = {
+    peakHp: 300, peakTq: 280,
+    points: [
+      { rpm: 1500, hp: 100, torque: 200 }, { rpm: 4200, hp: 240, torque: 260 },
+      { rpm: 5100, hp: 280, torque: 270 }, { rpm: 7000, hp: 300, torque: 240 },
+    ],
+    events: [
+      { type: 'knock', severity: 3, msg: 'Knock across 4200-5100', rpmStart: 4200, rpmEnd: 5100 },
+      { type: 'injscale', severity: 2, msg: 'Injectors scaled wrong' },
+    ],
+  };
+
+  /**
+   * Mounts the whole shell on DYNO > CURVES with a banked result already in the store,
+   * and `running` set either way. Seeds `running` in the SAME dispatch batch as
+   * `result`, so neither half can be read from a state the other has not reached yet.
+   * @param {boolean} running
+   * @returns {ReturnType<typeof render>}
+   */
+  function mountDynoWith(running) {
+    let dispatch;
+    const utils = render(
+      <StoreProvider>
+        <Capture onDispatch={(d) => { dispatch = d; }} />
+        <EcuLabApp />
+      </StoreProvider>,
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'START' }));
+    fireEvent.click(screen.getByRole('button', { name: /DYNO/ }));
+    act(() => {
+      dispatch({ type: ACTIONS.SET_SESSION_FIELD, field: 'result', value: RESULT_WITH_EVENTS });
+      dispatch({ type: ACTIONS.SET_SESSION_FIELD, field: 'revealCount', value: 0 });
+      dispatch({ type: ACTIONS.SET_SESSION_FIELD, field: 'running', value: running });
+    });
+    return utils;
+  }
+
+  it('draws no band and no whole-pull note while the sweep is revealing', () => {
+    const { container } = mountDynoWith(true);
+    // CURVES is on screen — this is the gate under test failing to hide the charts,
+    // not the charts being absent for some unrelated reason.
+    expect(screen.getByText('POWER & TORQUE')).toBeTruthy();
+    expect(container.querySelectorAll('rect[data-tone]')).toHaveLength(0);
+    expect(screen.queryByRole('button', { name: /to the whole pull/ })).toBeNull();
+  });
+
+  it('draws them once the sweep has finished — the same result, the same store', () => {
+    // The other direction, and the only thing that differs between the two is
+    // `running`. Without this half, a `bands={[]}` that never passed anything through
+    // would pass the test above.
+    const { container } = mountDynoWith(false);
+    expect(container.querySelectorAll('rect[data-tone="danger"]')).toHaveLength(2);
+    expect(screen.getByRole('button', { name: /1 finding applies to the whole pull/ })).toBeTruthy();
   });
 });

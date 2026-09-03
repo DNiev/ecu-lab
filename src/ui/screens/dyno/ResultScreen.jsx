@@ -181,7 +181,11 @@ export function ResultScreen({ chartData, engineDerived, ghostLabel, bands = [],
 
       {wholePullCount > 0 && (
         <button type="button" className={styles.wholePull} onClick={() => onSelectRpm(null)}>
-          {wholePullCount} finding{wholePullCount === 1 ? '' : 's'} apply to the whole pull — open the log
+          {/* The verb agrees as well as the noun: pluralising only `finding` left
+              the singular reading "1 finding apply to the whole pull". */}
+          {wholePullCount === 1
+            ? '1 finding applies to the whole pull — open the log'
+            : `${wholePullCount} findings apply to the whole pull — open the log`}
         </button>
       )}
     </>
