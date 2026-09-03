@@ -204,3 +204,95 @@ describe('computeEngineerScore static compression under boost', () => {
     expect(hit(at(11.5, { fuel: P93, mods: COOLED }))).toBeUndefined();
   });
 });
+
+/**
+ * Issue #25: the compression rule gated on WHETHER there was boost but ignored HOW MUCH.
+ * Boost level is the single largest determinant of whether high static compression
+ * survives, and the rule was responding only to octane and charge cooling — the second
+ * and third most important variables. A 5 psi build and a 25 psi build scored identically.
+ */
+describe('computeEngineerScore compression headroom vs boost level', () => {
+  const cooled = { ...S.DEFAULT_MODS, intercooler: true };
+
+  const at = (psi, compression, fuel = S.OCTANE_OPTS[3]) => S.computeEngineerScore({
+    engineConfig: { ...S.DEFAULT_ENGINE_CONFIG, compression, headMaterial: 'Aluminum' },
+    turboOn: true, peakBoostPsi: psi,
+    turbine: S.TURBINE_OPTS[1], compressor: S.COMPRESSOR_OPTS[1],
+    exhaustDiaError: 0, dutyPreview: 80, displacementL: 3.5, fuel, mods: cooled,
+  });
+
+  it('charges more for the same compression as boost rises past the reference', () => {
+    const low = at(5, 13.0).score;
+    const mid = at(18, 13.0).score;
+    const high = at(25, 13.0).score;
+    expect(mid).toBeLessThan(low);
+    expect(high).toBeLessThan(mid);
+  });
+
+  it('never makes a below-reference build more permissive than it was', () => {
+    // The term is one-sided on purpose. Everything at or under the factory band is judged
+    // exactly as before, so this change can only ever tighten a verdict, never loosen one.
+    for (const psi of [1, 5, 10, 14]) {
+      expect(at(psi, 13.0).score).toBe(at(14, 13.0).score);
+    }
+  });
+
+  it('is the issue\'s own example: 13.0:1 on E85 no longer grades the same at 5 and 25 psi', () => {
+    const penalty = (psi) => at(psi, 13.0).deductions
+      .find((d) => /static compression/.test(d));
+    // Both are charged — 13.0:1 is a lot even on E85 — but the 25 psi build is charged
+    // far more, where before the two were graded identically.
+    expect(at(5, 13.0).score).toBeGreaterThan(at(25, 13.0).score);
+    expect(penalty(5)).toBeDefined();
+    expect(penalty(25)).toBeDefined();
+  });
+
+  it('leaves every shipped factory engine unpenalised', () => {
+    // The constraint that fixes the coefficient. These are real engines sold with these
+    // compression ratios at these boost levels, so the rule must not call any of them
+    // incoherent — the tightest is the B58 at 11.0:1 and 17 psi.
+    for (const preset of S.ENGINE_PRESETS) {
+      const p = S.applyPreset(preset);
+      if (!p.turboOn) continue;
+      const r = S.computeEngineerScore({
+        engineConfig: p.engineConfig, turboOn: true,
+        peakBoostPsi: Math.max(...p.boostCurve),
+        turbine: S.presetTurbine(preset), compressor: S.COMPRESSOR_OPTS[p.compressorIdx],
+        exhaustDiaError: 0, dutyPreview: 80,
+        displacementL: S.deriveEngine(p.engineConfig).displacementL,
+        fuel: S.OCTANE_OPTS[p.octaneIdx], mods: p.mods,
+      });
+      expect(
+        r.deductions.filter((d) => /static compression/.test(d)),
+        `${preset.id} was penalised for its factory compression`,
+      ).toHaveLength(0);
+    }
+  });
+
+  it('only suggests levers the build has not already pulled', () => {
+    // On E85 with an intercooler there is no more octane and no more charge cooling to
+    // buy, so saying otherwise is advice nobody can act on.
+    const d = at(25, 13.0).deductions.find((x) => /static compression/.test(x));
+    expect(d).not.toMatch(/higher octane/);
+    expect(d).not.toMatch(/charge cooling/);
+    expect(d).toMatch(/less boost/);
+  });
+
+  it('still offers octane when the build is on pump fuel', () => {
+    const d = at(25, 13.0, S.OCTANE_OPTS[0]).deductions.find((x) => /static compression/.test(x));
+    expect(d).toMatch(/higher octane/);
+  });
+
+  it('does not offer less boost to a build the boost term is not charging', () => {
+    // The term is one-sided, so at or under the reference turning the boost down buys
+    // back exactly nothing. Offering it there is the same fault as telling an E85 build
+    // to find higher octane: a lever that moves and changes no number.
+    const under = at(10, 13.0).deductions.find((x) => /static compression/.test(x));
+    expect(under).toBeDefined();
+    expect(under).not.toMatch(/less boost/);
+    expect(under).toMatch(/less static compression/);
+    // And it IS offered once the build is past the reference and being charged for it.
+    expect(at(25, 13.0).deductions.find((x) => /static compression/.test(x)))
+      .toMatch(/less boost than 25 psi/);
+  });
+});

@@ -953,8 +953,9 @@ describe('the spark advisor', () => {
     const over = ids(a.overAdvanced), past = ids(a.pastMbt);
     for (const id of over) expect(past.has(id)).toBe(false);
     // And every cell the advisor says has too much advance lands in exactly one of
-    // them, so nothing over a ceiling can go unreported.
-    const tooMuch = a.spark.filter((c) => c.delta < -1.0);
+    // them, so nothing over a ceiling can go unreported. Bracket rows are excluded:
+    // they are advised but never classified, because the engine cannot reach them.
+    const tooMuch = a.spark.filter((c) => !c.bracketOnly && c.delta < -1.0);
     expect(over.size + past.size).toBe(tooMuch.length);
   });
 
@@ -1024,11 +1025,22 @@ describe('the spark advisor', () => {
     // A turbo build never sees 200 kPa at 800 RPM. Those cells sit at the spark table's
     // 5 degree floor and their knock ceiling at idle speed is near zero, so judging them
     // reported the factory table as detonating at an impossible operating point.
+    //
+    // "Judging" means CLASSIFYING. A row immediately above the highest pressure the
+    // engine reaches is now advised, because `interp2` blends into it and the number in
+    // it is therefore genuinely in force (#43) — but it is marked `bracketOnly` and
+    // deliberately kept out of every fault list, which is what this test is protecting.
     const golfR = S.ENGINE_PRESETS.find((p) => p.id === 'ea888-r');
     const p = S.applyPreset(golfR);
-    const idleAtFullBoost = factoryAdvice(golfR).spark
-      .filter((c) => c.rpm === 800 && c.map > S.BARO_KPA + Math.min(...p.boostCurve) * S.PSI_TO_KPA);
-    expect(idleAtFullBoost).toHaveLength(0);
+    const unreachable = (c) => c.rpm === 800
+      && c.map > S.BARO_KPA + Math.min(...p.boostCurve) * S.PSI_TO_KPA;
+    const a = factoryAdvice(golfR);
+    expect(a.overAdvanced.filter(unreachable)).toHaveLength(0);
+    expect(a.pastMbt.filter(unreachable)).toHaveLength(0);
+    expect(a.underAdvanced.filter(unreachable)).toHaveLength(0);
+    expect(a.wrongMix.filter(unreachable)).toHaveLength(0);
+    // Anything that IS reported at those cells is advice-only, by construction.
+    expect(a.spark.filter(unreachable).every((c) => c.bracketOnly)).toBe(true);
   });
 
   it('still catches a fuel table that is genuinely off, and by the right amount', () => {
@@ -1060,6 +1072,111 @@ describe('the spark advisor', () => {
     expect(after.overAdvanced).toHaveLength(0);
     expect(after.pastMbt).toHaveLength(0);
     expect(after.underAdvanced).toHaveLength(0);
+  });
+});
+
+/**
+ * THE ADVICE HAS TO SURVIVE BEING READ BY INTERPOLATION.
+ *
+ * Issue #43. The advisor grades each cell at its row pressure, but the sweep reads the
+ * table at whatever manifold pressure the boost curve actually produced, and gets a blend
+ * of two rows. A player could follow every suggestion exactly and still meet knock at
+ * pressures no row sits on.
+ *
+ * The property asserted here is the one that matters and is worth stating plainly: TAKE
+ * THE ADVICE, GET NO KNOCK. It is checked across the two regimes that broke separately —
+ * boost that lands between rows, and boost that runs past the top row, where the table is
+ * clamped rather than interpolated and one cell is in force over 50 kPa of pressure.
+ */
+describe('spark advice survives interpolation', () => {
+  /** Builds a boosted build, takes every spark suggestion, and sweeps it. */
+  function followAdviceAndSweep({ psi, octIdx, intercooler, loadKpa }) {
+    const derived = S.deriveEngine(STOCK);
+    const mods = { ...S.DEFAULT_MODS, intercooler };
+    const turboOn = psi > 0;
+    const boostCurve = S.RPM.map(() => psi);
+    const fuel = S.OCTANE_OPTS[octIdx];
+    const turbine = S.TURBINE_OPTS[1], compressor = S.COMPRESSOR_OPTS[1];
+    const ve = S.computeHardwareVE(STOCK, mods, { turboOn, turbine, exhaustDia: 3.0, fuel });
+    const afr = S.clone2D(S.DEFAULT_AFR);
+    const common = {
+      ve, veTruth: ve, afr, derived, fuel, mods, turboOn, boostCurve, compressor, turbine,
+      injectorCc: 850, ecuInjectorCc: 850,
+      mafScalar: 1, mafErrorBase: S.mafErrorFactor(mods, turboOn),
+    };
+    const advised = S.clone2D(S.DEFAULT_TIMING);
+    S.calibrationAdvice({ ...common, timing: S.clone2D(S.DEFAULT_TIMING) })
+      .spark.forEach((c) => { advised[c.ri][c.ci] = c.suggested; });
+    return S.simulateSweep({
+      loadKpa, ve, veTruth: ve, timing: advised, afr, turboOn, boostCurve,
+      octaneBonus: fuel.bonus, octaneLabel: fuel.label, fuel,
+      injectorCc: 850, ecuInjectorCc: 850, injectorLabel: '850cc',
+      mods, mafScalar: 1, derived, turbine, compressor,
+    });
+  }
+
+  it('leaves no knock anywhere once the advice is taken', () => {
+    for (const psi of [0, 8, 14, 22]) {
+      for (const octIdx of [0, 3]) {
+        for (const intercooler of [false, true]) {
+          for (const loadKpa of [S.BARO_KPA, 70, 40]) {
+            const r = followAdviceAndSweep({ psi, octIdx, intercooler, loadKpa });
+            const knocking = r.points.filter((p) => p.knock);
+            expect(
+              knocking.length,
+              `following the spark advice still knocked at ${psi} psi on `
+              + `${S.OCTANE_OPTS[octIdx].label}, intercooler=${intercooler}, `
+              + `${Math.round(loadKpa)} kPa`,
+            ).toBe(0);
+          }
+        }
+      }
+    }
+  });
+
+  // 14 psi peaks the manifold at 197.9 kPa, just under the 200 kPa row. That row is
+  // therefore never reached — but interpolation gives it 96% of the answer, and under the
+  // old reachability test it went ungraded entirely and kept whatever was already in it.
+  it('advises the row the sweep interpolates into but never reaches', () => {
+    const derived = S.deriveEngine(STOCK);
+    const mods = { ...S.DEFAULT_MODS };
+    const boostCurve = S.RPM.map(() => 14);
+    const fuel = S.OCTANE_OPTS[0];
+    const ve = S.computeHardwareVE(STOCK, mods, {
+      turboOn: true, turbine: S.TURBINE_OPTS[1], exhaustDia: 3.0, fuel,
+    });
+    const a = S.calibrationAdvice({
+      ve, veTruth: ve, timing: S.clone2D(S.DEFAULT_TIMING), afr: S.clone2D(S.DEFAULT_AFR),
+      derived, fuel, mods, turboOn: true, boostCurve,
+      compressor: S.COMPRESSOR_OPTS[1], turbine: S.TURBINE_OPTS[1],
+      injectorCc: 850, ecuInjectorCc: 850,
+      mafScalar: 1, mafErrorBase: S.mafErrorFactor(mods, true),
+    });
+    const topRow = a.spark.filter((c) => c.ri === 0);
+    expect(topRow.length).toBeGreaterThan(0);
+    // Advised, but not accused: the engine cannot reach 200 kPa, so the player's number
+    // there is not wrong — it is merely in force somewhere it was never written for.
+    expect(topRow.every((c) => c.bracketOnly)).toBe(true);
+    expect(a.overAdvanced.some((c) => c.ri === 0)).toBe(false);
+  });
+
+  it('still says nothing is wrong with the factory calibrations', () => {
+    // The counterweight to everything above. Advice may be stricter than judgement;
+    // judgement may never cry wolf about a calibration the app itself generated.
+    for (const preset of S.ENGINE_PRESETS) {
+      const p = S.applyPreset(preset);
+      const a = S.calibrationAdvice({
+        ve: p.ve, veTruth: p.ve, timing: p.timing, afr: p.afr,
+        derived: S.deriveEngine(p.engineConfig), fuel: S.OCTANE_OPTS[p.octaneIdx],
+        mods: p.mods, turboOn: p.turboOn, boostCurve: p.boostCurve,
+        compressor: S.COMPRESSOR_OPTS[p.compressorIdx], turbine: S.presetTurbine(preset),
+        injectorCc: S.INJECTOR_OPTS[p.injIdx].cc, ecuInjectorCc: p.ecuInjectorCc,
+        mafScalar: 1, mafErrorBase: S.mafErrorFactor(p.mods, p.turboOn),
+      });
+      expect(a.overAdvanced, `${preset.id} overAdvanced`).toHaveLength(0);
+      expect(a.pastMbt, `${preset.id} pastMbt`).toHaveLength(0);
+      expect(a.wrongMix, `${preset.id} wrongMix`).toHaveLength(0);
+    }
   });
 });
 
