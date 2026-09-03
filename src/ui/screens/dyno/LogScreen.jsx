@@ -11,6 +11,7 @@ import { AlertTriangle } from 'lucide-react';
 
 import { Eyebrow } from '../../primitives/Eyebrow.jsx';
 import { useSession } from '../../state/StoreProvider.jsx';
+import { eventTone } from '../../components/eventBands.js';
 
 import styles from './LogScreen.module.css';
 
@@ -31,20 +32,7 @@ export function LogScreen() {
       ) : (
         <div className={styles.events}>
           {result.events.map((e, i) => {
-            // The tone comes from the severity the sim already assigns, not from a
-            // hand-kept list of type names. Those lists named eleven of the twelve
-            // types `src/sim` emits: `bearing` matched none of them and fell through
-            // to the chart-series cyan, so the one warning about accumulating
-            // bottom-end stress rendered as decoration while `pressure`, its acute
-            // sibling, rendered red. Deriving it means a thirteenth event type gets a
-            // tone the day it is added instead of silently becoming a chart colour.
-            //
-            // `maf` is the one genuine special case: it is a calibration observation
-            // rather than damage, and violet is the token reserved for that.
-            const isViolet = e.type === 'maf';
-            const isDanger = !isViolet && e.severity >= 3;
-            const isWarn = !isViolet && !isDanger;
-            const tone = isDanger ? 'danger' : isWarn ? 'warn' : isViolet ? 'violet' : 'default';
+            const tone = eventTone(e);
             return (
               <div key={i} className={styles.event} data-tone={tone}>
                 <div className={styles.eventHead}>

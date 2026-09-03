@@ -132,22 +132,17 @@ describe('pull-log event tones', () => {
     // it was.
     //
     // This classification moved from EcuLab.jsx to LogScreen.jsx (DYNO's screen
-    // split, PR 3) — re-pointed here rather than relaxed, same as
-    // button-call-sites.test.jsx re-points at the screens/ glob after each tab moves.
-    const source = readFileSync(new NodeURL('../src/ui/screens/dyno/LogScreen.jsx', import.meta.url), 'utf8');
-    const classification = source
-      .split('\n')
-      .filter((l) => /const is(Danger|Warn|Violet) =/.test(l));
+    // split, PR 3), then from LogScreen.jsx to eventBands.js (Task 2, PR 5b) —
+    // re-pointed here rather than relaxed, same as button-call-sites.test.jsx
+    // re-points at the screens/ glob after each tab moves.
+    const source = readFileSync(new NodeURL('../src/ui/components/eventBands.js', import.meta.url), 'utf8');
 
-    expect(classification.length).toBe(3);
+    // Check for the severity check (the key part of the derivation)
+    const hasSeverityCheck = /event\.severity\s*>=\s*3/.test(source);
+    expect(hasSeverityCheck).toBe(true);
 
-    const derivesFromSeverity = classification.some((l) => /e\.severity/.test(l));
-    expect(derivesFromSeverity).toBe(true);
-
-    // `maf` is the one legitimate name check: it is a calibration observation rather
-    // than damage, so it takes violet on identity, not on severity. Any OTHER type name
-    // appearing here means the lists are back.
-    const named = classification.flatMap((l) => [...l.matchAll(/e\.type === '([a-z]+)'/g)].map((m) => m[1]));
-    expect(named).toEqual(['maf']);
+    // Check that maf is the only type name check
+    const typeChecks = [...source.matchAll(/event\.type\s*===\s*'([a-z]+)'/g)].map((m) => m[1]);
+    expect(typeChecks).toEqual(['maf']);
   });
 });
