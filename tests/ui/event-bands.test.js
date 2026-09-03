@@ -5,7 +5,7 @@
 
 import { describe, expect, it } from 'vitest';
 
-import { eventBands, eventTone, resolveBandRpm } from '../../src/ui/components/eventBands.js';
+import { coversRpm, eventBands, eventTone, resolveBandRpm } from '../../src/ui/components/eventBands.js';
 
 const located = (over = {}) => ({ type: 'knock', severity: 3, msg: 'Knock', rpmStart: 4200, rpmEnd: 5100, ...over });
 const whole = (over = {}) => ({ type: 'injscale', severity: 3, msg: 'Injectors', ...over });
@@ -62,6 +62,43 @@ describe('eventBands', () => {
 
   it('returns an empty list for no events', () => {
     expect(eventBands([])).toEqual([]);
+  });
+});
+
+describe('coversRpm', () => {
+  it('matches an RPM strictly inside the span', () => {
+    expect(coversRpm(located(), 4500)).toBe(true);
+  });
+
+  it('matches at the lower boundary', () => {
+    expect(coversRpm(located(), 4200)).toBe(true);
+  });
+
+  it('matches at the upper boundary', () => {
+    // The one edge the inline copy this replaced in LogScreen.jsx never had a test
+    // for — an `<` instead of `<=` here would drop exactly the RPM a player clicking
+    // a band's right edge lands on, and nothing before this caught it.
+    expect(coversRpm(located(), 5100)).toBe(true);
+  });
+
+  it('does not match just past the upper boundary', () => {
+    expect(coversRpm(located(), 5101)).toBe(false);
+  });
+
+  it('does not match a whole-pull finding with no span at all', () => {
+    expect(coversRpm(whole(), 4500)).toBe(false);
+  });
+
+  it('does not match a half-populated span — rpmStart set, rpmEnd missing', () => {
+    // The inline check this replaced leaned on `focus <= undefined` being falsy —
+    // safety by coincidence rather than by an explicit type check. A malformed event
+    // that somehow carries only one half of its span must not silently pass.
+    expect(coversRpm({ rpmStart: 4200 }, 4500)).toBe(false);
+  });
+
+  it('returns false when rpm is null or undefined', () => {
+    expect(coversRpm(located(), null)).toBe(false);
+    expect(coversRpm(located(), undefined)).toBe(false);
   });
 });
 

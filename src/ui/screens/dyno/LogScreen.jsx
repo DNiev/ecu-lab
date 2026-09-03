@@ -5,13 +5,13 @@
  * straight off the store rather than threaded down as a prop.
  */
 
-import React from 'react';
+import React, { useEffect, useRef } from 'react';
 
 import { AlertTriangle } from 'lucide-react';
 
 import { Eyebrow } from '../../primitives/Eyebrow.jsx';
 import { useSession } from '../../state/StoreProvider.jsx';
-import { eventTone } from '../../components/eventBands.js';
+import { coversRpm, eventTone } from '../../components/eventBands.js';
 
 import styles from './LogScreen.module.css';
 
@@ -21,6 +21,18 @@ import styles from './LogScreen.module.css';
 export function LogScreen() {
   const [session] = useSession();
   const { result, logFocusRpm } = session;
+
+  // The spec's own words: a chart-band click "highlights every event whose span covers
+  // that RPM and scrolls the first into view." Landing on an off-screen highlight with
+  // no scroll defeats the reason click-through exists — a bad tune can emit five or six
+  // events, and the log is longer than the viewport well before that.
+  const firstFocusedRef = useRef(null);
+  useEffect(() => {
+    if (logFocusRpm == null) return;
+    firstFocusedRef.current?.scrollIntoView({ block: 'nearest' });
+  }, [logFocusRpm]);
+
+  let firstFocusedSeen = false;
 
   return (
     <>
@@ -33,17 +45,19 @@ export function LogScreen() {
         <div className={styles.events}>
           {result.events.map((e, i) => {
             const tone = eventTone(e);
+            const focused = coversRpm(e, logFocusRpm);
+            let ref;
+            if (focused && !firstFocusedSeen) {
+              firstFocusedSeen = true;
+              ref = firstFocusedRef;
+            }
             return (
               <div
                 key={i}
+                ref={ref}
                 className={styles.event}
                 data-tone={tone}
-                data-focused={String(
-                  logFocusRpm != null
-                  && typeof e.rpmStart === 'number'
-                  && logFocusRpm >= e.rpmStart
-                  && logFocusRpm <= e.rpmEnd,
-                )}
+                data-focused={String(focused)}
               >
                 <div className={styles.eventHead}>
                   <div className={styles.eventTitle}>

@@ -1105,8 +1105,15 @@ export function EcuLabApp() {
                     chartData={chartData}
                     engineDerived={engineDerived}
                     ghostLabel={ghostLabel(ghost, pinnedRunId)}
-                    bands={bands}
-                    wholePullCount={wholePullCount}
+                    // `bands` is memoised on `result`, which is banked at sweep START —
+                    // same hazard `scores` guards a few lines up, with the same fix:
+                    // hide it for the duration of `running` rather than let it leak the
+                    // next pull's full knock/lean tint onto a chart that has not drawn a
+                    // trace yet. A band clicked mid-reveal would also dispatch and
+                    // navigate to a log gated on `!running`, doing nothing for seconds
+                    // and then jerking the view once the pull finishes.
+                    bands={running ? [] : bands}
+                    wholePullCount={running ? 0 : wholePullCount}
                     onSelectRpm={selectLogRpm}
                   />
                 )}

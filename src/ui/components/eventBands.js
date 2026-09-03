@@ -59,6 +59,23 @@ export function eventBands(events) {
 }
 
 /**
+ * Whether an event's span covers `rpm`. Inclusive at both edges — the edge of a band is
+ * exactly where a player clicking its boundary lands.
+ *
+ * One definition, two callers: the chart uses it to decide whether a click landed on a
+ * band at all, and the log uses it to decide which entries to highlight. They must agree,
+ * or a click would open the log on nothing.
+ *
+ * @param {{type?: string, rpmStart?: number, rpmEnd?: number}} event
+ * @param {number|null|undefined} rpm
+ * @returns {boolean}
+ */
+export function coversRpm(event, rpm) {
+  return rpm != null && isLocatable(event) && typeof event.rpmEnd === 'number'
+    && rpm >= event.rpmStart && rpm <= event.rpmEnd;
+}
+
+/**
  * The RPM a chart click should open the log at, or null if the click was not on a band.
  *
  * Lives here rather than inline in the chart handler for two reasons: both charts need
@@ -77,5 +94,5 @@ export function eventBands(events) {
 export function resolveBandRpm(activeLabel, bands) {
   const rpm = Number(activeLabel);
   if (!Number.isFinite(rpm)) return null;
-  return bands.some((b) => rpm >= b.rpmStart && rpm <= b.rpmEnd) ? rpm : null;
+  return bands.some((b) => coversRpm(b, rpm)) ? rpm : null;
 }

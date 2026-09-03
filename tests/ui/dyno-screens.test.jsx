@@ -17,7 +17,7 @@
 
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import React from 'react';
-import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 
 import { DataScreen } from '../../src/ui/screens/dyno/DataScreen.jsx';
 import { HistoryScreen } from '../../src/ui/screens/dyno/HistoryScreen.jsx';
@@ -242,6 +242,30 @@ describe('LogScreen', () => {
 });
 
 describe('LogScreen focus highlighting', () => {
+  // jsdom does not implement `scrollIntoView` at all — the property does not exist on
+  // `window.Element.prototype`, so `vi.spyOn` (which requires the property to already exist)
+  // cannot stub it directly, and calling the real (missing) method throws rather than
+  // silently no-oping. `LogScreen` now calls it whenever `logFocusRpm` is non-null,
+  // which every test below except the "no focus" one does, so this stub wraps the
+  // whole describe block. Same conditional-define-then-restore discipline as the
+  // ResizeObserver stub above: define it only if it is not already there, and only
+  // delete it again if this file was the one that added it. The suite runs
+  // `--singleFork`, so a leaked spy on `window.Element.prototype` would bleed into every
+  // other file sharing this process.
+  const hadScrollIntoView = 'scrollIntoView' in window.Element.prototype;
+  let scrollSpy;
+  beforeAll(() => {
+    if (!hadScrollIntoView) window.Element.prototype.scrollIntoView = () => {};
+    scrollSpy = vi.spyOn(window.Element.prototype, 'scrollIntoView').mockImplementation(() => {});
+  });
+  afterAll(() => {
+    scrollSpy.mockRestore();
+    if (!hadScrollIntoView) delete window.Element.prototype.scrollIntoView;
+  });
+  afterEach(() => {
+    scrollSpy.mockClear();
+  });
+
   const RESULT = {
     points: [], peakHp: 300, peakTq: 280,
     events: [
@@ -280,6 +304,31 @@ describe('LogScreen focus highlighting', () => {
     for (const msg of ['Knock in the midrange', 'Lean at the top', 'Injector scaling mismatch']) {
       expect(entry(msg).getAttribute('data-focused')).toBe('false');
     }
+  });
+
+  describe('scroll-into-view', () => {
+    it('scrolls the first covering entry into view, not the first entry overall', () => {
+      // RESULT's first event (knock, 4200-5100) does not cover 6300 — 'Lean at the
+      // top' (6100-6600) is the one that does, and it is the second entry in the log.
+      // A ref that grabbed the log's literal first child, rather than the first one
+      // whose span covers the focus RPM, would pass a test built against RESULT's
+      // event order but scroll the wrong node here.
+      mountWithResult(<LogScreen />, { result: RESULT, logFocusRpm: 6300 });
+      expect(scrollSpy).toHaveBeenCalledTimes(1);
+      expect(scrollSpy.mock.instances[0]).toBe(entry('Lean at the top'));
+      expect(scrollSpy).toHaveBeenCalledWith({ block: 'nearest' });
+    });
+
+    it('does not scroll a non-covering entry', () => {
+      mountWithResult(<LogScreen />, { result: RESULT, logFocusRpm: 6300 });
+      expect(scrollSpy.mock.instances).not.toContain(entry('Knock in the midrange'));
+      expect(scrollSpy.mock.instances).not.toContain(entry('Injector scaling mismatch'));
+    });
+
+    it('does not scroll when there is no focus RPM', () => {
+      mountWithResult(<LogScreen />, { result: RESULT, logFocusRpm: null });
+      expect(scrollSpy).not.toHaveBeenCalled();
+    });
   });
 });
 
@@ -569,12 +618,26 @@ describe('ResultScreen event bands', () => {
   ];
   const CHART = [{ rpm: 1500, hp: 111, torque: 222 }];
 
-  it('draws one focusable band per event, on both charts', () => {
+  it('draws two rects per event, one on each chart', () => {
+    // Two charts share the axis, so each band is drawn twice — that duplication is the
+    // feature, not an accident, and asserting the raw rect count pins it. This is
+    // deliberately NOT a role query: both rects exist, but (see the test below) only
+    // one of the two is exposed to the accessibility tree.
+    const { container } = mount(
+      <ResultScreen chartData={CHART} engineDerived={{ redline: 7000 }} bands={BANDS} onSelectRpm={() => {}} />,
+    );
+    expect(container.querySelectorAll('rect[data-tone="danger"]')).toHaveLength(2);
+    expect(container.querySelectorAll('rect[data-tone="warn"]')).toHaveLength(2);
+  });
+
+  it('exposes only one focusable button per event, not one per chart', () => {
+    // The other half of the pair above. Two rects exist per event, but a screen reader
+    // user must hear each finding once, not twice — the second chart's copy carries
+    // `tabIndex={-1}` and `aria-hidden`, which `getByRole` (unlike a raw DOM query)
+    // excludes by default.
     mount(<ResultScreen chartData={CHART} engineDerived={{ redline: 7000 }} bands={BANDS} onSelectRpm={() => {}} />);
-    // Two charts share the axis, so each band appears twice — that duplication is the
-    // feature, not an accident, and asserting the count pins it.
-    expect(screen.getAllByRole('button', { name: /Knock across 4200-5100, 4200 to 5100 RPM/ })).toHaveLength(2);
-    expect(screen.getAllByRole('button', { name: /Lean mixture, 6100 to 6600 RPM/ })).toHaveLength(2);
+    expect(screen.getAllByRole('button', { name: /Knock across 4200-5100, 4200 to 5100 RPM/ })).toHaveLength(1);
+    expect(screen.getAllByRole('button', { name: /Lean mixture, 6100 to 6600 RPM/ })).toHaveLength(1);
   });
 
   it('draws no bands when there are none', () => {
@@ -596,11 +659,68 @@ describe('ResultScreen event bands', () => {
     expect(seen[0]).toBeLessThanOrEqual(5100);
   });
 
+  it('activates a band from the keyboard with Space, same as Enter', () => {
+    // The suite fired Enter and ArrowRight but never Space — half of "Enter and Space
+    // do what a click does" (the spec's own words) was untested. Dropping
+    // `&& e.key !== ' '` from the handler's guard would pass every other test here.
+    const seen = [];
+    mount(<ResultScreen chartData={CHART} engineDerived={{ redline: 7000 }} bands={BANDS} onSelectRpm={(r) => seen.push(r)} />);
+    fireEvent.keyDown(screen.getAllByRole('button', { name: /Knock across/ })[0], { key: ' ' });
+    expect(seen).toHaveLength(1);
+    expect(seen[0]).toBeGreaterThanOrEqual(4200);
+    expect(seen[0]).toBeLessThanOrEqual(5100);
+  });
+
   it('ignores a key that is not Enter or Space', () => {
     const seen = [];
     mount(<ResultScreen chartData={CHART} engineDerived={{ redline: 7000 }} bands={BANDS} onSelectRpm={(r) => seen.push(r)} />);
     fireEvent.keyDown(screen.getAllByRole('button', { name: /Knock across/ })[0], { key: 'ArrowRight' });
     expect(seen).toEqual([]);
+  });
+
+  it('activates a band from a click dispatched directly on it — the assistive-technology path', () => {
+    // Screen readers in browse mode (NVDA, JAWS) and VoiceOver double-tap activate a
+    // `role="button"` by dispatching a click, not a keydown. `pointer-events: none`
+    // means a real pointer click never reaches this rect (see the chart-click describe
+    // block below for that path), so this is the only way that click arrives — and it
+    // is distinct from both the keyboard test above and the chart-surface click tests.
+    const seen = [];
+    mount(<ResultScreen chartData={CHART} engineDerived={{ redline: 7000 }} bands={BANDS} onSelectRpm={(r) => seen.push(r)} />);
+    fireEvent.click(screen.getAllByRole('button', { name: /Knock across/ })[0]);
+    expect(seen).toHaveLength(1);
+    expect(seen[0]).toBeGreaterThanOrEqual(4200);
+    expect(seen[0]).toBeLessThanOrEqual(5100);
+  });
+
+  it('marks the band pointer-transparent as a testable attribute, not only in the stylesheet', () => {
+    // Vitest applies no CSS, so `pointer-events: none` in ResultScreen.module.css does
+    // not exist in jsdom — every click test above would keep passing even if that CSS
+    // rule were deleted, because the rect would happily intercept a real pointer click
+    // it should never see. `pointerEvents="none"` on the element itself is what makes
+    // this guarantee testable at all.
+    const { container } = mount(
+      <ResultScreen chartData={CHART} engineDerived={{ redline: 7000 }} bands={BANDS} onSelectRpm={() => {}} />,
+    );
+    const rects = container.querySelectorAll('rect[data-tone]');
+    expect(rects.length).toBeGreaterThan(0);
+    for (const rect of rects) {
+      expect(rect.getAttribute('pointer-events')).toBe('none');
+    }
+  });
+
+  it('draws a visible band for a single-point event, and names it "at" one RPM', () => {
+    // groupRuns can emit a run of length 1 — a knock (or any other) event whose span is
+    // a single RPM, rpmStart === rpmEnd. `ReferenceArea` computes zero width for that,
+    // and an unpadded `<rect width={0}>` is invisible to a sighted mouse user even
+    // though it is still in the log and the a11y tree and Tab-reachable.
+    /** @type {import('../../src/ui/components/eventBands.js').EventBand[]} */
+    const SINGLE = [{ id: 'knock-4200-4200', rpmStart: 4200, rpmEnd: 4200, tone: 'danger', msg: 'Knock at 4200' }];
+    const { container } = mount(
+      <ResultScreen chartData={CHART} engineDerived={{ redline: 7000 }} bands={SINGLE} onSelectRpm={() => {}} />,
+    );
+    const rect = container.querySelector('rect[data-tone="danger"]');
+    expect(Number(rect.getAttribute('width'))).toBeGreaterThanOrEqual(3);
+    expect(screen.getAllByRole('button', { name: 'Knock at 4200, at 4200 RPM' })).toHaveLength(1);
   });
 
   it('shows the whole-pull note only when such findings exist', () => {
@@ -670,17 +790,24 @@ describe('ResultScreen chart click (mouse)', () => {
   }
 
   /**
-   * Clicks the chart's plot background, just inside its left edge — the rpm:1500
-   * point, outside every band — on the given chart. Same DOM-derived-position
-   * approach as `clickBand`, off the plot's own background rect instead of a band's.
+   * Clicks just inside the chart's left edge — the rpm:1500 point, outside every
+   * band — on the given chart. Same DOM-derived-position approach as `clickBand`, off
+   * recharts' own clip-path rect (the one untagged `<rect>` recharts draws per chart
+   * to clip the plot area) instead of a band's.
+   *
+   * The query is scoped to this one chart's wrapper, not the whole container: with
+   * `bands` this test's own `BANDS` (one event, drawn on both charts), each chart has
+   * exactly one untagged rect, but indexing a container-wide `querySelectorAll` by
+   * `chartIndex` would silently reach into the wrong chart's rect the moment either
+   * chart draws more than one.
    * @param {HTMLElement} container
    * @param {number} chartIndex
    */
   function clickOutsideBands(container, chartIndex) {
-    const rect = container.querySelectorAll('svg.recharts-surface rect:not([data-tone])')[chartIndex];
+    const wrapper = container.querySelectorAll('.recharts-wrapper')[chartIndex];
+    const rect = wrapper.querySelector('svg.recharts-surface rect:not([data-tone])');
     const x = Number(rect.getAttribute('x')) + 2;
     const y = Number(rect.getAttribute('y'));
-    const wrapper = container.querySelectorAll('.recharts-wrapper')[chartIndex];
     fireEvent.click(wrapper, { clientX: x, clientY: y });
   }
 
