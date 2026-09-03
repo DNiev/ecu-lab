@@ -50,14 +50,28 @@ afterAll(() => {
 // renders nothing at all. The ghost-curve tests below assert on Legend item NAMES,
 // which only exist once the chart actually renders, so this file needs a non-zero
 // rect where the two DYNO/DataScreen tests above it never did.
+//
+// `offsetWidth`/`offsetHeight` get the same treatment one level down, for the chart
+// CLICK tests further below: recharts' own click handler (`getMouseInfo` in
+// generateCategoricalChart.js) divides the container's real getBoundingClientRect()
+// width by its `offsetWidth` to get a scale factor before it will resolve a click to
+// a chart position at all. jsdom leaves `offsetWidth`/`offsetHeight` at 0 on every
+// element, so that division comes out Infinity and every click resolves to nothing —
+// none of the tests above this point click anything, so they never needed this half.
 const origGetBoundingClientRect = window.Element.prototype.getBoundingClientRect;
+const origOffsetWidth = Object.getOwnPropertyDescriptor(window.HTMLElement.prototype, 'offsetWidth');
+const origOffsetHeight = Object.getOwnPropertyDescriptor(window.HTMLElement.prototype, 'offsetHeight');
 beforeAll(() => {
   window.Element.prototype.getBoundingClientRect = () => (
     { width: 400, height: 200, top: 0, left: 0, bottom: 200, right: 400, x: 0, y: 0, toJSON() {} }
   );
+  Object.defineProperty(window.HTMLElement.prototype, 'offsetWidth', { configurable: true, value: 400 });
+  Object.defineProperty(window.HTMLElement.prototype, 'offsetHeight', { configurable: true, value: 200 });
 });
 afterAll(() => {
   window.Element.prototype.getBoundingClientRect = origGetBoundingClientRect;
+  Object.defineProperty(window.HTMLElement.prototype, 'offsetWidth', origOffsetWidth);
+  Object.defineProperty(window.HTMLElement.prototype, 'offsetHeight', origOffsetHeight);
 });
 
 afterEach(cleanup);
@@ -567,5 +581,102 @@ describe('ResultScreen event bands', () => {
     mount(<ResultScreen chartData={CHART} engineDerived={{ redline: 7000 }} bands={[]} wholePullCount={2} onSelectRpm={(r) => seen.push(r)} />);
     fireEvent.click(screen.getByRole('button', { name: /2 findings apply to the whole pull/ }));
     expect(seen).toEqual([null]);
+  });
+});
+
+describe('ResultScreen chart click (mouse)', () => {
+  // The keyboard path above is asserted directly; this is its other half — clicking
+  // the chart itself, which is how `handleChartClick` in ResultScreen.jsx actually
+  // gets exercised. `resolveBandRpm` is unit-tested on its own, but nothing before
+  // this pinned that it is wired to `state?.activeLabel` (not e.g. `activeIndex`), or
+  // that both `<LineChart>`s carry the `onClick`, rather than just the first.
+  //
+  // recharts resolves a click to the nearest actual DATA POINT under the pointer, not
+  // to a continuous axis value — with only one point (as the band tests above use)
+  // every click resolves to that one point regardless of where it lands, which would
+  // make a click position irrelevant to the outcome. This needs several points spread
+  // across the axis so a click can land near one inside a band and one outside it.
+  const CHART = [
+    { rpm: 1500, hp: 50, torque: 100 },
+    { rpm: 2500, hp: 80, torque: 150 },
+    { rpm: 3500, hp: 110, torque: 200 },
+    { rpm: 4500, hp: 140, torque: 220 },
+    { rpm: 5500, hp: 160, torque: 210 },
+    { rpm: 6500, hp: 170, torque: 190 },
+    { rpm: 7300, hp: 165, torque: 170 },
+  ];
+  /** @type {import('../../src/ui/components/eventBands.js').EventBand[]} */
+  const BANDS = [
+    { id: 'knock-4200-5100', rpmStart: 4200, rpmEnd: 5100, tone: 'danger', msg: 'Knock across 4200-5100' },
+  ];
+
+  /**
+   * Clicks the middle of the rendered knock band on the given chart (0 = POWER/TORQUE,
+   * 1 = AFR/TIMING). The band's own rendered `<rect>` (found by the `data-tone`
+   * attribute `Band` sets in ResultScreen.jsx) gives the real on-screen position to
+   * click, rather than a pixel guess — recharts then snaps the click to the nearest
+   * data point, which for this CHART is the rpm:4500 point, inside 4200-5100.
+   * @param {HTMLElement} container
+   * @param {number} chartIndex
+   */
+  function clickBand(container, chartIndex) {
+    const rect = container.querySelectorAll('rect[data-tone="danger"]')[chartIndex];
+    const x = Number(rect.getAttribute('x')) + Number(rect.getAttribute('width')) / 2;
+    const y = Number(rect.getAttribute('y'));
+    const wrapper = container.querySelectorAll('.recharts-wrapper')[chartIndex];
+    fireEvent.click(wrapper, { clientX: x, clientY: y });
+  }
+
+  /**
+   * Clicks the chart's plot background, just inside its left edge — the rpm:1500
+   * point, outside every band — on the given chart. Same DOM-derived-position
+   * approach as `clickBand`, off the plot's own background rect instead of a band's.
+   * @param {HTMLElement} container
+   * @param {number} chartIndex
+   */
+  function clickOutsideBands(container, chartIndex) {
+    const rect = container.querySelectorAll('svg.recharts-surface rect:not([data-tone])')[chartIndex];
+    const x = Number(rect.getAttribute('x')) + 2;
+    const y = Number(rect.getAttribute('y'));
+    const wrapper = container.querySelectorAll('.recharts-wrapper')[chartIndex];
+    fireEvent.click(wrapper, { clientX: x, clientY: y });
+  }
+
+  it("calls onSelectRpm with an RPM inside the clicked band's span", () => {
+    const seen = [];
+    const { container } = mount(
+      <ResultScreen chartData={CHART} engineDerived={{ redline: 7000 }} bands={BANDS} onSelectRpm={(r) => seen.push(r)} />,
+    );
+    clickBand(container, 0);
+    expect(seen).toHaveLength(1);
+    expect(seen[0]).toBeGreaterThanOrEqual(4200);
+    expect(seen[0]).toBeLessThanOrEqual(5100);
+  });
+
+  it('does not call onSelectRpm for a click outside every band', () => {
+    // The other half — without this, a handler that fired unconditionally on every
+    // click would still pass the test above.
+    const seen = [];
+    const { container } = mount(
+      <ResultScreen chartData={CHART} engineDerived={{ redline: 7000 }} bands={BANDS} onSelectRpm={(r) => seen.push(r)} />,
+    );
+    clickOutsideBands(container, 0);
+    expect(seen).toEqual([]);
+  });
+
+  it('wires the click handler to both charts, not just the first', () => {
+    // The regression this whole describe block exists for: wiring `onClick` onto only
+    // the POWER/TORQUE `<LineChart>` would still pass both tests above.
+    const seen = [];
+    const { container } = mount(
+      <ResultScreen chartData={CHART} engineDerived={{ redline: 7000 }} bands={BANDS} onSelectRpm={(r) => seen.push(r)} />,
+    );
+    clickBand(container, 0);
+    clickBand(container, 1);
+    expect(seen).toHaveLength(2);
+    for (const rpm of seen) {
+      expect(rpm).toBeGreaterThanOrEqual(4200);
+      expect(rpm).toBeLessThanOrEqual(5100);
+    }
   });
 });
