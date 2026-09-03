@@ -462,11 +462,14 @@ export const COEFF = {
   // BOTTOM of that band alone, and the credits below clear the top. 10.8 + 0.3 (93
   // octane) + 0.4 (intercooler) = 11.5 is how a B58 as sold comes out unpenalised.
   //
-  // TWO KNOWN SIMPLIFICATIONS, both deferred rather than hidden:
-  //   - A port-injected engine gets the same allowance as a DI one, which it has not
-  //     earned — DI evaporates fuel inside the cylinder and buys real knock margin from
-  //     it. Issue #24 tracks modelling injection type.
-  //   - The headroom does not scale with boost LEVEL; 3 psi and 24 psi are judged alike.
+  // ONE KNOWN SIMPLIFICATION, deferred rather than hidden: a port-injected engine gets
+  // the same allowance as a DI one, which it has not earned — DI evaporates fuel inside
+  // the cylinder and buys real knock margin from it. Issue #24 tracks modelling
+  // injection type.
+  //
+  // The other simplification that stood here — the headroom not scaling with boost
+  // LEVEL, so that 3 psi and 24 psi were judged alike — is fixed, by
+  // COMPRESSION_PER_BOOST_PSI below.
   COMPRESSION_BOOST_BASE: 10.8,
   // Compression credit per degree of octane bonus, and per intercooler.
   //
@@ -482,6 +485,40 @@ export const COEFF = {
   // belongs in its own change.
   COMPRESSION_PER_OCTANE_DEG: 0.1,
   COMPRESSION_INTERCOOLER_GAIN: 0.4,
+  // How much static compression one psi of boost takes off the headroom, and the boost
+  // level the base above is implicitly calibrated at.
+  //
+  // Boost level is the single largest determinant of whether high static compression
+  // survives, and until now the rule ignored it entirely: it gated on `peakBoostPsi > 0`
+  // and then responded only to octane and charge cooling — the second and third most
+  // important variables. A 5 psi build and a 25 psi build at 13.0:1 on E85 scored
+  // identically (issue #25).
+  //
+  // 0.1 points per psi is the long-standing shop rule stated as a rate: drop about one
+  // point of static compression per ten psi of intended boost. Expressed in the model's
+  // own currency it is mild — engine.js prices a compression point at 2 degrees of knock
+  // margin, so this is 0.2 degrees per psi — which is deliberate, for the same reason
+  // the octane and intercooler credits are discounted: the physics already charges for
+  // boost against compression through peak pressure and ignition delay, and the Tuning
+  // Score already deducts for the knock events that follow. This must not bill it twice.
+  //
+  // It does not double-count KNOCK_OVERBOOST_PENALTY either. That prices running a
+  // COMPRESSOR outside its efficient map, which is a property of the turbo match and
+  // fires whatever the compression ratio is. This prices boost against the SHORT BLOCK.
+  //
+  // The term is ONE-SIDED: it only ever takes headroom away, above the reference, and
+  // never hands any back below it. A two-sided swing was tried first and rejected — it
+  // made a 10 psi build MORE permissive than today (11.3:1 on 93 octane with no
+  // intercooler stopped being flagged), and this rule has no evidence for loosening
+  // anything. Widening what counts as sound engineering is not what the issue asked for.
+  //
+  // 14 psi is the median peak boost across the shipped factory engines (8.5, 13, 14, 17,
+  // 17), which is the band COMPRESSION_BOOST_BASE was fitted against — so below it a
+  // factory-normal build is judged exactly as it was before, and every shipped engine
+  // stays unpenalised: the tightest, the B58 at 11.0:1 and 17 psi, keeps 0.20 points of
+  // margin after paying 0.30 for the 3 psi it runs past the reference.
+  COMPRESSION_PER_BOOST_PSI: 0.1,
+  COMPRESSION_BOOST_REF_PSI: 14,
   // Points charged per compression point past the headroom, and the cap. The cap equals
   // the flat penalty this rule replaced, so it is never harsher than its predecessor.
   COMPRESSION_PENALTY_PER_POINT: 10,
