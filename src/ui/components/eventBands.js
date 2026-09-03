@@ -57,3 +57,25 @@ export function eventBands(events) {
     msg: e.msg,
   }));
 }
+
+/**
+ * The RPM a chart click should open the log at, or null if the click was not on a band.
+ *
+ * Lives here rather than inline in the chart handler for two reasons: both charts need
+ * it, and a decision buried in JSX is a decision no test can reach. The mouse path is
+ * the half that goes untested when this is inlined — the keyboard path is trivially
+ * reachable and the pointer path is not.
+ *
+ * Resolving by RPM rather than by band is what makes overlapping bands safe: where
+ * several bands stack it does not matter which one the pointer is over, because the
+ * answer is a function of the axis value alone.
+ *
+ * @param {unknown} activeLabel recharts' x-axis value under the pointer
+ * @param {EventBand[]} bands
+ * @returns {number|null}
+ */
+export function resolveBandRpm(activeLabel, bands) {
+  const rpm = Number(activeLabel);
+  if (!Number.isFinite(rpm)) return null;
+  return bands.some((b) => rpm >= b.rpmStart && rpm <= b.rpmEnd) ? rpm : null;
+}

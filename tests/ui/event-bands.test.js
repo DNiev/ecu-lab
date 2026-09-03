@@ -5,7 +5,7 @@
 
 import { describe, expect, it } from 'vitest';
 
-import { eventBands, eventTone } from '../../src/ui/components/eventBands.js';
+import { eventBands, eventTone, resolveBandRpm } from '../../src/ui/components/eventBands.js';
 
 const located = (over = {}) => ({ type: 'knock', severity: 3, msg: 'Knock', rpmStart: 4200, rpmEnd: 5100, ...over });
 const whole = (over = {}) => ({ type: 'injscale', severity: 3, msg: 'Injectors', ...over });
@@ -62,5 +62,50 @@ describe('eventBands', () => {
 
   it('returns an empty list for no events', () => {
     expect(eventBands([])).toEqual([]);
+  });
+});
+
+describe('resolveBandRpm', () => {
+  /** @type {import('../../src/ui/components/eventBands.js').EventBand[]} */
+  const BANDS = [
+    { id: 'knock-4200-5100', rpmStart: 4200, rpmEnd: 5100, tone: 'danger', msg: 'Knock' },
+    { id: 'lean-6100-6600', rpmStart: 6100, rpmEnd: 6600, tone: 'warn', msg: 'Lean' },
+  ];
+
+  it('resolves an RPM inside a band to that RPM', () => {
+    expect(resolveBandRpm(4500, BANDS)).toBe(4500);
+  });
+
+  it('returns null for an RPM outside every band', () => {
+    // The half that stops a click anywhere on the chart from navigating away — a
+    // resolver that answered unconditionally would fail only this one.
+    expect(resolveBandRpm(3000, BANDS)).toBe(null);
+  });
+
+  it('resolves an RPM exactly on a band\'s rpmStart', () => {
+    // `>` instead of `>=` drops precisely the edge a player clicking a band's
+    // left boundary lands on.
+    expect(resolveBandRpm(4200, BANDS)).toBe(4200);
+  });
+
+  it('resolves an RPM exactly on a band\'s rpmEnd', () => {
+    expect(resolveBandRpm(5100, BANDS)).toBe(5100);
+  });
+
+  it('resolves a numeric string, since recharts may hand the label as one', () => {
+    expect(resolveBandRpm('4500', BANDS)).toBe(4500);
+  });
+
+  it('returns null for undefined', () => {
+    expect(resolveBandRpm(undefined, BANDS)).toBe(null);
+  });
+
+  it('returns null for any input against an empty band list', () => {
+    expect(resolveBandRpm(4500, [])).toBe(null);
+  });
+
+  it('resolves an RPM inside a later band in the list, not just the first', () => {
+    // An implementation that only checked bands[0] would fail this one alone.
+    expect(resolveBandRpm(6300, BANDS)).toBe(6300);
   });
 });

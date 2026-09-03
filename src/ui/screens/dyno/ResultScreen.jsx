@@ -26,6 +26,7 @@ import React from 'react';
 
 import { CartesianGrid, Legend, Line, LineChart, ReferenceArea, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 
+import { resolveBandRpm } from '../../components/eventBands.js';
 import { Panel } from '../../primitives/Panel.jsx';
 import { T } from '../../theme.js';
 
@@ -81,6 +82,13 @@ export function ResultScreen({ chartData, engineDerived, ghostLabel, bands = [],
   // without the axis running away for a low-redline build.
   const dynoChartMaxRpm = engineDerived.redline * 1.05;
 
+  // Shared by both charts below — see `resolveBandRpm`'s own doc for why the decision
+  // lives there rather than inline here, and why it resolves by RPM rather than by band.
+  const handleChartClick = (state) => {
+    const rpm = resolveBandRpm(state?.activeLabel, bands);
+    if (rpm !== null) onSelectRpm(rpm);
+  };
+
   return (
     <>
       <Panel tight className={styles.panel}>
@@ -88,12 +96,7 @@ export function ResultScreen({ chartData, engineDerived, ghostLabel, bands = [],
         <ResponsiveContainer width="100%" height={200}>
           <LineChart
             data={chartData} margin={{ top: 4, right: 12, left: -14, bottom: 0 }}
-            onClick={(state) => {
-              const rpm = Number(state?.activeLabel);
-              if (!Number.isFinite(rpm)) return;
-              if (!bands.some((b) => rpm >= b.rpmStart && rpm <= b.rpmEnd)) return;
-              onSelectRpm(rpm);
-            }}
+            onClick={handleChartClick}
           >
             <CartesianGrid stroke={T.line} />
             <XAxis dataKey="rpm" stroke={T.ink3} fontSize={10} type="number" domain={[1500, dynoChartMaxRpm]} />
@@ -119,12 +122,7 @@ export function ResultScreen({ chartData, engineDerived, ghostLabel, bands = [],
         <ResponsiveContainer width="100%" height={180}>
           <LineChart
             data={chartData} margin={{ top: 4, right: 12, left: -14, bottom: 0 }}
-            onClick={(state) => {
-              const rpm = Number(state?.activeLabel);
-              if (!Number.isFinite(rpm)) return;
-              if (!bands.some((b) => rpm >= b.rpmStart && rpm <= b.rpmEnd)) return;
-              onSelectRpm(rpm);
-            }}
+            onClick={handleChartClick}
           >
             <CartesianGrid stroke={T.line} />
             <XAxis dataKey="rpm" stroke={T.ink3} fontSize={10} type="number" domain={[1500, dynoChartMaxRpm]} />
