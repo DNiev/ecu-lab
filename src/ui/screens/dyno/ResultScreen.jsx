@@ -24,7 +24,7 @@
 
 import React from 'react';
 
-import { CartesianGrid, Legend, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
+import { CartesianGrid, Legend, Line, LineChart, ReferenceArea, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 
 import { Panel } from '../../primitives/Panel.jsx';
 import { T } from '../../theme.js';
@@ -32,14 +32,49 @@ import { T } from '../../theme.js';
 import styles from './ResultScreen.module.css';
 
 /**
+ * One event band. Rendered through `ReferenceArea`'s `shape` so it can carry the
+ * focus and ARIA attributes a bare rect cannot.
+ *
+ * The rect is pointer-transparent on purpose: a click is answered by the chart, from
+ * the RPM under the pointer, so where several bands overlap it does not matter which
+ * one is uppermost. Keyboard activation has no pointer to read, so it uses the band's
+ * own midpoint — by definition inside its span.
+ *
+ * @param {{band: import('../../components/eventBands.js').EventBand,
+ *   onSelectRpm: (rpm: number) => void, x?: number, y?: number,
+ *   width?: number, height?: number}} props
+ * @returns {React.ReactElement}
+ */
+function Band({ band, onSelectRpm, x, y, width, height }) {
+  const activate = () => onSelectRpm(Math.round((band.rpmStart + band.rpmEnd) / 2));
+  return (
+    <rect
+      x={x} y={y} width={width} height={height}
+      className={styles.band} data-tone={band.tone}
+      fillOpacity={0.13} strokeOpacity={0.45}
+      tabIndex={0} role="button"
+      aria-label={`${band.msg}, ${band.rpmStart} to ${band.rpmEnd} RPM`}
+      onKeyDown={(e) => {
+        if (e.key !== 'Enter' && e.key !== ' ') return;
+        e.preventDefault();
+        activate();
+      }}
+    />
+  );
+}
+
+/**
  * @param {object} props
  * @param {Array<object>} props.chartData the shell's, shared with TUNE's ECU screen
  * @param {{redline: number}} props.engineDerived the shell's — see file header
  * @param {string|null} [props.ghostLabel] what to call the comparison series in the
  *   legend, or null/undefined to draw no ghost at all — see `ghostLabel` in runLog.js
+ * @param {import('../../components/eventBands.js').EventBand[]} [props.bands]
+ * @param {number} [props.wholePullCount] how many findings have no RPM at all
+ * @param {(rpm: number|null) => void} [props.onSelectRpm]
  * @returns {React.ReactElement}
  */
-export function ResultScreen({ chartData, engineDerived, ghostLabel }) {
+export function ResultScreen({ chartData, engineDerived, ghostLabel, bands = [], wholePullCount = 0, onSelectRpm = () => {} }) {
   // The live tach needle and this chart's RPM axis both used to top out at a
   // hardcoded 7500 — correct only for the one preset whose redline happened to
   // match it. 1.05x redline gives the sweep's last point a little headroom
@@ -51,12 +86,26 @@ export function ResultScreen({ chartData, engineDerived, ghostLabel }) {
       <Panel tight className={styles.panel}>
         <div className={styles.chartLabel}>POWER &amp; TORQUE</div>
         <ResponsiveContainer width="100%" height={200}>
-          <LineChart data={chartData} margin={{ top: 4, right: 12, left: -14, bottom: 0 }}>
+          <LineChart
+            data={chartData} margin={{ top: 4, right: 12, left: -14, bottom: 0 }}
+            onClick={(state) => {
+              const rpm = Number(state?.activeLabel);
+              if (!Number.isFinite(rpm)) return;
+              if (!bands.some((b) => rpm >= b.rpmStart && rpm <= b.rpmEnd)) return;
+              onSelectRpm(rpm);
+            }}
+          >
             <CartesianGrid stroke={T.line} />
             <XAxis dataKey="rpm" stroke={T.ink3} fontSize={10} type="number" domain={[1500, dynoChartMaxRpm]} />
             <YAxis stroke={T.ink3} fontSize={10} />
             <Tooltip contentStyle={{ background: T.panel2, border: `1px solid ${T.line}`, fontSize: 11 }} />
             <Legend wrapperStyle={{ fontSize: 11 }} />
+            {bands.map((b) => (
+              <ReferenceArea
+                key={b.id} x1={b.rpmStart} x2={b.rpmEnd}
+                shape={(shapeProps) => <Band {...shapeProps} band={b} onSelectRpm={onSelectRpm} />}
+              />
+            ))}
             {ghostLabel && <Line dataKey="prevHp" name={`${ghostLabel} WHP`} stroke={T.acc} strokeWidth={1.5} strokeDasharray="5 4" opacity={0.5} dot={false} isAnimationActive={false} />}
             {ghostLabel && <Line dataKey="prevTorque" name={`${ghostLabel} TQ`} stroke={T.cyan} strokeWidth={1.5} strokeDasharray="5 4" opacity={0.5} dot={false} isAnimationActive={false} />}
             <Line dataKey="hp" name="WHP" stroke={T.acc} strokeWidth={2} dot={false} isAnimationActive={false} />
@@ -68,12 +117,26 @@ export function ResultScreen({ chartData, engineDerived, ghostLabel }) {
       <Panel tight className={styles.panel}>
         <div className={styles.chartLabel}>AFR (COMMANDED VS ACTUAL) / TIMING</div>
         <ResponsiveContainer width="100%" height={180}>
-          <LineChart data={chartData} margin={{ top: 4, right: 12, left: -14, bottom: 0 }}>
+          <LineChart
+            data={chartData} margin={{ top: 4, right: 12, left: -14, bottom: 0 }}
+            onClick={(state) => {
+              const rpm = Number(state?.activeLabel);
+              if (!Number.isFinite(rpm)) return;
+              if (!bands.some((b) => rpm >= b.rpmStart && rpm <= b.rpmEnd)) return;
+              onSelectRpm(rpm);
+            }}
+          >
             <CartesianGrid stroke={T.line} />
             <XAxis dataKey="rpm" stroke={T.ink3} fontSize={10} type="number" domain={[1500, dynoChartMaxRpm]} />
             <YAxis stroke={T.ink3} fontSize={10} />
             <Tooltip contentStyle={{ background: T.panel2, border: `1px solid ${T.line}`, fontSize: 11 }} />
             <Legend wrapperStyle={{ fontSize: 11 }} />
+            {bands.map((b) => (
+              <ReferenceArea
+                key={b.id} x1={b.rpmStart} x2={b.rpmEnd}
+                shape={(shapeProps) => <Band {...shapeProps} band={b} onSelectRpm={onSelectRpm} />}
+              />
+            ))}
             <Line dataKey="afrCommanded" name="AFR commanded" stroke={T.ink3} strokeDasharray="3 3" dot={false} isAnimationActive={false} />
             {/* Series identity colours, not status: both lines are on screen for
                 every pull, so green and amber here reported a health this chart
@@ -83,6 +146,12 @@ export function ResultScreen({ chartData, engineDerived, ghostLabel }) {
           </LineChart>
         </ResponsiveContainer>
       </Panel>
+
+      {wholePullCount > 0 && (
+        <button type="button" className={styles.wholePull} onClick={() => onSelectRpm(null)}>
+          {wholePullCount} finding{wholePullCount === 1 ? '' : 's'} apply to the whole pull — open the log
+        </button>
+      )}
     </>
   );
 }

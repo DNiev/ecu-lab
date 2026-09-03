@@ -11,3 +11,29 @@
   font-weight: 700;
   padding: 2px 0 8px;
 }
+
+/* Event bands. Painted before the traces so the lines stay on top, and
+   pointer-transparent so the chart's own click and tooltip still work — the RPM under
+   the pointer is what resolves a click, not which band happens to be uppermost. */
+.band {
+  pointer-events: none;
+}
+.band[data-tone='danger'] { fill: var(--danger); stroke: var(--danger); }
+.band[data-tone='warn'] { fill: var(--warn); stroke: var(--warn); }
+.band[data-tone='violet'] { fill: var(--violet); stroke: var(--violet); }
+.band:focus-visible {
+  outline: 2px solid var(--acc);
+  outline-offset: 1px;
+}
+
+.wholePull {
+  margin-top: 8px;
+  padding: 7px 10px;
+  border-radius: 8px;
+  font-size: 11px;
+  text-align: left;
+  width: 100%;
+  color: var(--ink2);
+  background: var(--panel2);
+  border: 1px solid var(--line);
+}

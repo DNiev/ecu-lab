@@ -504,3 +504,68 @@ describe('DYNO > HISTORY', () => {
     expect(rows[1].getAttribute('data-pinned')).toBe('true');
   });
 });
+
+describe('ResultScreen event bands', () => {
+  /** @type {import('../../src/ui/components/eventBands.js').EventBand[]} */
+  const BANDS = [
+    { id: 'knock-4200-5100', rpmStart: 4200, rpmEnd: 5100, tone: 'danger', msg: 'Knock across 4200-5100' },
+    { id: 'lean-6100-6600', rpmStart: 6100, rpmEnd: 6600, tone: 'warn', msg: 'Lean mixture' },
+  ];
+  const CHART = [{ rpm: 1500, hp: 111, torque: 222 }];
+
+  it('draws one focusable band per event, on both charts', () => {
+    mount(<ResultScreen chartData={CHART} engineDerived={{ redline: 7000 }} bands={BANDS} onSelectRpm={() => {}} />);
+    // Two charts share the axis, so each band appears twice — that duplication is the
+    // feature, not an accident, and asserting the count pins it.
+    expect(screen.getAllByRole('button', { name: /Knock across 4200-5100, 4200 to 5100 RPM/ })).toHaveLength(2);
+    expect(screen.getAllByRole('button', { name: /Lean mixture, 6100 to 6600 RPM/ })).toHaveLength(2);
+  });
+
+  it('draws no bands when there are none', () => {
+    // The other half — an implementation that always rendered something would pass the
+    // test above.
+    mount(<ResultScreen chartData={CHART} engineDerived={{ redline: 7000 }} bands={[]} onSelectRpm={() => {}} />);
+    expect(screen.queryAllByRole('button', { name: / RPM$/ })).toHaveLength(0);
+  });
+
+  it('activates a band from the keyboard, at an RPM inside its own span', () => {
+    // The keyboard path is asserted directly rather than assumed from the mouse path —
+    // testing one side of that pair and trusting the other is the exact shape this
+    // project keeps shipping.
+    const seen = [];
+    mount(<ResultScreen chartData={CHART} engineDerived={{ redline: 7000 }} bands={BANDS} onSelectRpm={(r) => seen.push(r)} />);
+    fireEvent.keyDown(screen.getAllByRole('button', { name: /Knock across/ })[0], { key: 'Enter' });
+    expect(seen).toHaveLength(1);
+    expect(seen[0]).toBeGreaterThanOrEqual(4200);
+    expect(seen[0]).toBeLessThanOrEqual(5100);
+  });
+
+  it('ignores a key that is not Enter or Space', () => {
+    const seen = [];
+    mount(<ResultScreen chartData={CHART} engineDerived={{ redline: 7000 }} bands={BANDS} onSelectRpm={(r) => seen.push(r)} />);
+    fireEvent.keyDown(screen.getAllByRole('button', { name: /Knock across/ })[0], { key: 'ArrowRight' });
+    expect(seen).toEqual([]);
+  });
+
+  it('shows the whole-pull note only when such findings exist', () => {
+    const { rerender } = mount(
+      <ResultScreen chartData={CHART} engineDerived={{ redline: 7000 }} bands={BANDS} wholePullCount={3} onSelectRpm={() => {}} />,
+    );
+    expect(screen.getByRole('button', { name: /3 findings apply to the whole pull/ })).toBeTruthy();
+    rerender(
+      <StoreProvider>
+        <ResultScreen chartData={CHART} engineDerived={{ redline: 7000 }} bands={BANDS} wholePullCount={0} onSelectRpm={() => {}} />
+      </StoreProvider>,
+    );
+    expect(screen.queryByRole('button', { name: /apply to the whole pull/ })).toBe(null);
+  });
+
+  it('sends null when the whole-pull note is activated', () => {
+    // Null means "open the log with nothing highlighted", which is distinct from any
+    // RPM — a note that sent a number would highlight arbitrary events.
+    const seen = [];
+    mount(<ResultScreen chartData={CHART} engineDerived={{ redline: 7000 }} bands={[]} wholePullCount={2} onSelectRpm={(r) => seen.push(r)} />);
+    fireEvent.click(screen.getByRole('button', { name: /2 findings apply to the whole pull/ }));
+    expect(seen).toEqual([null]);
+  });
+});
