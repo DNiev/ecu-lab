@@ -474,6 +474,62 @@ describe('dyno sweep', () => {
     expect(overloaded.events.some((e) => e.type === 'pressure')).toBe(true);
     expect(overloaded.wear.piston).toBeGreaterThan(sane.wear.piston);
   });
+
+  it('gives every locatable event the RPM span it actually covered', () => {
+    // A deliberately awful build, so that several range events fire at once.
+    const r = stockPull({
+      cfg: { ...STOCK, camDuration: 290, springRate: 20, compression: 13.5 },
+      turboOn: true, boostCurve: [18, 25, 25, 25, 25, 25, 25, 25],
+      injectorCc: 400, ecuInjectorCc: 315,
+    });
+    const located = r.events.filter(S.isLocatable);
+    expect(located.length).toBeGreaterThan(0);
+    for (const e of located) {
+      expect(e.rpmEnd, `${e.type} ends before it starts`).toBeGreaterThanOrEqual(e.rpmStart);
+      expect(e.rpmStart, `${e.type} starts below the sweep`).toBeGreaterThanOrEqual(S.SWEEP_START_RPM);
+      expect(e.rpmEnd, `${e.type} ends above the sweep`).toBeLessThanOrEqual(r.points[r.points.length - 1].rpm);
+    }
+  });
+
+  it('takes a range event\'s span from the points it was detected on', () => {
+    // The span must be the RUN's own first and last point, not the whole sweep.
+    // Mutation caught: rpmStart: SWEEP_START_RPM / rpmEnd: endRpm, which satisfies
+    // every bound in the test above while telling the chart the knock covered
+    // everything.
+    const r = stockPull({ turboOn: true, boostCurve: [0, 2, 8, 12, 14, 14, 14, 14] });
+    const knock = r.events.find((e) => e.type === 'knock');
+    expect(knock).toBeTruthy();
+    const knocking = r.points.filter((p) => p.knock);
+    expect(knock.rpmStart).toBe(knocking[0].rpm);
+    expect(knock.rpmEnd).toBe(knocking[knocking.length - 1].rpm);
+    // And it is genuinely narrower than the sweep, or the assertion above proves nothing.
+    expect(knock.rpmStart).toBeGreaterThan(r.points[0].rpm);
+  });
+
+  it('leaves the three whole-pull findings unlocated', () => {
+    // The other half of the pair. injscale, cam and bearing are true everywhere, so
+    // a band for them would be a lie about where they apply.
+    const r = stockPull({
+      cfg: { ...STOCK, camDuration: 290, springRate: 20, compression: 13.5 },
+      turboOn: true, boostCurve: [18, 25, 25, 25, 25, 25, 25, 25],
+      injectorCc: 400, ecuInjectorCc: 315,
+    });
+    for (const type of ['injscale', 'cam', 'bearing']) {
+      const e = r.events.find((ev) => ev.type === type);
+      expect(e, `${type} did not fire in this fixture`).toBeTruthy();
+      expect(S.isLocatable(e), `${type} must not carry an RPM span`).toBe(false);
+      expect(e.rpmStart).toBeUndefined();
+    }
+  });
+
+  it('locates valve float from the float RPM, not from a points run', () => {
+    const r = stockPull({ cfg: { ...STOCK, camDuration: 290, springRate: 20 } });
+    const float = r.events.find((e) => e.type === 'float');
+    expect(float).toBeTruthy();
+    expect(S.isLocatable(float)).toBe(true);
+    expect(float.rpmEnd).toBe(r.points[r.points.length - 1].rpm);
+    expect(float.rpmStart).toBeLessThan(float.rpmEnd);
+  });
 });
 
 describe('scoring', () => {

@@ -161,6 +161,7 @@ export function simulateSweep({
     const impact = Math.max(5, Math.round((10 + avgPull * 7) * (0.3 + 0.7 * rangeFrac(run))));
     events.push({
       type: 'knock', severity: 3, impact,
+      rpmStart: run[0].rpm, rpmEnd: run[run.length - 1].rpm,
       msg: `Knock across ${rangeLabel(run)} — ECU pulled up to ${peak.knockPull.toFixed(1)}° (peak near ${peak.rpm} RPM)`,
       cause: `Caused by ${causes.join(' and ')}. This spans ${Math.round(rangeFrac(run) * 100)}% of the RPM sweep${avgPull >= 2 ? `, averaging ${avgPull.toFixed(1)}° of retard — tuners treat anything sustained above about 2° as a prelude to expensive engine damage, not an acceptable operating point` : ''}.`,
       fix: `On TIMING, pull the cells around ${peak.rpm} RPM / ${Math.round(loadKpa)} kPa toward ${suggestedTiming}° or less.${boosted ? ' Or back off boost in that range on BUILD.' : ''}${leanContrib >= 1.5 ? ` Or richen AFR toward ${peak.bestAfr}:1 there.` : ''} Higher octane, lower compression, or an aluminum head on BUILD also buy margin.`,
@@ -177,6 +178,7 @@ export function simulateSweep({
     const impact = Math.round(clamp(10 + over * 0.7, 10, 34) * (0.35 + 0.65 * rangeFrac(run)));
     events.push({
       type: 'pressure', severity: 3, impact,
+      rpmStart: run[0].rpm, rpmEnd: run[run.length - 1].rpm,
       msg: `Peak cylinder pressure past what the bottom end takes across ${rangeLabel(run)} — up to ${peak.peakPressure.toFixed(0)} bar near ${peak.rpm} RPM`,
       cause: `${derived.compression.toFixed(1)}:1 static compression multiplies whatever the manifold sends it, and it is being sent ${Math.round(peak.map)} kPa at ${peak.ve.toFixed(0)}% VE${peak.boostPsi >= 1 ? ` (${peak.boostPsi.toFixed(1)} psi of boost)` : ''} — about ${peak.peakPressure.toFixed(0)} bar at the top of the stroke, against roughly ${COEFF.PEAK_PRESSURE_LIMIT_BAR} bar for stock cast pistons and production rods. This is not detonation: the mixture is burning normally and the ECU has nothing to detect. It is simply more force than the parts are built to pass, on every firing stroke, for ${Math.round(rangeFrac(run) * 100)}% of the sweep.`,
       fix: `Lower static compression on BUILD, or take boost out of this range so the same compression has less to multiply. Forged pistons and rods are the hardware answer if you want to keep both. Higher octane will NOT help here — it buys knock margin, not rod strength, so a big-octane fuel just removes the knock that was warning you and leaves the load exactly where it was.`,
@@ -188,6 +190,7 @@ export function simulateSweep({
     const impact = Math.max(4, Math.round(10 * (0.3 + 0.7 * rangeFrac(run))));
     events.push({
       type: 'fuel', severity: 2, impact,
+      rpmStart: run[0].rpm, rpmEnd: run[run.length - 1].rpm,
       msg: `Injectors maxed across ${rangeLabel(run)} (up to ${peak.duty}% duty) — mixture leaned to ${peak.afr.toFixed(1)}:1`,
       cause: `Required pulse width (${peak.pw} ms) exceeds 90% of the ${(120000 / peak.rpm).toFixed(1)} ms available per engine cycle at ${peak.rpm} RPM, so the ${injectorLabel} injectors physically cannot deliver the commanded fuel.${fuel.stoich < 12 ? ` ${octaneLabel} needs roughly ${(14.7 / fuel.stoich).toFixed(2)}× the fuel volume of gasoline at the same lambda — a big part of why you ran out here.` : ''}`,
       fix: `On FUEL, step up to a larger injector, or lower VE/boost in this range so demand fits under the current injectors' capacity.${fuel.stoich < 12 ? ' Switching back to a gasoline blend would also cut fuel volume sharply — at the cost of knock margin.' : ''}`,
@@ -199,6 +202,7 @@ export function simulateSweep({
     const impact = Math.max(4, Math.round(10 * (0.3 + 0.7 * rangeFrac(run))));
     events.push({
       type: 'lean', severity: 2, impact,
+      rpmStart: run[0].rpm, rpmEnd: run[run.length - 1].rpm,
       msg: `Lean mixture (up to ${peak.afr.toFixed(1)}:1) across ${rangeLabel(run)} under load`,
       cause: peak.fuelLimited
         ? `This is the injector-duty limit above showing up as heat risk, not a bad AFR table entry.`
@@ -215,6 +219,7 @@ export function simulateSweep({
     const impact = Math.max(6, Math.round(18 * (0.25 + 0.75 * rangeFrac(run)) * (0.4 + 0.6 * overage)));
     events.push({
       type: 'valve', severity: 3, impact,
+      rpmStart: run[0].rpm, rpmEnd: run[run.length - 1].rpm,
       msg: `Lean-under-boost across ${rangeLabel(run)} (up to ${peak.afr.toFixed(1)}:1 at ${peak.boostPsi.toFixed(1)} psi) — elevated EGT, valve risk`,
       cause: `Boost raises cylinder pressure and heat at the same time the mixture goes lean — that combination burns exhaust valves over repeated pulls, separately from detonation. This spans ${Math.round(rangeFrac(run) * 100)}% of the sweep.`,
       fix: `Richen AFR under boost in this range, confirm injectors are not maxed (FUEL tab), or add an intercooler.`,
@@ -227,6 +232,7 @@ export function simulateSweep({
     const impact = Math.max(6, Math.round((12 + sev * 26) * (0.35 + 0.65 * rangeFrac(run))));
     events.push({
       type: 'rich', severity: 3, impact,
+      rpmStart: run[0].rpm, rpmEnd: run[run.length - 1].rpm,
       msg: `Dangerously rich across ${rangeLabel(run)} — down to lambda ${peak.lambda.toFixed(2)} (${peak.afr.toFixed(1)}:1)`,
       cause: `Far more fuel is being delivered than the available air can burn. Raw fuel washes the oil film off the cylinder walls, fouls plugs, and passes into the exhaust. It also costs a lot of power — the mixture is well past the point where extra fuel helps.`,
       fix: `Check the ECU Injector Size on FUEL matches the injectors actually fitted, verify the MAF scalar, then lean the AFR cells in this range back toward ${peak.bestAfr}:1.`,
@@ -241,6 +247,7 @@ export function simulateSweep({
     const impact = Math.round(8 * (0.3 + 0.7 * rangeFrac(run)));
     events.push({
       type: 'maf', severity: 1, impact,
+      rpmStart: run[0].rpm, rpmEnd: run[run.length - 1].rpm,
       msg: `MAF trim averaging ${avgTrim > 0 ? '+' : ''}${avgTrim.toFixed(0)}% across ${rangeLabel(run)} — running ${direction}`,
       cause: `${source.charAt(0).toUpperCase() + source.slice(1)} changed how much air reads across the MAF sensor at a given flow rate, and the ECU has not been rescaled for it.`,
       fix: `On ECU, adjust the MAF Scalar and re-run the pull — watch the AFR trace (actual vs. commanded) until they line up.`,
@@ -252,6 +259,7 @@ export function simulateSweep({
     const impact = Math.round(10 * (0.3 + 0.7 * rangeFrac(run)));
     events.push({
       type: 'compressor', severity: 2, impact,
+      rpmStart: run[0].rpm, rpmEnd: run[run.length - 1].rpm,
       msg: `Compressor pushed past its efficient range across ${rangeLabel(run)} (target up to ${peak.boostPsi.toFixed(1)} psi)`,
       cause: `This compressor's practical ceiling is lower than the boost you're asking for here — beyond it, the compressor is working outside its efficient map, making hotter, less dense, more knock-prone air.`,
       fix: `On BUILD, size up the compressor, or lower the boost target for this RPM range.`,
@@ -276,6 +284,7 @@ export function simulateSweep({
     const lost = points.filter((p) => p.rpm > floatRpm);
     events.push({
       type: 'float', severity: 3, impact: Math.round(clamp((endRpm - floatRpm) / 45, 8, 34)),
+      rpmStart: Math.round(floatRpm), rpmEnd: endRpm,
       msg: `Valve float above ${Math.round(floatRpm)} RPM — cylinder filling collapsing over the last ${lost.length * SWEEP_STEP_RPM} RPM of the pull`,
       cause: `The camshaft opens the valves but only the springs close them. Above ${Math.round(floatRpm)} RPM the valves stop following the lobe, so the cylinder cannot fill and power falls off a cliff instead of tapering. A ${derived.camDuration}° cam opens further and faster, which is exactly why it demands stiffer springs than stock.`,
       fix: `Raise the valve spring rate on BUILD until float sits above your ${endRpm} RPM redline, or fit a milder cam. No amount of table tuning can fix this — the valvetrain is simply not keeping up.`,
@@ -317,4 +326,20 @@ export function simulateSweep({
   const peakHp = Math.max(...points.map((p) => p.hp));
   const peakTq = Math.max(...points.map((p) => p.torque));
   return { points, events, wear, peakHp, peakTq, loadKpa, needsMafRecal };
+}
+
+/**
+ * Whether an event happened somewhere in particular, rather than being true of the
+ * whole pull.
+ *
+ * Derived from the data, never from a list of type names. `LogScreen` records what a
+ * hand-kept list costs: one there named eleven of the twelve types this file emits and
+ * `bearing` fell through to a chart colour. A thirteenth event type added later is
+ * classified correctly the day it appears — it carries a span or it does not.
+ *
+ * @param {{rpmStart?: number}} event
+ * @returns {boolean}
+ */
+export function isLocatable(event) {
+  return typeof event.rpmStart === 'number';
 }
