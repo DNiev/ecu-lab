@@ -132,22 +132,32 @@ describe('pull-log event tones', () => {
     // it was.
     //
     // This classification moved from EcuLab.jsx to LogScreen.jsx (DYNO's screen
-    // split, PR 3) — re-pointed here rather than relaxed, same as
-    // button-call-sites.test.jsx re-points at the screens/ glob after each tab moves.
+    // split, PR 3), then from LogScreen.jsx to eventBands.js (Task 2, PR 5b) —
+    // re-pointed here rather than relaxed, same as button-call-sites.test.jsx
+    // re-points at the screens/ glob after each tab moves.
+    const source = readFileSync(new NodeURL('../src/ui/components/eventBands.js', import.meta.url), 'utf8');
+
+    // The derivation itself: severity >= 3 is danger, and it is the only threshold
+    // this file is allowed to hardcode a number against.
+    const hasSeverityCheck = /event\.severity\s*>=\s*3/.test(source);
+    expect(hasSeverityCheck).toBe(true);
+
+    // `maf` is the one genuine special case (a calibration observation, not damage —
+    // see `eventTone`'s own doc comment). Any OTHER type-name check here is exactly
+    // the hand-kept list this rule replaced, one entry at a time.
+    const typeChecks = [...source.matchAll(/event\.type\s*===\s*'([a-z]+)'/g)].map((m) => m[1]);
+    expect(typeChecks).toEqual(['maf']);
+  });
+
+  it('reads the same derivation in LogScreen, rather than a second inline copy', () => {
+    // This is the risk the block above names directly: `eventBands.js` reading clean
+    // proves nothing about `LogScreen.jsx` if a second, un-migrated tone rule sits
+    // there instead — this file only ever reads `eventBands.js`, so that regression
+    // would leave the test above green. `bearing` fell through a hand-kept list once
+    // already (see above); the fix was consolidating to one rule, and this pins that
+    // LogScreen actually imports it rather than keeping its own.
     const source = readFileSync(new NodeURL('../src/ui/screens/dyno/LogScreen.jsx', import.meta.url), 'utf8');
-    const classification = source
-      .split('\n')
-      .filter((l) => /const is(Danger|Warn|Violet) =/.test(l));
-
-    expect(classification.length).toBe(3);
-
-    const derivesFromSeverity = classification.some((l) => /e\.severity/.test(l));
-    expect(derivesFromSeverity).toBe(true);
-
-    // `maf` is the one legitimate name check: it is a calibration observation rather
-    // than damage, so it takes violet on identity, not on severity. Any OTHER type name
-    // appearing here means the lists are back.
-    const named = classification.flatMap((l) => [...l.matchAll(/e\.type === '([a-z]+)'/g)].map((m) => m[1]));
-    expect(named).toEqual(['maf']);
+    expect(source).toMatch(/import\s*\{[^}]*\beventTone\b[^}]*\}\s*from\s*['"].*eventBands\.js['"]/);
+    expect([...source.matchAll(/e\.type\s*===\s*'[a-z]+'/g)]).toEqual([]);
   });
 });

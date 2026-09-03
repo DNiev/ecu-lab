@@ -571,6 +571,9 @@ function baseReducer(state, action) {
           bestScore: Math.max(state.session.bestScore, action.pullScore),
           totalScore: state.session.totalScore + action.pullScore,
           pullCount: state.session.pullCount + 1,
+          // The focus belongs to the log of the pull it was clicked on. Carried into
+          // this new pull it would highlight whichever events happen to span that RPM.
+          logFocusRpm: null,
         },
       };
 

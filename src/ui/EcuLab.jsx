@@ -33,7 +33,7 @@ import {
   PSI_TO_KPA,
   R_AIR, RPM, TURBINE_OPTS, calibrationAdvice, chargeTempK, clamp,
   computeEngineerScore, computeHardwareVE, computePullScore, computeTuningScore,
-  deriveEngine, idealExhaustDiameter, interp2, presetById,
+  deriveEngine, idealExhaustDiameter, interp2, isLocatable, presetById,
   simulateSweep, turbineWithCount, veRecommendations
 } from '../sim/index.js';
 import { T, utilisationColor } from './theme.js';
@@ -54,6 +54,7 @@ import { Panel } from './primitives/Panel.jsx';
 import { StatTile } from './primitives/StatTile.jsx';
 import { Seg } from './primitives/Seg.jsx';
 import { DialMark } from './components/DialMark.jsx';
+import { eventBands } from './components/eventBands.js';
 import { EngineScreen } from './screens/build/EngineScreen.jsx';
 import { ExhaustScreen } from './screens/build/ExhaustScreen.jsx';
 import { FuelSystemScreen } from './screens/build/FuelSystemScreen.jsx';
@@ -732,6 +733,24 @@ export function EcuLabApp() {
     });
   }, [result, ghost, running, revealCount]);
 
+  // The shell computes these for the same reason it computes `chartData`: the screen
+  // is handed a model rather than deriving one.
+  const bands = useMemo(() => (result ? eventBands(result.events) : []), [result]);
+  const wholePullCount = useMemo(
+    () => (result ? result.events.filter((e) => !isLocatable(e)).length : 0),
+    [result],
+  );
+
+  /**
+   * Opens the pull log focused on `rpm`, or on nothing when null. Both the bands and
+   * the whole-pull note go through here.
+   * @param {number|null} rpm
+   */
+  const selectLogRpm = (rpm) => {
+    dispatch({ type: ACTIONS.SET_SESSION_FIELD, field: 'logFocusRpm', value: rpm });
+    goSection('dyno', 'log');
+  };
+
   // `buildHistogram`/`applyHistogram` moved to DataScreen.jsx: DYNO's DATALOG
   // section was their only caller, and everything they touch (result, histogram,
   // ve) is plain store state DataScreen can read for itself.
@@ -1086,6 +1105,16 @@ export function EcuLabApp() {
                     chartData={chartData}
                     engineDerived={engineDerived}
                     ghostLabel={ghostLabel(ghost, pinnedRunId)}
+                    // `bands` is memoised on `result`, which is banked at sweep START —
+                    // same hazard `scores` guards a few lines up, with the same fix:
+                    // hide it for the duration of `running` rather than let it leak the
+                    // next pull's full knock/lean tint onto a chart that has not drawn a
+                    // trace yet. A band clicked mid-reveal would also dispatch and
+                    // navigate to a log gated on `!running`, doing nothing for seconds
+                    // and then jerking the view once the pull finishes.
+                    bands={running ? [] : bands}
+                    wholePullCount={running ? 0 : wholePullCount}
+                    onSelectRpm={selectLogRpm}
                   />
                 )}
 

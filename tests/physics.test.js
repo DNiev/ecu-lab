@@ -474,6 +474,134 @@ describe('dyno sweep', () => {
     expect(overloaded.events.some((e) => e.type === 'pressure')).toBe(true);
     expect(overloaded.wear.piston).toBeGreaterThan(sane.wear.piston);
   });
+
+  it('gives every locatable event the RPM span it actually covered', () => {
+    // A deliberately awful build, so that several range events fire at once.
+    const r = stockPull({
+      cfg: { ...STOCK, camDuration: 290, springRate: 20, compression: 13.5 },
+      turboOn: true, boostCurve: [18, 25, 25, 25, 25, 25, 25, 25],
+      injectorCc: 400, ecuInjectorCc: 315,
+    });
+    const located = r.events.filter(S.isLocatable);
+    expect(located.length).toBeGreaterThan(0);
+    for (const e of located) {
+      expect(e.rpmEnd, `${e.type} ends before it starts`).toBeGreaterThanOrEqual(e.rpmStart);
+      expect(e.rpmStart, `${e.type} starts below the sweep`).toBeGreaterThanOrEqual(S.SWEEP_START_RPM);
+      expect(e.rpmEnd, `${e.type} ends above the sweep`).toBeLessThanOrEqual(r.points[r.points.length - 1].rpm);
+    }
+  });
+
+  // The span must be the RUN's own first and last point, not the whole sweep, for
+  // every one of the eight `groupRuns`-detected range types — not just knock. Each
+  // predicate below is the exact one `sweep.js` groups points by (see the
+  // `groupRuns(points, (p) => ...)` calls there), and each row's overrides are its own
+  // fixture, tailored to make that one type fire — a single shared fixture cannot
+  // produce all eight, since some (lean vs. rich, lean-off-boost vs. valve-on-boost)
+  // are mutually exclusive.
+  //
+  // Mutation caught (originally, on knock alone): rpmStart: SWEEP_START_RPM /
+  // rpmEnd: endRpm, which satisfies every bound-only check but tells the chart the
+  // event covered the whole sweep. Generalising this to a table keeps that same
+  // mutation catchable per type, by name — a mutation isolated to, say, `rich` would
+  // not have been caught by the old knock-only version at all.
+  const leanAfrAt = (row) => {
+    const afr = S.clone2D(S.DEFAULT_AFR);
+    afr[row] = afr[row].map(() => 15.5);
+    return afr;
+  };
+  /**
+   * The first contiguous run of points matching `matches` — mirrors `groupRuns`'
+   * first emitted run, so it lines up with `events.find`'s first event of a type even
+   * when the predicate turns on, off, and on again across the sweep (as `compressor`
+   * does under the wastegate-limited boost curve the fixture below uses: two separate
+   * over-range stretches, not one). A plain `.filter` would span both.
+   */
+  function firstRun(points, matches) {
+    const start = points.findIndex(matches);
+    if (start === -1) return [];
+    let end = start;
+    while (end + 1 < points.length && matches(points[end + 1])) end += 1;
+    return points.slice(start, end + 1);
+  }
+  it.each([
+    ['knock', (p) => p.knock, {
+      turboOn: true, boostCurve: [0, 2, 8, 12, 14, 14, 14, 14],
+    }],
+    ['pressure', (p) => p.pressureRisk, {
+      cfg: { ...STOCK, compression: 12.5 },
+      turboOn: true, boostCurve: [0, 4, 12, 18, 20, 20, 20, 20],
+      injectorCc: 850, ecuInjectorCc: 850,
+      mods: { ...S.DEFAULT_MODS, intercooler: true },
+      sweep: { fuel: S.OCTANE_OPTS[3], octaneLabel: 'E85' },
+    }],
+    ['fuel', (p) => p.fuelLimited, {
+      turboOn: true, boostCurve: [0, 4, 12, 18, 20, 20, 20, 20],
+      injectorCc: 315, ecuInjectorCc: 315,
+      mods: { ...S.DEFAULT_MODS, intercooler: true },
+    }],
+    ['lean', (p) => p.leanRisk && !p.valveRisk, {
+      sweep: { afr: leanAfrAt(2) }, // row 2 = 100 kPa, naturally-aspirated WOT
+    }],
+    ['valve', (p) => p.valveRisk, {
+      turboOn: true, boostCurve: [0, 2, 8, 12, 14, 14, 14, 14],
+      mods: { ...S.DEFAULT_MODS, intercooler: true },
+      sweep: { afr: leanAfrAt(0) }, // row 0 = 200 kPa, boosted
+    }],
+    ['rich', (p) => p.richRisk, {
+      cfg: { ...STOCK, camDuration: 290, springRate: 20, compression: 13.5 },
+      turboOn: true, boostCurve: [18, 25, 25, 25, 25, 25, 25, 25],
+      injectorCc: 400, ecuInjectorCc: 315,
+    }],
+    ['maf', (p) => p.mafFlag, {
+      mods: { ...S.DEFAULT_MODS, intake: true },
+    }],
+    ['compressor', (p) => p.compressorOver, {
+      cfg: { ...STOCK, camDuration: 290, springRate: 20, compression: 13.5 },
+      turboOn: true, boostCurve: [18, 25, 25, 25, 25, 25, 25, 25],
+      injectorCc: 400, ecuInjectorCc: 315,
+    }],
+  ])("takes the '%s' event's span from the points it was detected on", (type, matchesPoint, overrides) => {
+    const r = stockPull(overrides);
+    const e = r.events.find((ev) => ev.type === type);
+    // A type that stops firing in its own fixture must fail loudly here, not be
+    // silently skipped — that fixture no longer covering it IS the regression.
+    expect(e, `${type} did not fire in its fixture`).toBeTruthy();
+    const run = firstRun(r.points, matchesPoint);
+    expect(run.length, `${type}'s own predicate matched no points`).toBeGreaterThan(0);
+    expect(e.rpmStart).toBe(run[0].rpm);
+    expect(e.rpmEnd).toBe(run[run.length - 1].rpm);
+  });
+
+  it('leaves the three whole-pull findings unlocated', () => {
+    // The other half of the pair. injscale, cam and bearing are true everywhere, so
+    // a band for them would be a lie about where they apply.
+    const r = stockPull({
+      cfg: { ...STOCK, camDuration: 290, springRate: 20, compression: 13.5 },
+      turboOn: true, boostCurve: [18, 25, 25, 25, 25, 25, 25, 25],
+      injectorCc: 400, ecuInjectorCc: 315,
+    });
+    for (const type of ['injscale', 'cam', 'bearing']) {
+      const e = r.events.find((ev) => ev.type === type);
+      expect(e, `${type} did not fire in this fixture`).toBeTruthy();
+      expect(S.isLocatable(e), `${type} must not carry an RPM span`).toBe(false);
+      expect(e.rpmStart).toBeUndefined();
+    }
+  });
+
+  it('locates valve float from the float RPM, not from a points run', () => {
+    const cfg = { ...STOCK, camDuration: 290, springRate: 20 };
+    const r = stockPull({ cfg });
+    const float = r.events.find((e) => e.type === 'float');
+    expect(float).toBeTruthy();
+    expect(S.isLocatable(float)).toBe(true);
+    // The assertion this test's name actually promises: `rpmStart` is the float RPM
+    // itself, not an untouched `SWEEP_START_RPM` left over from a copy-pasted range
+    // event. `deriveEngine` exposes `floatRpm` directly — it does not need to be
+    // rederived here, `stockPull` already computes it as `derived` internally.
+    expect(float.rpmStart).toBe(Math.round(S.deriveEngine(cfg).floatRpm));
+    expect(float.rpmEnd).toBe(r.points[r.points.length - 1].rpm);
+    expect(float.rpmStart).toBeLessThan(float.rpmEnd);
+  });
 });
 
 describe('scoring', () => {

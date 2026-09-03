@@ -115,6 +115,9 @@ import {
  * @property {number} journeyStep guided-onboarding progress: BUILD -> TUNE -> LIVE ->
  *   DYNO, then free play (step 4). Survives navigation, so it lives here rather than
  *   as view state.
+ * @property {number|null} logFocusRpm the RPM a chart band was activated at, so the
+ *   pull log can highlight every event whose span covers it. Null means no highlight.
+ *   Cleared by BANK_PULL — see that case in reducer.js.
  */
 
 /**
@@ -196,6 +199,7 @@ export function makeInitialState() {
       loadKpa: 100,
       soundOn: true,
       journeyStep: 0,
+      logFocusRpm: null,
     },
     history: { past: [], future: [] },
   };

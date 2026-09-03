@@ -5,12 +5,13 @@
  * straight off the store rather than threaded down as a prop.
  */
 
-import React from 'react';
+import React, { useEffect, useRef } from 'react';
 
 import { AlertTriangle } from 'lucide-react';
 
 import { Eyebrow } from '../../primitives/Eyebrow.jsx';
 import { useSession } from '../../state/StoreProvider.jsx';
+import { coversRpm, eventTone } from '../../components/eventBands.js';
 
 import styles from './LogScreen.module.css';
 
@@ -19,7 +20,19 @@ import styles from './LogScreen.module.css';
  */
 export function LogScreen() {
   const [session] = useSession();
-  const { result } = session;
+  const { result, logFocusRpm } = session;
+
+  // The spec's own words: a chart-band click "highlights every event whose span covers
+  // that RPM and scrolls the first into view." Landing on an off-screen highlight with
+  // no scroll defeats the reason click-through exists — a bad tune can emit five or six
+  // events, and the log is longer than the viewport well before that.
+  const firstFocusedRef = useRef(null);
+  useEffect(() => {
+    if (logFocusRpm == null) return;
+    firstFocusedRef.current?.scrollIntoView({ block: 'nearest' });
+  }, [logFocusRpm]);
+
+  let firstFocusedSeen = false;
 
   return (
     <>
@@ -31,22 +44,21 @@ export function LogScreen() {
       ) : (
         <div className={styles.events}>
           {result.events.map((e, i) => {
-            // The tone comes from the severity the sim already assigns, not from a
-            // hand-kept list of type names. Those lists named eleven of the twelve
-            // types `src/sim` emits: `bearing` matched none of them and fell through
-            // to the chart-series cyan, so the one warning about accumulating
-            // bottom-end stress rendered as decoration while `pressure`, its acute
-            // sibling, rendered red. Deriving it means a thirteenth event type gets a
-            // tone the day it is added instead of silently becoming a chart colour.
-            //
-            // `maf` is the one genuine special case: it is a calibration observation
-            // rather than damage, and violet is the token reserved for that.
-            const isViolet = e.type === 'maf';
-            const isDanger = !isViolet && e.severity >= 3;
-            const isWarn = !isViolet && !isDanger;
-            const tone = isDanger ? 'danger' : isWarn ? 'warn' : isViolet ? 'violet' : 'default';
+            const tone = eventTone(e);
+            const focused = coversRpm(e, logFocusRpm);
+            let ref;
+            if (focused && !firstFocusedSeen) {
+              firstFocusedSeen = true;
+              ref = firstFocusedRef;
+            }
             return (
-              <div key={i} className={styles.event} data-tone={tone}>
+              <div
+                key={i}
+                ref={ref}
+                className={styles.event}
+                data-tone={tone}
+                data-focused={String(focused)}
+              >
                 <div className={styles.eventHead}>
                   <div className={styles.eventTitle}>
                     <AlertTriangle size={14} className={styles.eventIcon} />

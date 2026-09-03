@@ -884,6 +884,28 @@ describe('BANK_PULL', () => {
     withBest.session = { ...withBest.session, bestScore: 80 };
     expect(reducer(withBest, bank(80)).session.pullScores.wasBest).toBe(false);
   });
+
+  it('starts with no log focus', () => {
+    expect(makeInitialState().session.logFocusRpm).toBe(null);
+  });
+
+  it('clears the log focus when a new pull is banked', () => {
+    // A focus RPM belongs to the log of the pull it was clicked on. Carried forward it
+    // would highlight whichever new events happen to span that RPM — wrong, and
+    // indistinguishable from right.
+    const focused = reducer(makeInitialState(), { type: ACTIONS.SET_SESSION_FIELD, field: 'logFocusRpm', value: 4800 });
+    expect(focused.session.logFocusRpm).toBe(4800);
+    expect(reducer(focused, bank(1)).session.logFocusRpm).toBe(null);
+  });
+
+  it('does not clear the log focus on an unrelated session write', () => {
+    // The other half. A BANK_PULL that cleared it is right; a reducer that cleared it
+    // on every session write would also pass the test above while destroying the
+    // focus the moment anything else changed.
+    const focused = reducer(makeInitialState(), { type: ACTIONS.SET_SESSION_FIELD, field: 'logFocusRpm', value: 4800 });
+    const after = reducer(focused, { type: ACTIONS.SET_SESSION_FIELD, field: 'running', value: true });
+    expect(after.session.logFocusRpm).toBe(4800);
+  });
 });
 
 describe('RESTORE_CAREER', () => {
