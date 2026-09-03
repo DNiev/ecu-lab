@@ -73,3 +73,9 @@
 }
 
 .eventLabel { color: var(--ink-soft); }
+
+/* The entry a chart band pointed at. A left edge rather than a background, so it
+   reads as "this one" without fighting the per-tone backgrounds above. */
+.event[data-focused='true'] {
+  box-shadow: inset 3px 0 0 0 var(--acc);
+}

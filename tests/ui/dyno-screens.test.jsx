@@ -241,6 +241,48 @@ describe('LogScreen', () => {
   });
 });
 
+describe('LogScreen focus highlighting', () => {
+  const RESULT = {
+    points: [], peakHp: 300, peakTq: 280,
+    events: [
+      { type: 'knock', severity: 3, impact: 20, msg: 'Knock in the midrange', cause: 'c', fix: 'f', rpmStart: 4200, rpmEnd: 5100 },
+      { type: 'lean', severity: 2, impact: 10, msg: 'Lean at the top', cause: 'c', fix: 'f', rpmStart: 6100, rpmEnd: 6600 },
+      { type: 'injscale', severity: 3, impact: 30, msg: 'Injector scaling mismatch', cause: 'c', fix: 'f' },
+    ],
+  };
+
+  const entry = (msg) => screen.getByText(msg).closest('[data-focused]');
+
+  it('highlights every event whose span covers the focus RPM, and no others', () => {
+    // Both directions in one assertion. Highlighting all three, and highlighting none,
+    // must each fail.
+    mountWithResult(<LogScreen />, { result: RESULT, logFocusRpm: 4800 });
+    expect(entry('Knock in the midrange').getAttribute('data-focused')).toBe('true');
+    expect(entry('Lean at the top').getAttribute('data-focused')).toBe('false');
+    expect(entry('Injector scaling mismatch').getAttribute('data-focused')).toBe('false');
+  });
+
+  it('highlights an event at the exact edge of its span', () => {
+    // Off-by-one: a `>` instead of `>=` drops the boundary, which is precisely the RPM
+    // a player clicking the edge of a band lands on.
+    mountWithResult(<LogScreen />, { result: RESULT, logFocusRpm: 4200 });
+    expect(entry('Knock in the midrange').getAttribute('data-focused')).toBe('true');
+  });
+
+  it('highlights a different event when the focus moves', () => {
+    mountWithResult(<LogScreen />, { result: RESULT, logFocusRpm: 6300 });
+    expect(entry('Knock in the midrange').getAttribute('data-focused')).toBe('false');
+    expect(entry('Lean at the top').getAttribute('data-focused')).toBe('true');
+  });
+
+  it('highlights nothing when there is no focus', () => {
+    mountWithResult(<LogScreen />, { result: RESULT, logFocusRpm: null });
+    for (const msg of ['Knock in the midrange', 'Lean at the top', 'Injector scaling mismatch']) {
+      expect(entry(msg).getAttribute('data-focused')).toBe('false');
+    }
+  });
+});
+
 describe('ScoreScreen', () => {
   // Fabricated: no real computePullScore/computeTuningScore/computeEngineerScore
   // output for the default store's engine would land on these exact figures.

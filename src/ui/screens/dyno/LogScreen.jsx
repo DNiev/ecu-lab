@@ -20,7 +20,7 @@ import styles from './LogScreen.module.css';
  */
 export function LogScreen() {
   const [session] = useSession();
-  const { result } = session;
+  const { result, logFocusRpm } = session;
 
   return (
     <>
@@ -34,7 +34,17 @@ export function LogScreen() {
           {result.events.map((e, i) => {
             const tone = eventTone(e);
             return (
-              <div key={i} className={styles.event} data-tone={tone}>
+              <div
+                key={i}
+                className={styles.event}
+                data-tone={tone}
+                data-focused={String(
+                  logFocusRpm != null
+                  && typeof e.rpmStart === 'number'
+                  && logFocusRpm >= e.rpmStart
+                  && logFocusRpm <= e.rpmEnd,
+                )}
+              >
                 <div className={styles.eventHead}>
                   <div className={styles.eventTitle}>
                     <AlertTriangle size={14} className={styles.eventIcon} />
