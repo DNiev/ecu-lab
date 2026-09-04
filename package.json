@@ -1,6 +1,6 @@
 {
   "name": "ecu-lab",
-  "version": "1.6.0",
+  "version": "1.7.0",
   "description": "An engine management and tuning simulator. Design an engine, edit the same three calibration tables a real tuner edits, run a dyno pull, and read a log that explains what went right or wrong.",
   "keywords": [
     "engine",

@@ -5,4 +5,4 @@
  * GENERATED — do not edit by hand. Run `npm version <patch|minor|major>`, which
  * rewrites this file from package.json via scripts/sync-version.js.
  */
-export const BUILD_VERSION = 'v1.6.0';
+export const BUILD_VERSION = 'v1.7.0';
