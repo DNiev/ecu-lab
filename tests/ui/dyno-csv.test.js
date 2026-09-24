@@ -69,9 +69,31 @@ describe('dyno sheet export', () => {
     expect(sweepToCsv(result.points).endsWith('\n')).toBe(true);
   });
 
-  it('names the file after the engine and the moment', () => {
-    const name = dynoSheetFilename({ engineName: 'BMW N54', at: new Date('2026-09-21T22:05:00Z') });
-    expect(name).toBe('eculab-dyno-bmw-n54-2026-09-21-22-05.csv');
+  // The flag beside the retard: it is `knockPull > 0`, so it adds no information, but
+  // it makes "how many points knocked" a SUM() instead of a threshold the reader has to
+  // write themselves. Asserted against the sim's own flag so the two cannot drift.
+  it('exports the knock flag as a column a spreadsheet can sum', () => {
+    const names = DYNO_COLUMNS.map(([n]) => n);
+    expect(names).toContain('knock');
+    const at = names.indexOf('knock');
+    const cells = sweepToCsv(result.points).trimEnd().split('\n').slice(1).map((r) => r.split(',')[at]);
+    expect(cells.every((c) => c === '0' || c === '1')).toBe(true);
+    expect(cells.reduce((n, c) => n + Number(c), 0)).toBe(result.points.filter((p) => p.knock).length);
+  });
+
+  // A stamp that disagrees with the clock on the wall is one you have to convert before
+  // you can use it, and nobody converts it — they misread the file instead. Pinned
+  // under a fixed zone so the assertion means the same thing in CI as it does here.
+  it('names the file after the engine and the local moment, not UTC', () => {
+    const tz = process.env.TZ;
+    process.env.TZ = 'America/New_York';
+    try {
+      // 22:05 on the 21st in New York is 02:05 the next day in UTC.
+      const name = dynoSheetFilename({ engineName: 'BMW N54', at: new Date('2026-09-22T02:05:00Z') });
+      expect(name).toBe('eculab-dyno-bmw-n54-2026-09-21-22-05.csv');
+    } finally {
+      process.env.TZ = tz;
+    }
   });
 
   it('still produces a usable name for a custom build', () => {

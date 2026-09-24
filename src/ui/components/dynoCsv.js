@@ -31,7 +31,12 @@ export const DYNO_COLUMNS = [
   ['afr_commanded', 'afrCommanded'],
   ['afr_actual', 'afr'],
   ['lambda', 'lambda'],
-  // What the ECU was doing about it.
+  // What the ECU was doing about it. The flag is `knockPull > 0` and so carries nothing
+  // the retard column does not, but it carries it in the form the question is asked in:
+  // how many points knocked is SUM(knock), against a COUNTIF with a threshold in it
+  // that a reader has to get right. It is also the datalog's own flag, and a column
+  // that disagrees with the screen is a column people stop trusting.
+  ['knock', 'knock'],
   ['knock_pull_deg', 'knockPull'],
   ['knock_threshold_deg', 'threshold'],
   ['knock_integral', 'knockIntegral'],
@@ -96,6 +101,11 @@ export function sweepToCsv(points, columns = DYNO_COLUMNS) {
 /**
  * A filename that says what the pull was, so a folder of these stays readable.
  *
+ * The stamp is the local clock, not UTC. These files are named for the moment you ran
+ * the pull, and the only clock you can check that against is the one on your own wall —
+ * a UTC stamp reads as the wrong hour, or on an evening pull as the wrong day, and a
+ * stamp you have to convert before you trust it is one you misread instead.
+ *
  * @param {object} input
  * @param {string} [input.engineName]
  * @param {Date} [input.at]
@@ -103,7 +113,9 @@ export function sweepToCsv(points, columns = DYNO_COLUMNS) {
  */
 export function dynoSheetFilename({ engineName = 'engine', at = new Date() } = {}) {
   const slug = engineName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'engine';
-  const stamp = at.toISOString().slice(0, 16).replace(/[:T]/g, '-');
+  const pad = (n) => String(n).padStart(2, '0');
+  const stamp = [at.getFullYear(), pad(at.getMonth() + 1), pad(at.getDate()),
+    pad(at.getHours()), pad(at.getMinutes())].join('-');
   return `eculab-dyno-${slug}-${stamp}.csv`;
 }
 
