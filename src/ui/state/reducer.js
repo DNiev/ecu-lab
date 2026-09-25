@@ -696,11 +696,13 @@ const UNDOABLE = new Set(Object.keys(UNDO_SCOPE));
  *  - SET_SESSION_FIELD, BANK_PULL, REPAIR_ENGINE write `session` only, which no
  *    snapshot carries and no restore touches.
  *  - SET_BOOST_SEL, SET_PRESET_PROMPT, SET_TUNE_FIELD are cursors and UI state:
- *    `boostSel`, `presetPrompt` and `selection` are all deliberately outside the
- *    snapshot (see history.js). SET_TUNE_FIELD is the generic tune setter, but its
- *    only callers pass `selection` — and one of them is the tab switch, so counting
- *    it as new work would mean walking from TUNE to BUILD silently killed the redo
- *    a player crossed tabs to reach.
+ *    `boostSel`, `presetPrompt`, `selection`, `rangeMode` (issue 105) and `diffView`
+ *    (issue 106) are all deliberately outside the snapshot (see history.js).
+ *    SET_TUNE_FIELD is the generic tune setter, and its callers write `selection`,
+ *    `rangeMode` and `diffView` — cursors and UI state, not calibration — so counting
+ *    any of those writes as new work would mean walking from TUNE to BUILD, flipping
+ *    the range mode, or toggling the overlay silently killed the redo a player crossed
+ *    tabs to reach.
  *  - UNDO/REDO manage `future` themselves.
  *
  * The three UNDOABLE actions are listed here too, for one list that answers "is this
@@ -712,13 +714,14 @@ const UNDOABLE = new Set(Object.keys(UNDO_SCOPE));
  * redo branch?
  *
  * `SET_TUNE_FIELD` needs the extra question because it is the one action whose write
- * surface depends on its payload rather than its type. Its five production callers all
- * pass `field: 'selection'` — a cursor, outside the snapshot, and written by `changeTab`
- * on every tab switch, so treating it as new work would mean walking from TUNE to BUILD
- * killed the redo the player crossed tabs to reach. But nothing in the type stops a
- * caller passing `'ve'`, and that write WOULD be overwritten by a redo. Asking the
- * snapshot's own key list makes the exclusion structural instead of an observation about
- * today's callers.
+ * surface depends on its payload rather than its type. Its production callers pass
+ * `field: 'selection'` (written by `changeTab` on every tab switch), `'rangeMode'`
+ * (issue 105) or `'diffView'` (issue 106) — cursors and UI state, all outside the
+ * snapshot, so treating any of those writes as new work would mean walking from TUNE to
+ * BUILD, or flipping one of those UI toggles, killed the redo the player crossed tabs to
+ * reach. But nothing in the type stops a caller passing `'ve'`, and that write WOULD be
+ * overwritten by a redo. Asking the snapshot's own key list makes the exclusion
+ * structural instead of an observation about today's callers.
  * @param {any} action
  * @returns {boolean}
  */

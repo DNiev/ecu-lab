@@ -92,6 +92,16 @@ describe('the CHANGES view', () => {
     expect(cell(1500, 150).textContent).toBe('-1');
   });
 
+  it('keeps the dock editing real values', () => {
+    mountAir();
+    const v0 = store.tune.ve[1][1];
+    changes();
+    select({ type: 'cell', row: 1, col: 1 });
+    fireEvent.click(within(screen.getByTestId('selection-dock')).getByRole('button', { name: '-5' }));
+    expect(store.tune.ve[1][1]).toBe(Number((v0 - 5).toFixed(2)));
+    expect(cell(1500, 150).textContent).toBe('-5');
+  });
+
   it('does not clear the selection when the view changes', () => {
     mountAir();
     select({ type: 'cell', row: 1, col: 1 });

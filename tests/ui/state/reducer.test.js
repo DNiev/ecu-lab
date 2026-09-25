@@ -501,14 +501,14 @@ describe('APPLY_PRESET', () => {
 });
 
 describe('APPLY_PRESET — exact write surface (catches drift in both directions)', () => {
-  // Round 1 found 14/21 fields deletable with the suite green; round 2's hardcoded
+  // Round 1 found 14/22 fields deletable with the suite green; round 2's hardcoded
   // `boostSel: 3` sailed through the table-driven fix at 65/65. Both survived because
   // the old test only compared a hand-built map against the local fixture's own key
   // set — never against what the reducer actually writes. This test instead seeds
   // EVERY field of EVERY slice with a sentinel a real write can never produce, dispatches
-  // for real, and asserts the walked set of changed fields against the 21-field
-  // contract this action documents: a stray write grows the changed set past 21, a
-  // dropped write shrinks it below 21, and the failure message names the field either
+  // for real, and asserts the walked set of changed fields against the 22-field
+  // contract this action documents: a stray write grows the changed set past 22, a
+  // dropped write shrinks it below 22, and the failure message names the field either
   // way.
   it('changes exactly the 22 documented fields, plus the two history fields', () => {
     const before = makeSentinelState();
