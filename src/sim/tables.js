@@ -295,3 +295,47 @@ export function smoothRect(table, rect, bounds) {
     return fit(sum / n, bounds);
   });
 }
+
+// The overlay's maths (#106): how far a table has moved from the calibration it was
+// loaded as, and putting a region back. Same precision rule as the ops above — a cell
+// differs when its change survives rounding to storage precision (2 dp), so float noise
+// from a scale-then-unscale never reads as an edit.
+
+/**
+ * @param {number} v
+ * @param {number} base
+ * @returns {number} the signed change, 2 dp; `|| 0` turns a -0 into 0
+ */
+const cellDelta = (v, base) => Number((v - base).toFixed(2)) || 0;
+
+/**
+ * Signed change of every cell from its baseline value.
+ * @param {number[][]} table
+ * @param {number[][]} baseline
+ * @returns {number[][]}
+ */
+export const diffTable = (table, baseline) => table.map((row, ri) => row.map((v, ci) => cellDelta(v, baseline[ri][ci])));
+
+/**
+ * The table with the cells in `rect` put back to their baseline values. No clamping: a
+ * baseline value is one the table has already held.
+ * @param {number[][]} table
+ * @param {Rect} rect
+ * @param {number[][]} baseline
+ * @returns {number[][]}
+ */
+export const revertRect = (table, rect, baseline) => mapRect(table, rect, (v, ri, ci) => baseline[ri][ci]);
+
+/**
+ * How many cells in `rect` differ from the baseline.
+ * @param {number[][]} table
+ * @param {number[][]} baseline
+ * @param {Rect} rect
+ * @returns {number}
+ */
+export function changedIn(table, baseline, rect) {
+  const { r1, c1, r2, c2 } = orderRect(rect);
+  let n = 0;
+  for (let r = r1; r <= r2; r++) for (let c = c1; c <= c2; c++) if (cellDelta(table[r][c], baseline[r][c]) !== 0) n++;
+  return n;
+}
