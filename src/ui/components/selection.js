@@ -100,12 +100,35 @@ export const stepsFor = (decimals) => (decimals ? { small: 0.1, big: 1 } : { sma
 export const signed = (n) => `${n > 0 ? '+' : ''}${n}`;
 
 /**
+ * An undo label for an op that changed `n` cells — which, for REVERT, is fewer than
+ * the selection holds: only the cells that differed moved.
+ * @param {string} desc
+ * @param {number} n
+ * @returns {string}
+ */
+export const countLabel = (desc, n) => `${desc} · ${n} ${n === 1 ? 'cell' : 'cells'}`;
+
+/**
  * The undo label's detail: what was done, and to how many cells.
  * @param {string} desc
  * @param {Rect} rect ordered
  * @returns {string}
  */
 export function opLabel(desc, rect) {
-  const n = cellCount(rect);
-  return `${desc} · ${n} ${n === 1 ? 'cell' : 'cells'}`;
+  return countLabel(desc, cellCount(rect));
+}
+
+/**
+ * A cell's change as the CHANGES view prints it, at the grid's precision. A real change
+ * that rounds away (a VE cell off by 0.3 at 0 dp) reads "~0" rather than "+0", so it is
+ * never mistaken for no change at all.
+ * @param {number} delta from `diffTable`, so exactly 0 when unchanged
+ * @param {number} decimals the grid's display precision
+ * @returns {string}
+ */
+export function formatDelta(delta, decimals) {
+  if (delta === 0) return '·';
+  const s = delta.toFixed(decimals);
+  if (Number(s) === 0) return '~0';
+  return delta > 0 ? `+${s}` : s;
 }

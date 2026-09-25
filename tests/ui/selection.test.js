@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import { LOAD, RPM } from '../../src/sim/index.js';
 import {
-  anchorOf, cellCount, inRect, opLabel, rectOf, selectionKey, signed, spanSelection, stepsFor,
+  anchorOf, cellCount, countLabel, formatDelta, inRect, opLabel, rectOf, selectionKey, signed, spanSelection, stepsFor,
 } from '../../src/ui/components/selection.js';
 
 const lastR = LOAD.length - 1;
@@ -73,5 +73,29 @@ describe('labels and steps', () => {
   it('pluralises the cell count', () => {
     expect(opLabel('smooth', { r1: 0, c1: 0, r2: 2, c2: 3 })).toBe('smooth · 12 cells');
     expect(opLabel('+1', { r1: 0, c1: 0, r2: 0, c2: 0 })).toBe('+1 · 1 cell');
+  });
+});
+
+describe('countLabel', () => {
+  it('names the op and how many cells it changed', () => {
+    expect(countLabel('revert', 3)).toBe('revert · 3 cells');
+    expect(countLabel('revert', 1)).toBe('revert · 1 cell');
+  });
+});
+
+describe('formatDelta', () => {
+  it('prints an unchanged cell as a dot', () => {
+    expect(formatDelta(0, 0)).toBe('·');
+  });
+  it('signs a change at the grid precision', () => {
+    expect(formatDelta(2, 0)).toBe('+2');
+    expect(formatDelta(-1, 0)).toBe('-1');
+    expect(formatDelta(0.3, 1)).toBe('+0.3');
+    expect(formatDelta(-0.5, 1)).toBe('-0.5');
+  });
+  it('shows ~0 for a real change too small to print', () => {
+    expect(formatDelta(0.3, 0)).toBe('~0');
+    expect(formatDelta(-0.3, 0)).toBe('~0');
+    expect(formatDelta(0.04, 1)).toBe('~0');
   });
 });

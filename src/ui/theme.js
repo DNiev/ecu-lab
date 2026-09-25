@@ -134,4 +134,27 @@ function deltaHeat(delta, fullScale = 12) {
   return `hsl(${delta > 0 ? 8 : 200}, 60%, ${14 + mag * 22}%)`;
 }
 
-export { T, accAlpha, deltaHeat, heat, horizonGlowAlpha, shadowAlpha, smokeAlpha, strip };
+// The hues of T.violet and T.cyan, so the overlay reads as the app's secondary data
+// colours. Neither is near a status hue (ok ~150, warn ~39, danger 0) or the accent
+// (~213); tests/theme.test.js holds them to that.
+const DIFF_UP_HUE = 255;
+const DIFF_DOWN_HUE = 188;
+
+/**
+ * Tint for a cell's change from the loaded calibration (issue 106): violet up, cyan down,
+ * brighter with magnitude up to `fullScale`.
+ *
+ * Not `deltaHeat`: that one's warm half sits on red, and a table the player has simply
+ * edited must never look like a fault. The floor keeps the smallest change distinct
+ * from an unchanged cell, which is drawn on `T.panel2` instead of through this.
+ *
+ * @param {number} delta signed change, non-zero
+ * @param {number} fullScale magnitude at which the colour stops brightening
+ * @returns {string} an hsl() colour
+ */
+function diffTint(delta, fullScale) {
+  const mag = clamp(Math.abs(delta) / fullScale, 0, 1);
+  return `hsl(${delta > 0 ? DIFF_UP_HUE : DIFF_DOWN_HUE}, 55%, ${(20 + mag * 20).toFixed(0)}%)`;
+}
+
+export { T, accAlpha, deltaHeat, diffTint, heat, horizonGlowAlpha, shadowAlpha, smokeAlpha, strip };

@@ -16,7 +16,7 @@ const ALLOWED = new Set(['tokens.js', 'tokens.css']);
 
 /**
  * Files allowed to compute an hsl() colour: the token layer, plus theme.js — the only
- * file where a computed ramp (heat(), deltaHeat()) legitimately lives. This is a
+ * file where a computed ramp (heat(), deltaHeat(), diffTint()) legitimately lives. This is a
  * separate list from ALLOWED on purpose: theme.js must still fail the hex and rgba
  * checks below, so a raw literal can't hide there. Do not fold this into ALLOWED.
  */
