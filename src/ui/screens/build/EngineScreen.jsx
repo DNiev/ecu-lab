@@ -14,7 +14,7 @@ import { RotateCcw, Settings } from 'lucide-react';
 import React from 'react';
 
 import {
-  CONFIG_OPTS, CYL_COUNT, ENGINE_PRESETS, MATERIAL_OPTS, PRESET_GROUPS, applyPreset,
+  COIL_OPTS, CONFIG_OPTS, CYL_COUNT, ENGINE_PRESETS, MATERIAL_OPTS, PRESET_GROUPS, VVT_OPTS, applyPreset,
 } from '../../../sim/index.js';
 import { BuildSection } from '../../components/BuildSection.jsx';
 import { ExpandableInfo } from '../../components/ExpandableInfo.jsx';
@@ -207,7 +207,7 @@ export function EngineScreen({ active, onToggle, engineDerived, activePreset, ve
 
       {!veAdvice.inSync && (
         <div className={styles.callout}>
-          <b className={styles.calloutAccent}>Your VE table is now stale.</b> This hardware breathes differently than what you last logged — up to {veAdvice.maxAbs.toFixed(0)}% off. Head to <b className={styles.em}>TUNE &rsaquo; AIR</b> to see which cells changed and why, then accept it there.
+          <b className={styles.calloutAccent}>Your VE table is now stale.</b> This hardware breathes differently than what you last logged — up to {veAdvice.maxAbs.toFixed(0)}% off. Head to <b className={styles.em}>TUNE &rsaquo; AIRFLOW</b> to see which cells changed and why, then accept it there.
         </div>
       )}
       <ExpandableInfo title="Why changing hardware does not update your VE table">
@@ -220,7 +220,7 @@ export function EngineScreen({ active, onToggle, engineDerived, activePreset, ve
       <div className={styles.labelSpaced}>Configuration</div>
       <Seg label="Configuration" options={CONFIG_OPTS.map((c) => ({ label: `${c} · ${CYL_COUNT[c]}cyl`, id: c }))} value={engineConfig.configuration} onChange={(v) => setCfg({ configuration: v })} />
       <ExpandableInfo title="Why cylinder count and layout matter">
-        For the same total displacement, spreading it across more, smaller cylinders means each one needs less peak pressure to make the same overall torque — a small real knock-margin benefit and smoother delivery. More cylinders also means more bearings and friction, so it is a trade-off, not a free upgrade.
+        For the same total displacement, spreading it across more, smaller cylinders means a shorter flame path in each, so the burn finishes sooner and the end gas has less time to knock — a small real knock-margin benefit — and more, smaller firing pulses smooth the delivery. More cylinders also means more bearings and friction, so it is a trade-off, not a free upgrade.
       </ExpandableInfo>
 
       <div className={styles.labelSpaced}>Bore: {engineConfig.bore.toFixed(1)} mm</div>
@@ -265,7 +265,22 @@ export function EngineScreen({ active, onToggle, engineDerived, activePreset, ve
         <br /><br />Stiffness is not free either — every cycle the engine compresses those springs, and that parasitic loss shows up in FMEP. Over-spring a mild cam and you simply lose a little power for nothing.
       </ExpandableInfo>
 
-      <div className={styles.label}>Block Material</div>
+      <div className={styles.label}>Cam Phasers</div>
+      <Seg label="Cam phasers" options={VVT_OPTS.map((o) => ({ id: o.id, label: o.label }))} value={engineConfig.vvt ?? 'none'} onChange={(v) => setCfg({ vvt: v })} equal />
+      <ExpandableInfo title="What a cam phaser does — and what it does not">
+        A phaser turns the camshaft against the crank with oil pressure, moving every event on that cam by the same angle. It does not change the lobe: duration and lift are the grind's. What it changes is <i>when</i> — and that is enough to move the torque curve, because the intake valve closing is what decides how much charge is trapped.
+        <br /><br />Advance the intake and it closes earlier: at low speed the charge has no momentum to keep filling after bottom dead centre, so closing early traps more of it; at high speed it cuts the ramming short. Every move also changes overlap, and overlap decides how much burned gas stays in the cylinder. The targets live on <b className={styles.em}>TUNE › VVT</b>; parked at zero, a phased engine is exactly the fixed-cam one.
+      </ExpandableInfo>
+
+      <div className={styles.labelSpaced}>Ignition</div>
+      <Seg label="Ignition coils" options={COIL_OPTS.map((o) => ({ id: o.id, label: o.label }))} value={build.coil ?? 'stock'} onChange={(v) => dispatch({ type: ACTIONS.SET_BUILD_FIELD, field: 'coil', value: v })} equal />
+      <div className={styles.labelSpaced}>Plug Gap</div>
+      <Seg label="Spark plug gap" options={[0.6, 0.7, 0.8, 0.9, 1.0, 1.1].map((g) => ({ id: g, label: `${g.toFixed(1)} mm` }))} value={build.plugGapMm ?? 1.0} onChange={(v) => dispatch({ type: ACTIONS.SET_BUILD_FIELD, field: 'plugGapMm', value: Number(v) })} equal />
+      <ExpandableInfo title="Why boosted engines close the plug gap">
+        Before a spark can do anything, the gap has to break down — and the voltage that takes rises with the density of the gas across it. Boost and advance both mean denser gas at the plug when it fires. Past what the coil can make, some events never light: a misfire that feels like a stutter and costs power exactly where the engine is working hardest. A smaller gap, a longer dwell or a stronger coil all buy it back.
+      </ExpandableInfo>
+
+      <div className={styles.labelSpaced}>Block Material</div>
       <Seg label="Block Material" options={MATERIAL_OPTS.map((m) => ({ label: m, id: m }))} value={engineConfig.blockMaterial} onChange={(v) => setCfg({ blockMaterial: v })} />
       <div className={styles.labelSpaced}>Head Material</div>
       <Seg label="Head Material" options={MATERIAL_OPTS.map((m) => ({ label: m, id: m }))} value={engineConfig.headMaterial} onChange={(v) => setCfg({ headMaterial: v })} />

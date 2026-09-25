@@ -19,6 +19,7 @@ import { chargeTempK, INDUCTION_REF_EXHAUST_K } from './thermo.js';
 import { evaluatePoint } from './point.js';
 import { assertBoostCurve } from './sweep.js';
 import { RPM } from './tables.js';
+import { liveStepEcu } from './ecu/liveEcu.js';
 
 /** Crank + flywheel + damper rotational inertia, kg·m². */
 export const ENGINE_INERTIA = 0.18;
@@ -64,6 +65,59 @@ export function sensorRead(prev, trueVal, lagFactor, noiseAmp) {
 }
 
 /**
+ * Manifold pressure the throttle and engine settle at, before any boost.
+ *
+ * A closed throttle at high RPM pulls far harder vacuum than the same opening at idle,
+ * because the engine is trying to pump much more air through the same restriction; that
+ * RPM term is what lets the engine decelerate on a closed throttle. Valve overlap lets
+ * exhaust back into the intake at low speed, so a big cam simply cannot pull strong
+ * vacuum at idle — which is why cammed engines idle high and lumpy.
+ *
+ * Shared with the live engine management (src/sim/ecu/liveEcu.js), which passes the
+ * overlap its cam phasers have added.
+ *
+ * @param {number} aFrac throttle opening, 0..1
+ * @param {number} nFrac engine speed against COEFF.MANIFOLD_VACUUM_RPM_NORM
+ * @param {number} overlapDeg valve overlap, degrees
+ * @returns {number} kPa
+ */
+export function steadyManifoldKpa(aFrac, nFrac, overlapDeg) {
+  const overlapBleed = overlapDeg * 0.0042;
+  return BARO_KPA * clamp(
+    0.18 + overlapBleed + 0.82 * Math.pow(aFrac, 0.75) - 0.28 * nFrac * Math.pow(1 - aFrac, 2),
+    0.12, 1,
+  );
+}
+
+/**
+ * The tachometer and airflow gauges: lagged, noisy readings of engine speed and MAF.
+ * Overlap makes the idle lope, and the lope shows on the tach. Shared with the live
+ * engine management, which reads its other sensors itself.
+ *
+ * A CRANK SENSOR THAT IS NOT TURNING READS ZERO, and reads it exactly. Everything else
+ * here is a real transducer with lag and noise, but a stationary crank presents no teeth
+ * to the pickup, so there is no signal to be noisy — the ECU sees no pulses and reports
+ * no speed. Left as a noisy reading it never settled, and a switched-off engine showed a
+ * tachometer wandering around 28 RPM for as long as you cared to watch it.
+ *
+ * @param {object} s live state, updated in place (`lope`, `sensedRpm`, `sensedMaf`)
+ * @param {object|null} pt this step's operating point
+ * @param {number} dt seconds
+ * @param {number} overlapDeg valve overlap, degrees
+ * @returns {number} the gauge lag factor for this step, for the caller's other gauges
+ */
+export function readSpeedAndAirflow(s, pt, dt, overlapDeg) {
+  const lag = clamp(dt / 0.09, 0, 1);
+  const lopeAmp = s.running && s.rpm < 1500 ? overlapDeg * 0.9 : 0;
+  s.lope = lopeAmp;
+  s.sensedRpm = s.rpm < CRANK_SENSOR_MIN_RPM
+    ? 0
+    : sensorRead(s.sensedRpm, s.rpm, lag, 14 + lopeAmp);
+  s.sensedMaf = sensorRead(s.sensedMaf, pt ? pt.maf : 0, lag * 0.8, 1.4);
+  return lag;
+}
+
+/**
  * A fresh live-engine state: stopped, cold, untrimmed.
  * @returns {object}
  */
@@ -87,6 +141,9 @@ export function makeLiveState() {
  * @returns {object} next state
  */
 export function liveStep(st, dt, input, cfg) {
+  // With an engine management context the ECU's own controllers run the engine; without
+  // one, the original model below, unchanged.
+  if (cfg.ecu) return liveStepEcu(st, dt, input, cfg);
   const s = { ...st };
   const {
     ve, veTruth, timing, afr, derived, fuel, injectorCc, ecuInjectorCc, mods, mafScalar,
@@ -151,14 +208,7 @@ export function liveStep(st, dt, input, cfg) {
     // Normalised against a fixed RPM datum, not this engine's redline — see
     // COEFF.MANIFOLD_VACUUM_RPM_NORM in coefficients.js for why that is deliberate.
     const nFrac = clamp(rpmClamped / COEFF.MANIFOLD_VACUUM_RPM_NORM, 0, 1.2);
-    // Valve overlap lets exhaust back into the intake at low speed, so a big cam
-    // simply cannot pull strong manifold vacuum at idle. That lost vacuum is why
-    // cammed engines idle high and lumpy.
-    const overlapBleed = (derived.overlapDeg || 0) * 0.0042;
-    const loadKpa = BARO_KPA * clamp(
-      0.18 + overlapBleed + 0.82 * Math.pow(aFrac, 0.75) - 0.28 * nFrac * Math.pow(1 - aFrac, 2),
-      0.12, 1,
-    );
+    const loadKpa = steadyManifoldKpa(aFrac, nFrac, derived.overlapDeg || 0);
     const boostTarget = turboOn ? interp1(RPM, boostCurve, rpmClamped) : 0;
     const steady = solveInduction({
       rpm: rpmClamped, loadKpa, turboOn, boostTargetPsi: boostTarget, turbine, compressor,
@@ -259,18 +309,7 @@ export function liveStep(st, dt, input, cfg) {
   }
 
   // ---- simulated sensors: lag + noise ----
-  const lag = clamp(dt / 0.09, 0, 1);
-  const lopeAmp = s.running && s.rpm < 1500 ? (derived.overlapDeg || 0) * 0.9 : 0;
-  s.lope = lopeAmp;
-  // A CRANK SENSOR THAT IS NOT TURNING READS ZERO, and reads it exactly. Everything else
-  // here is a real transducer with lag and noise, but a stationary crank presents no teeth
-  // to the pickup, so there is no signal to be noisy — the ECU sees no pulses and reports
-  // no speed. Left as a noisy reading it never settled, and a switched-off engine showed a
-  // tachometer wandering around 28 RPM for as long as you cared to watch it.
-  s.sensedRpm = s.rpm < CRANK_SENSOR_MIN_RPM
-    ? 0
-    : sensorRead(s.sensedRpm, s.rpm, lag, 14 + lopeAmp);
-  s.sensedMaf = sensorRead(s.sensedMaf, pt ? pt.maf : 0, lag * 0.8, 1.4);
+  const lag = readSpeedAndAirflow(s, pt, dt, derived.overlapDeg || 0);
   s.sensedMap = sensorRead(s.sensedMap, pt ? pt.map : BARO_KPA, lag, 0.7);
   s.sensedIat = sensorRead(s.sensedIat, pt ? pt.iat : 25, 0.05, 0.3);
   s.sensedLambda = sensorRead(s.sensedLambda, pt && s.running && !s.fuelCut ? pt.lambda : 1.6, lag * 0.5, 0.008);

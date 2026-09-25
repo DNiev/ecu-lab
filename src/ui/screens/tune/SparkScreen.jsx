@@ -38,9 +38,11 @@ import styles from './SparkScreen.module.css';
 /**
  * @param {object} props
  * @param {CalAdvice} props.calAdvice the shell's — also read by the FUEL screen
+ * @param {React.ReactNode} [props.children] the engine management settings that belong
+ *   with this table, shown under it
  * @returns {React.ReactElement}
  */
-export function SparkScreen({ calAdvice }) {
+export function SparkScreen({ calAdvice, children }) {
   const [tune, dispatch] = useTune();
   const { timing, selection, rangeMode } = tune;
   /** @param {Selection|null} value */
@@ -70,15 +72,16 @@ export function SparkScreen({ calAdvice }) {
           <TuningGrid data={timing} min={SPARK_MIN_DEG} max={SPARK_MAX_DEG} decimals={0} selection={selection} setSelection={setSelection} rangeMode={rangeMode} setData={setTable} />
 
           <ExpandableInfo title="Why the app never rewrites your spark or fuel tables">
-            The VE table auto-syncs because volumetric efficiency is a <b className={styles.emInk}>measurement of the hardware</b> — swap a cam and a tuner simply re-logs airflow, and the numbers are what they are.
+            The VE table can be re-logged in one tap because volumetric efficiency is a <b className={styles.emInk}>measurement of the hardware</b> — swap a cam and a tuner simply re-logs airflow, and the numbers are what they are. Even so, the app shows you what changed and waits for you to accept it.
             <br /><br />Spark and fuel are different: they are <b className={styles.emInk}>your calibration</b>, a set of judgement calls about how much risk to take for how much power. A real ECU does not retune itself when you bolt on a turbo — it keeps running the old numbers into the new hardware, which is exactly how engines get hurt.
             <br /><br />So the app tells you what the hardware will now tolerate, and leaves the editing to you. That gap between "what the engine can take" and "what your table asks for" is the entire job.
           </ExpandableInfo>
 
           <ExpandableInfo title="Why timing has a sweet spot (MBT)">
-            Combustion is not instant — the flame front takes time to burn through the mixture. Timing decides when the burn starts so peak cylinder pressure lands just after top dead center, where it does useful work. Advance too far and pressure peaks before the piston is ready, fighting the crank and risking knock; retard too far and you are burning fuel after the piston has already started down, wasting it as heat. MBT is the earliest timing that still lands the burn right — past it, more advance buys almost nothing, only risk.
+            Combustion is not instant — the flame front takes time to burn through the mixture. Timing decides when the burn starts so peak cylinder pressure lands just after top dead center, where it does useful work. Advance too far and pressure peaks before the piston is ready, fighting the crank and risking knock; retard too far and you are burning fuel after the piston has already started down, wasting it as heat. MBT is the least advance that still makes the best torque — past it, more advance buys almost nothing, only risk.
             <br /><br /><b className={styles.emInk}>As a beginner:</b> nudge one cell 1-2° at a time, run a pull, and read the log. If it comes back clean with no knock event, you probably still have room. If you see a knock warning, that cell is your new ceiling — back off to what the log suggests and move on.
           </ExpandableInfo>
+          {children}
         </div>
         <AdvisorPanel headline={report.headline} tone={report.tone}>
           <TuneAdvisory kind="timing" report={report} />

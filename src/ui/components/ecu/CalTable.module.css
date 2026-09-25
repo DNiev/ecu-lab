@@ -1,0 +1,210 @@
+/* The calibration table editor. Cell colours are data (theme.js heat ramps), set inline;
+   everything else is tokens. */
+
+.wrap {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-sm);
+}
+
+.bar {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-sm);
+  font-size: var(--fs-xs);
+}
+
+.unit {
+  color: var(--ink3);
+  font-family: var(--mono);
+}
+
+.badge {
+  font-size: var(--fs-micro);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--warn-ink);
+  background: var(--warn-bg);
+  border: 1px solid var(--warn-line);
+  border-radius: var(--r-xs);
+  padding: 1px 5px;
+}
+
+.flex { flex: 1; }
+
+.chip {
+  font-size: var(--fs-xs);
+  font-weight: 700;
+  color: var(--ink2);
+  background: var(--panel2);
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  padding: 3px 8px;
+}
+
+.chip[aria-pressed='true'] {
+  color: var(--acc-ink);
+  background: var(--acc-bg);
+  border-color: var(--acc);
+}
+
+.chip:disabled { opacity: 0.4; }
+
+.scroll {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+}
+
+.grid {
+  border-collapse: collapse;
+  font-family: var(--mono);
+  font-size: var(--fs-xs);
+}
+
+.corner {
+  min-width: 52px;
+  padding: 4px 6px;
+  text-align: left;
+  font-family: var(--sans);
+  font-size: var(--fs-micro);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: var(--ink3);
+  background: var(--panel);
+  border-bottom: 1px solid var(--line);
+}
+
+.axis {
+  background: var(--panel);
+  border-bottom: 1px solid var(--line);
+  border-left: 1px solid var(--line);
+  padding: 0;
+}
+
+.axisBtn {
+  display: block;
+  width: 100%;
+  min-width: 44px;
+  padding: 6px 4px;
+  border: none;
+  background: transparent;
+  color: var(--ink2);
+  font-family: var(--mono);
+  font-size: var(--fs-xs);
+  font-weight: 700;
+  text-align: center;
+}
+
+.axisInput {
+  width: 48px;
+  padding: 5px 3px;
+  border: 1px solid var(--acc);
+  border-radius: var(--r-xs);
+  background: var(--acc-bg);
+  color: var(--ink);
+  font-family: var(--mono);
+  font-size: var(--fs-xs);
+  text-align: center;
+}
+
+.cellWrap {
+  padding: 0;
+  border-left: 1px solid rgba(var(--shadow-rgb), 0.35);
+  border-top: 1px solid rgba(var(--shadow-rgb), 0.35);
+}
+
+.cell {
+  display: block;
+  min-width: 46px;
+  height: 32px;
+  padding: 0 4px;
+  border: none;
+  color: var(--ink);
+  font-family: var(--mono);
+  font-size: var(--fs-sm);
+  font-weight: 700;
+  touch-action: none;
+  outline: none;
+}
+
+.cell[data-live] {
+  box-shadow: inset 0 0 0 calc(1px + 2px * var(--live)) rgba(var(--acc-rgb), calc(0.35 + 0.65 * var(--live)));
+}
+
+.cell[data-selected] {
+  box-shadow: inset 0 0 0 2px var(--ink);
+}
+
+.plot {
+  width: 100%;
+  height: 64px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+}
+
+.plotLine {
+  fill: none;
+  stroke: var(--acc);
+  stroke-width: 2;
+  vector-effect: non-scaling-stroke;
+}
+
+.plotDef {
+  fill: none;
+  stroke: var(--ink3);
+  stroke-width: 1;
+  stroke-dasharray: 4 3;
+  vector-effect: non-scaling-stroke;
+}
+
+.plotMarker {
+  stroke: var(--warn);
+  stroke-width: 1.5;
+  vector-effect: non-scaling-stroke;
+}
+
+.tools {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 5px;
+  padding: var(--sp-sm);
+  background: var(--panel2);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+}
+
+.selInfo {
+  flex-basis: 100%;
+  font-size: var(--fs-xs);
+  color: var(--ink2);
+  font-family: var(--mono);
+}
+
+.tool {
+  font-size: var(--fs-xs);
+  font-weight: 700;
+  color: var(--ink);
+  background: var(--panel3);
+  border: 1px solid var(--line-hi);
+  border-radius: var(--r-sm);
+  padding: 5px 9px;
+  min-height: 28px;
+}
+
+.field { display: inline-flex; }
+
+.num {
+  width: 58px;
+  min-height: 28px;
+  padding: 4px 6px;
+  border: 1px solid var(--line-hi);
+  border-radius: var(--r-sm);
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--mono);
+  font-size: var(--fs-xs);
+}

@@ -17,6 +17,7 @@ import { ExpandableInfo } from '../../components/ExpandableInfo.jsx';
 import { downloadCsv, dynoSheetFilename, sweepToCsv } from '../../components/dynoCsv.js';
 import { eventBands } from '../../components/eventBands.js';
 import { initialScrubRpm, pointAt, pointGauges } from '../../components/scrubPoint.js';
+import { CorrectionStack } from '../../components/ecu/CorrectionStack.jsx';
 import { Button } from '../../primitives/Button.jsx';
 import { Eyebrow } from '../../primitives/Eyebrow.jsx';
 import { StatTile } from '../../primitives/StatTile.jsx';
@@ -246,15 +247,36 @@ export function DataScreen() {
           </div>
         )}
         <PairRows point={shown} />
+        {shown.breakdown && (
+          <div className={styles.ecu} data-testid="ecu-readout">
+            <div className={styles.ecuHead}>ENGINE MANAGEMENT AT THIS POINT</div>
+            <p className={styles.ecuNote}>
+              {!shown.protect?.length && !(shown.knockPull > 0) && !(shown.knockUnheard > 0.3) && !(shown.misfire > 5)
+                ? 'Nothing stepped in here: the engine ran your tables as written.'
+                : 'Something stepped in here. The amber and red tiles say what; the lists below show exactly how each value was changed.'}
+            </p>
+            <div className={styles.gauges}>
+              <StatTile label="KNOCK RETARD" value={shown.knockPull.toFixed(1)} unit="°" tone={shown.knockPull > 0 ? 'warn' : 'neutral'} />
+              <StatTile label="UNHEARD KNOCK" value={(shown.knockUnheard ?? 0).toFixed(1)} unit="°" tone={shown.knockUnheard > 0.3 ? 'danger' : 'neutral'} />
+              {shown.boostTarget > 0 && <StatTile label="BOOST TARGET" value={shown.boostTarget} unit="psi" />}
+              {shown.boostTarget > 0 && <StatTile label="WASTEGATE" value={shown.wgDuty} unit="%" />}
+              <StatTile label="FUEL ΔP" value={shown.railDp} unit="kPa" tone={shown.fuelStarved ? 'danger' : 'neutral'} />
+              <StatTile label="MISFIRE" value={shown.misfire} unit="%" tone={shown.misfire > 5 ? 'danger' : 'neutral'} />
+              {(shown.camIn > 0 || shown.camEx > 0) && <StatTile label="CAMS IN / EX" value={`${shown.camIn} / ${shown.camEx}`} unit="°" />}
+              <StatTile label="PROTECTIONS" value={shown.protect?.length ? shown.protect.join(', ') : 'none'} tone={shown.protect?.length ? 'warn' : 'ok'} />
+            </div>
+            <CorrectionStack breakdown={shown.breakdown} result={{ timing: shown.timing, lambda: shown.lambda }} />
+          </div>
+        )}
       </div>
 
       <ExpandableInfo title="How to read a datalog">
         Diagnosis happens in the <b className={styles.em}>asked → got</b> pairs, not in the power number.
-        <br /><br /><b className={styles.em}>Timing</b>: if the two differ, the ECU overrode you. That is knock retard, and the gap is how far past the limit your table was. Tuners treat anything sustained above ~2° as damaging.
-        <br /><br /><b className={styles.em}>Mixture</b>: if actual is not what you commanded, the cause is upstream of the fuel table — usually injectors out of duty cycle, MAF scaling, or an ECU injector size that does not match the hardware. Do not paper over it by editing fuel cells; fix the cause.
+        <br /><br /><b className={styles.em}>Timing</b>: if the two differ, the ECU overrode you. That is knock retard, and the gap is roughly how far past the limit your table was (the ECU retards in whole steps). A common rule of thumb treats anything sustained above ~2° as a problem to fix.
+        <br /><br /><b className={styles.em}>Mixture</b>: if actual is not what you commanded, the cause is upstream of the fuel table — usually injectors out of duty cycle, MAF scaling, or injector scaling (TUNE › INJECTORS) that does not match the hardware. Do not paper over it by editing fuel cells; fix the cause.
         <br /><br /><b className={styles.em}>INJ PW / DUTY</b>: duty is a time budget. At 7500 RPM there are only 16 ms in an engine cycle. Past about 90% there is no room left and the mixture goes lean regardless of what you asked for.
-        <br /><br /><b className={styles.em}>EGT</b>: exhaust temperature rises with retarded timing and lean mixtures. Sustained above ~950°C cooks turbines and valves.
-        <br /><br /><b className={styles.em}>PEAK P</b>: peak cylinder pressure is what the piston, rod and bearings physically carry, and it is set by compression ratio multiplied by manifold pressure, not by boost alone. A naturally aspirated engine peaks near 50 bar; a factory turbo engine near 90-110. Past that, stock pistons and rods start failing <i>without</i> any detonation to warn you — which is exactly what high-octane fuel hides, because octane buys knock margin and nothing else.
+        <br /><br /><b className={styles.em}>EGT</b>: exhaust temperature rises with retarded timing and as the mixture leans toward stoichiometric. Sustained above about 950–1000°C cooks turbines and valves.
+        <br /><br /><b className={styles.em}>PEAK P</b>: peak cylinder pressure is what the piston, rod and bearings physically carry, and it is set by compression ratio multiplied by manifold pressure, not by boost alone. In this app a naturally aspirated engine peaks around 60–70 bar and a factory turbo engine around 75–90; practitioners quote about 100–120 for real production turbo engines, so the app runs low here (see Learn article 39). Its own limit, about 105 bar, is set on the app&apos;s scale. Past that, stock pistons and rods start failing <i>without</i> any detonation to warn you — which is exactly what high-octane fuel hides, because octane buys knock margin and nothing else.
       </ExpandableInfo>
 
       <div className={styles.buildWrap}>

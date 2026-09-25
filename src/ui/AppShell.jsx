@@ -44,12 +44,12 @@
  */
 
 import {
-  Activity, Flag, Gauge, Grid3x3, Info, Settings, Wrench,
+  Activity, Flag, Flame, Gauge, Grid3x3, Info, Settings, Wrench,
 } from 'lucide-react';
 import React, { useMemo } from 'react';
 
 import {
-  INJECTOR_OPTS, OCTANE_OPTS, deriveEngine, presetById,
+  INJECTOR_OPTS, FUEL_CHOICES, deriveEngine, presetById,
 } from '../sim/index.js';
 import { BUILD_VERSION } from '../version.js';
 import { Button } from './primitives/Button.jsx';
@@ -75,10 +75,14 @@ import styles from './AppShell.module.css';
  *
  * @type {Array<{id: string, label: string, icon: React.ElementType}>}
  */
+// The order is the real working order: design it, calibrate it, HEAR IT RUN, then
+// measure it. LIVE used to be a collapsed section on HOME, several taps down and easy
+// never to find — a poor place for the one screen that shows a calibration running.
 const NAV_ITEMS = [
   { id: 'dash', label: 'HOME', icon: Gauge },
   { id: 'build', label: 'BUILD', icon: Settings },
   { id: 'tune', label: 'TUNE', icon: Grid3x3 },
+  { id: 'live', label: 'LIVE', icon: Flame },
   { id: 'dyno', label: 'DYNO', icon: Activity },
   { id: 'drag', label: 'DRAG', icon: Flag },
 ];
@@ -201,6 +205,18 @@ function EngineRunLight() {
  * @param {() => void} [props.onRepair]
  * @returns {React.ReactElement}
  */
+/**
+ * The fuel as the header names it: a pump fuel by its octane ("93 oct"), E85 by name, a
+ * flex tank by the blend it holds.
+ * @param {{label: string, flex?: boolean}} fuel
+ * @param {number|null|undefined} ethanolPct
+ * @returns {string}
+ */
+function fuelLabel(fuel, ethanolPct) {
+  if (fuel.flex) return `Flex E${Math.round(ethanolPct ?? 0)}`;
+  return /^\d+$/.test(fuel.label) ? `${fuel.label} oct` : fuel.label;
+}
+
 export function StatusStrip({ onTutorial, onRepair }) {
   const [build] = useBuild();
   const [session] = useSession();
@@ -240,11 +256,11 @@ export function StatusStrip({ onTutorial, onRepair }) {
             "oct" (e.g. an octane explainer) would otherwise be an ambiguous match
             for a text-based query. */}
         <div className={styles.engine} data-testid="build-line">
-          {engineName} · {turboOn ? 'Turbo' : 'N/A'} · {OCTANE_OPTS[octaneIdx].label} oct · {INJECTOR_OPTS[injIdx].label} · {BUILD_VERSION}
+          {engineName} · {turboOn ? 'Turbo' : 'N/A'} · {fuelLabel(FUEL_CHOICES[octaneIdx], build.ethanolPct)} · {INJECTOR_OPTS[injIdx].label} · {BUILD_VERSION}
         </div>
         <StripField label="BOOST" value={turboOn ? `${peakBoost.toFixed(1)} psi` : 'N/A'} />
         <HealthField pct={overallHealth} />
-        <StripField label="LAST PULL" value={result ? `${Math.round(result.peakHp)} hp` : '—'} />
+        <StripField label="LAST PULL" value={result ? `${Math.round(result.peakHp)} whp` : '—'} />
         <EngineRunLight />
         {/* Icon-only, so the label has to be spelled out: `title` alone leaves a
             button whose accessible name depends on the tooltip surviving. Note the

@@ -67,6 +67,21 @@ export const OCTANE_OPTS = [
 ];
 
 /**
+ * Every fuel BUILD offers: the four pump fuels, then a flex-fuel tank — whatever blend of
+ * pump gasoline and E85 the last fills left in it. The flex entry's figures are the
+ * gasoline end; the tank's real properties come from `blendFuel` at the ethanol content
+ * BUILD sets (`tankFuel` in src/sim/ecu/context.js).
+ *
+ * A separate list rather than a fifth OCTANE_OPTS entry: OCTANE_OPTS is the pump-fuel
+ * catalogue the physics and the fingerprint are pinned to, and a flex tank is not a pump
+ * fuel. `octaneIdx` indexes this list; its first four entries ARE OCTANE_OPTS.
+ */
+export const FUEL_CHOICES = [
+  ...OCTANE_OPTS,
+  { label: 'Flex', flex: true, bonus: 3, octane: 93, stoich: 14.7, density: 0.745, lhv: 44.0e6 },
+];
+
+/**
  * Real static flow ratings, cc/min.
  *
  * Duty cycle is computed from actual required pulse width against the time available

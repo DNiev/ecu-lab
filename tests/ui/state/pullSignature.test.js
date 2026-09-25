@@ -132,10 +132,10 @@ describe('measuredInputs', () => {
     expect(projected.build).not.toHaveProperty('boostSel');
   });
 
-  it('keeps the three tables and drops the tune slice cursors', () => {
+  it('keeps the three tables and the ECU calibration, and drops the tune slice cursors', () => {
     const s = makeInitialState();
     const projected = measuredInputs(s.build, { ...s.tune, selection: { type: 'cell', row: 1, col: 1 }, tablesDirty: true }, 100);
-    expect(Object.keys(projected.tune).sort()).toEqual(['afr', 'timing', 've']);
+    expect(Object.keys(projected.tune).sort()).toEqual(['afr', 'ecu', 'timing', 've']);
   });
 
   it('carries loadKpa', () => {
@@ -182,6 +182,18 @@ describe('diffMeasuredInputs', () => {
     // The other half of the reference-compare pair.
     const s = makeInitialState();
     expect(diffMeasuredInputs(project(), project({ tune: { ve: clone2D(s.tune.ve) } }))).toEqual([]);
+  });
+
+  it('does not call an input changed when an older saved run never recorded it', () => {
+    // A run banked before #112 has no fuel system, sensors or ECU calibration in its
+    // inputs. Mutation caught: comparing undefined against the current value, which
+    // listed all seven as changed on the first run after an update.
+    const old = project();
+    for (const k of ['fuelSystem', 'sensorHw', 'wastegate', 'coil', 'plugGapMm', 'ethanolPct']) delete old.build[k];
+    delete old.tune.ecu;
+    const saved = JSON.parse(JSON.stringify(old));
+    expect(diffMeasuredInputs(saved, project())).toEqual([]);
+    expect(diffMeasuredInputs(saved, project({ build: { turboOn: true } }))).toEqual(['turbo']);
   });
 
   it('names several fields when several moved', () => {

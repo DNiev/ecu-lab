@@ -53,7 +53,9 @@ function mount() {
 /** Renders the app and clicks past the start screen (which lands on BUILD). */
 function launch() {
   mount();
-  fireEvent.click(screen.getByRole('button', { name: 'START' }));
+  // The start screen offers CAREER, SANDBOX and TUTORIAL rather than a single START.
+  // SANDBOX is the free-play entry the old button was.
+  fireEvent.click(screen.getByRole('button', { name: 'SANDBOX' }));
 }
 
 /**
@@ -86,7 +88,7 @@ describe('a deep link on a cold load', () => {
     window.location.hash = '#/tune/spark';
     mount();
 
-    expect(screen.queryByRole('button', { name: 'START' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'SANDBOX' })).toBeNull();
     expect(screen.getByText('Ignition Timing')).toBeTruthy();
   });
 
@@ -119,11 +121,15 @@ describe('clicking a tab', () => {
     // The six useState calls this replaced defaulted to 'live'/'engine'/'ve'/'result'.
     // Those are the heads of the ROUTES lists, and `goTab` reads them from there — so
     // this asserts the defaults did not quietly change hands during the conversion.
+    // HOME is the one exception: its head is the jobs board, which only CAREER has, so
+    // free play opens it on the section after (see the free-play test below).
     launch();
-    for (const [tab, label] of [['dash', 'HOME'], ['build', 'BUILD'], ['tune', 'TUNE'], ['dyno', 'DYNO']]) {
+    for (const [tab, label] of [['build', 'BUILD'], ['tune', 'TUNE'], ['dyno', 'DYNO']]) {
       fireEvent.click(screen.getByRole('button', { name: label }));
       expect(window.location.hash).toBe(`#/${tab}/${ROUTES[tab][0]}`);
     }
+    fireEvent.click(screen.getByRole('button', { name: 'HOME' }));
+    expect(window.location.hash).toBe(`#/dash/${ROUTES.dash[1]}`);
   });
 
   it('routes every TUNE sub-tab to the screen with a matching id, not just a highlighted button', () => {
@@ -182,7 +188,7 @@ describe('the back button', () => {
 
     // One press, from the app back to the start screen it was launched from.
     window.history.back();
-    await waitFor(() => expect(screen.getByRole('button', { name: 'START' })).toBeTruthy());
+    await waitFor(() => expect(screen.getByRole('button', { name: 'SANDBOX' })).toBeTruthy());
   });
 });
 
@@ -214,20 +220,31 @@ describe('a fully collapsed accordion', () => {
   });
 
   it('is reachable on HOME too, and reopening a section puts it back in the URL', () => {
-    launch();
-    fireEvent.click(screen.getByRole('button', { name: 'HOME' }));
-    expect(window.location.hash).toBe('#/dash/live');
-    expect(sectionIsOpen('Live Engine')).toBe(true);
+    // CAREER opens HOME on its jobs board.
+    mount();
+    fireEvent.click(screen.getByRole('button', { name: 'CAREER' }));
+    expect(window.location.hash).toBe('#/dash/jobs');
+    expect(sectionIsOpen('Customer Cars')).toBe(true);
 
-    fireEvent.click(screen.getByText('Live Engine'));
+    fireEvent.click(screen.getByText('Customer Cars'));
     expect(window.location.hash).toBe('#/dash');
-    expect(sectionIsOpen('Live Engine')).toBe(false);
+    expect(sectionIsOpen('Customer Cars')).toBe(false);
 
     // Opening a DIFFERENT section is not a toggle-to-null — it swaps which one is open.
     fireEvent.click(screen.getByText('Engine Health'));
     expect(window.location.hash).toBe('#/dash/health');
     expect(sectionIsOpen('Engine Health')).toBe(true);
-    expect(sectionIsOpen('Live Engine')).toBe(false);
+    expect(sectionIsOpen('Customer Cars')).toBe(false);
+  });
+
+  it('has no jobs board in free play, and HOME opens on the stats instead', () => {
+    // Customer jobs are CAREER's, as they were in the reference build: SANDBOX is free
+    // play with no objectives.
+    launch();
+    fireEvent.click(screen.getByRole('button', { name: 'HOME' }));
+    expect(window.location.hash).toBe('#/dash/stats');
+    expect(screen.queryByText('Customer Cars')).toBeNull();
+    expect(sectionIsOpen('Career & Last Pull')).toBe(true);
   });
 });
 

@@ -41,7 +41,7 @@ export function HealthScreen({ active, onToggle, overallHealth, needsMafRecal })
     >
       <Panel>
         <div className={styles.bars}>
-          <Bar label="PISTON / RINGS · knock, detonation" value={health.piston} />
+          <Bar label="PISTON / RINGS · knock, pressure, mixture" value={health.piston} />
           <Bar label="BEARINGS · sustained cylinder pressure" value={health.bearing} />
           <Bar label="VALVES · lean-under-boost heat" value={health.valve} />
         </div>

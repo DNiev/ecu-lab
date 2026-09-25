@@ -75,7 +75,7 @@ function TimingAdvisory({ report }) {
       return (
         <>
           <div className={styles.bannerBody}>
-            Your current hardware will not tolerate this much advance here. These cells are asking for more timing than the charge, octane and compression allow:
+            Your current hardware will not tolerate this much advance here. These cells are asking for more timing than the charge, octane and compression allow{detail.cells.some((c) => c.knockingOnPull) ? ' — they are the cells the engine was reading when it knocked on a full-throttle pull' : ''}:
           </div>
           {detail.cells.map((c, i) => (
             <div key={i} className={styles.bannerCell}>
@@ -108,7 +108,7 @@ function TimingAdvisory({ report }) {
       return (
         <div className={styles.prose}>
           <CellStats cell={detail.cell} />
-          Past the knock limit the engine is damaging itself. Pull this cell back to the suggested value, or lower.
+          {detail.cell.knockingOnPull ? 'The engine knocked while it was reading this cell on a full-throttle pull. ' : ''}Past the knock limit the engine is damaging itself. Pull this cell back to the suggested value, or lower.
         </div>
       );
     case 'cell-past-mbt':
@@ -171,6 +171,29 @@ function AfrCellLine({ cell }) {
 }
 
 /**
+ * Whether the engine got a different mixture from the one the cell asks for — by more
+ * than a wideband's worth of noise. When it did, the cell is not where the fault is.
+ * @param {{current: number, delivered: number}} cell
+ * @returns {boolean}
+ */
+function missesTarget(cell) {
+  return Math.abs(cell.delivered - cell.current) > 0.5;
+}
+
+/**
+ * Said wherever a cell's suggestion is making up for fuelling that misses its target:
+ * the suggestion works, but a tuner fixes the cause first.
+ * @returns {React.ReactElement}
+ */
+function FuellingNote() {
+  return (
+    <p className={styles.prose}>
+      The engine is not getting what these cells ask for, so the fuelling is off, not just the target. A tuner fixes that first: correct VE on AIRFLOW, and check the injector scaling on INJECTORS and the MAF scalar on SENSORS. Then the table means what it says everywhere, not only in the cells you patched.
+    </p>
+  );
+}
+
+/**
  * @param {object} props
  * @param {AdvisorReport} props.report
  * @returns {React.ReactElement|null}
@@ -191,6 +214,7 @@ function AfrAdvisory({ report }) {
           </div>
           {detail.cells.map((c, i) => <AfrCellLine key={i} cell={c} />)}
           {detail.more > 0 && <div className={styles.bannerMore}>…and {detail.more} more</div>}
+          {detail.cells.some(missesTarget) && <div className={styles.bannerBody}><FuellingNote /></div>}
         </>
       );
     // FUEL had no clean state at all — the old banner simply did not render
@@ -207,12 +231,13 @@ function AfrAdvisory({ report }) {
         <div className={styles.prose}>
           <AfrCellLine cell={detail.cell} />
           Best-power mixture shifts with boost, and this cell is judged on what the engine actually delivered, not on what the table commanded. Type the suggested value into the cell to land on target.
+          {missesTarget(detail.cell) && <FuellingNote />}
         </div>
       );
     case 'cell-closed-loop':
       return (
         <div className={styles.prose}>
-          Below open-loop boost the ECU targets stoichiometric and the fuel trims correct any error live. Best-power mixture advice does not apply here — this cell belongs to the trims, not this table.
+          Below the open-loop load (85 kPa) the ECU runs closed loop: the fuel trims hold the delivered mixture on this cell&apos;s target and correct any error live. Best-power mixture advice does not apply here — this cell belongs to the trims, not the power tune.
         </div>
       );
     case 'cell-ok':

@@ -11,8 +11,11 @@
 import { Wind } from 'lucide-react';
 import React from 'react';
 
-import { COMPRESSOR_OPTS, MOD_INFO, RPM, TURBINE_OPTS, clamp } from '../../../sim/index.js';
+import {
+  COMPRESSOR_OPTS, DEFAULT_ECU_HW, LINEAR_SCALES, MOD_INFO, RPM, TURBINE_OPTS, WASTEGATE_OPTS, clamp,
+} from '../../../sim/index.js';
 import { BuildSection } from '../../components/BuildSection.jsx';
+import { SetupNote } from '../../components/ecu/SetupNote.jsx';
 import { ExpandableInfo } from '../../components/ExpandableInfo.jsx';
 import { PickList } from '../../components/PickList.jsx';
 import { Button } from '../../primitives/Button.jsx';
@@ -59,6 +62,9 @@ export function InductionScreen({ active, onToggle }) {
   };
 
   const ceiling = COMPRESSOR_OPTS[compressorIdx].boostCeiling;
+  const gate = build.wastegate ?? DEFAULT_ECU_HW.gate;
+  const sensorHw = build.sensorHw ?? DEFAULT_ECU_HW.sensorHw;
+  const setGate = (patch) => dispatch({ type: ACTIONS.SET_BUILD_FIELD, field: 'wastegate', value: { ...gate, ...patch } });
   const peakOverCeiling = Math.max(...boostCurve) > ceiling;
   const selectedOverCeiling = boostCurve[boostSel] > ceiling;
 
@@ -87,20 +93,44 @@ export function InductionScreen({ active, onToggle }) {
         ))}
       </div>
 
+      <div className={styles.labelTight}>MAP Sensor</div>
+      <Seg label="MAP sensor" options={Object.entries(LINEAR_SCALES.map).map(([id, s]) => ({ id, label: s.label.split(' (')[0] }))}
+        value={sensorHw.map} onChange={(v) => dispatch({ type: ACTIONS.SET_BUILD_FIELD, field: 'sensorHw', value: { ...sensorHw, map: v } })} equal />
+      <div className={styles.hint}>A sensor reads up to its rating and no further: a 1-bar sensor tops out at atmospheric and never sees boost.</div>
+      <SetupNote paths={['sensors.map']} okText="The ECU is set up for this sensor."
+        hardwareWarning={turboOn && sensorHw.map === '1bar'
+          ? 'This engine makes boost, and a 1-bar sensor stops reading at atmospheric. The ECU will not see boost and will fuel too little under it. Fit 2.5-bar or bigger.'
+          : null} />
+
       <Toggle label="Turbo kit" sub="Adds boost near WOT, with spool lag off idle" checked={turboOn} onChange={(v) => dispatch({ type: ACTIONS.SET_BUILD_FIELD, field: 'turboOn', value: v })} />
 
       <div className={styles.subPanel} data-open={turboOn ? 'true' : 'false'}>
         <div className={styles.subPanelInner}>
+          {turboOn && Math.max(...boostCurve) <= 0 && (
+            <Note>
+              The boost target is 0 psi everywhere, so the turbo only restricts the exhaust and the engine makes less power, not more. Set a boost curve under Boost Target Curve below; 6–8 psi is a sensible first step, with timing taken out of the boost rows on TUNE › SPARK before you pull.
+            </Note>
+          )}
           <div className={styles.label}>Turbine Size</div>
           <PickList options={TURBINE_OPTS.map((o) => ({ label: o.label, value: o.label }))} value={TURBINE_OPTS[turbineIdx].label} onChange={(v) => dispatch({ type: ACTIONS.SET_TURBINE, value: TURBINE_OPTS.findIndex((o) => o.label === v) })} />
           <div className={styles.labelTight}>Compressor Size</div>
           <Seg label="Compressor Size" options={COMPRESSOR_OPTS.map((o) => ({ label: o.label, id: o.label }))} value={COMPRESSOR_OPTS[compressorIdx].label} onChange={(v) => dispatch({ type: ACTIONS.SET_BUILD_FIELD, field: 'compressorIdx', value: COMPRESSOR_OPTS.findIndex((o) => o.label === v) })} />
           <div className={styles.ceilingNote}>Ceiling before it runs outside its efficient range: ~{ceiling} psi</div>
           <ExpandableInfo title="Turbine vs. compressor — different jobs">
-            The turbine sits in the exhaust and spins from exhaust energy — its size sets how quickly it spools (small = fast but chokes exhaust flow up top; large = laggy but flows more at redline). The compressor sits in the intake and does the actual pressurizing — its size sets a practical boost ceiling before it's forced outside its efficient operating range, making hot, inefficient, knock-prone air.
-            <br /><br />Real turbo shops size compressors by required <b className={styles.em}>airflow</b>, not boost pressure. The industry rule of thumb is about <b className={styles.em}>10 crank horsepower per lb/min of air</b> (roughly 8.5 whp after drivetrain loss) — so a 400 whp target needs a compressor good for roughly 47 lb/min, which you then check against the manufacturer's compressor map.
+            The turbine sits in the exhaust and spins from exhaust energy — its size sets how quickly it spools (small = fast but chokes exhaust flow up top; large = laggy but flows more at redline). The compressor sits in the intake and does the actual pressurizing — its size sets a practical boost ceiling before it's forced outside its efficient operating range, where a real compressor makes hot, inefficient, knock-prone air. (This app heats the charge at one fixed compressor efficiency, so past the ceiling it warns you rather than heating the air further — see Learn article 39.)
+            <br /><br />Real turbo shops size compressors by required <b className={styles.em}>airflow</b>, not boost pressure. The industry rule of thumb is about <b className={styles.em}>10 crank horsepower per lb/min of air</b> (roughly 8.5 whp after drivetrain loss) — so a 400 whp target needs a compressor good for roughly 47 lb/min, which you then check against the manufacturer's compressor map. (This app's engines get about 10–15% more from each lb/min than real ones — see Learn article 39 — so size real hardware by the rule, not by the app.)
             <br /><br />Note that this figure barely changes with fuel. E85 needs far more fuel by volume, but it also releases almost exactly the same energy per unit of <i>air</i> as gasoline, so airflow — not fuel type — sets the power ceiling. Octane still helps, but through better timing, not through a bigger number here.
           </ExpandableInfo>
+
+          <div className={styles.labelTight}>Wastegate Actuator</div>
+          <Seg label="Wastegate actuator" options={WASTEGATE_OPTS.map((o) => ({ id: o.id, label: o.label }))} value={gate.type} onChange={(v) => setGate({ type: v })} equal />
+          {gate.type === 'pneumatic' && (
+            <>
+              <div className={styles.labelTight}>Spring Pressure</div>
+              <Seg label="Wastegate spring pressure" options={[4, 5, 7, 10, 14].map((p) => ({ id: p, label: `${p} psi` }))} value={gate.springPsi} onChange={(v) => setGate({ springPsi: Number(v) })} equal />
+              <div className={styles.hint}>The gate opens at its spring pressure on its own. The boost solenoid can hold it shut longer — it can never open it sooner.</div>
+            </>
+          )}
 
           <div className={styles.intercoolerRow}>
             <Toggle label="Intercooler" sub="Cools charge air, buys knock margin under boost" checked={mods.intercooler} onChange={(v) => dispatch({ type: ACTIONS.SET_BUILD_FIELD, field: 'mods', value: { ...mods, intercooler: v } })} />

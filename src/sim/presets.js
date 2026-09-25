@@ -27,6 +27,8 @@ import { exhaustManifoldKpa } from './friction.js';
 import { bestPowerAfr, reachableKpa } from './manifold.js';
 import { mafErrorFactor } from './sweep.js';
 import { chargeTempK, exhaustTempK } from './thermo.js';
+import { defaultEcuCalibration } from './ecu/calibration.js';
+import { DEFAULT_ECU_HW } from './ecu/context.js';
 import { deriveEngine } from './engine.js';
 import { clamp, interp2 } from './math.js';
 import {
@@ -105,8 +107,9 @@ export const ENGINE_PRESETS = [
       //
       // REFITTED from 202 for the inlet Mach index (#15). That term takes volumetric
       // efficiency out of the top end, so duration comes back up to pay for it: power
-      // lands on the published figure (0.0%), and peak power now falls across 6500-6600
-      // against a published 6400 instead of climbing into the 7000 limiter.
+      // lands on the published figure (0.0%, torque +5.0%), and the power curve's flat top
+      // (within 1 hp of peak) now runs 6500-6900 against a published 6400 instead of
+      // climbing into the 7000 limiter.
       camDuration: 210, springRate: 60,
       redline: 7000,
     },
@@ -147,8 +150,8 @@ export const ENGINE_PRESETS = [
       // THE ROLLOFF NOW EXISTS. This preset used to climb monotonically into its limiter
       // and read peak power at 7500, 700 RPM above the published 6800, because nothing in
       // the shared physics made VE fall at speed. The Mach index is that term, and the
-      // simulated flat top now runs 6500-6900, bracketing the published 6800 rather than
-      // sitting 700 RPM above it. What remains missing is still worth naming: the real
+      // simulated flat top (within 1 hp of peak) now runs 6400-7100, bracketing the
+      // published 6800 rather than sitting 700 RPM above it. What remains missing is still worth naming: the real
       // engine's rolloff is cam profile, VVEL variable lift and intake-tract tuning, and
       // the Mach term stands in for all three at once rather than reproducing any of them.
       camDuration: 218, springRate: 68,
@@ -245,14 +248,14 @@ export const ENGINE_PRESETS = [
       // real engine's, and deliberately so. This model was calibrated on a naturally
       // aspirated V6, and it reports more torque per unit of manifold pressure than a
       // real high-compression boosted six makes — hold 13 psi flat to 4500 here and the
-      // pull returns 344 wlb-ft against a 281 target. Everything above the torque peak
+      // pull returns about 340 wlb-ft against a 281 target. Everything above the torque peak
       // is where that error can be absorbed without contradicting a published number,
       // so that is where it is absorbed.
       //
       // WHAT THIS PRESET DOES NOT REPRODUCE: the rated torque plateau. BMW publishes
-      // 330 lb-ft flat from 1380 RPM; this preset reaches 44% of its 281 wlb-ft target
-      // at 1500 and only 96% by 3000 (123 / 170 / 224 / 268 wlb-ft at 1500 / 2000 /
-      // 2500 / 3000). The line above about boost "commanded from just above idle"
+      // 330 lb-ft flat from 1380 RPM; this preset reaches 64% of its 281 wlb-ft target
+      // at 1500 and its target by 3000 (180 / 238 / 285 / 293 wlb-ft at 1500 / 2000 /
+      // 2500 / 3000; measured after the turbo solve was made to spool up from zero). The line above about boost "commanded from just above idle"
       // describes the curve this preset ASKS for, not torque it delivers down there.
       // The N54 above has the same gap and no test asserts torque-peak placement, so
       // this is a shared limit of the model rather than a fault in this data — the
@@ -317,13 +320,13 @@ export const ENGINE_PRESETS = [
       // constraint, not a wastegate schedule: its power target is 19% above the
       // M0's while its torque target is only 12% above, so less of the M0's curve can be
       // cut before power falls out of tolerance. Together the two published targets
-      // give a 62 hp gap (382-320); the two simulated curves give 47 whp (324-277) —
+      // give a 62 hp gap (382-320); the two simulated curves give 40 whp (320-280) —
       // the model doesn't reproduce the full published gap, but the direction and most
       // of the magnitude are there.
       //
       // WHAT THIS PRESET DOES NOT REPRODUCE: the rated torque plateau, exactly as on
-      // the M0. Published 369 lb-ft flat from 1800 RPM; this preset reaches 38% of its
-      // 314 wlb-ft target at 1500 and 94% by 3000 (120 / 177 / 242 / 295 wlb-ft at
+      // the M0. Published 369 lb-ft flat from 1800 RPM; this preset reaches 56% of its
+      // 314 wlb-ft target at 1500 and its target by 2500 (176 / 232 / 314 / 321 wlb-ft at
       // 1500 / 2000 / 2500 / 3000). Same shared limit, same issue #31.
       boost: RPM.map((r) => (r < 1500 ? 0 : r < 3500 ? 17 : r < 4500 ? 14
         : r < 6500 ? 12 : r < 7500 ? 11 : 10.5)),
@@ -544,8 +547,10 @@ export function factoryCalibration(preset) {
   // off the MAP axis: a factory table has to be a valid surface at every pressure, not
   // only the ones this curve happens to reach at this speed. That is the stricter of the
   // two, so a generated table can never fail the advisor on it. Asking per RPM instead
-  // was measured: it moves the N54's torque peak from 3700 back to 4200 RPM against a
-  // published 3000.
+  // was measured when this was written: it moved the N54's torque peak further from the
+  // published 3000 RPM (from 3700 to 4200, on the model of the day; the turbo solve has
+  // changed since, and the N54 now plateaus at about 313 lb-ft at the crank from 4000 to
+  // 4500 RPM).
   const peakBoostCurve = RPM.map(() => Math.max(0, ...preset.induction.boost));
   RPM.forEach((rpm, ci) => {
     const reachKpa = reachableKpa({
@@ -599,6 +604,9 @@ export function applyPreset(preset) {
     octaneIdx: preset.parts.octaneIdx,
     exhaustDiaIdx: preset.parts.exhaustDiaIdx,
     ve, timing, afr,
+    // The engine management a factory ships with: its knock threshold is set to this
+    // engine's own valvetrain noise, which is why a preset carries its own.
+    ecu: defaultEcuCalibration({ derived: deriveEngine(preset.engine), gate: DEFAULT_ECU_HW.gate }),
   };
 }
 

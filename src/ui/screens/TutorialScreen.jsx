@@ -27,7 +27,16 @@ export function TutorialScreen({ steps, onDone }) {
       <div className={styles.body}>
         <div className={styles.inner}>
           <h1 className={styles.title}>{current.title}</h1>
-          <p className={styles.text}>{current.body}</p>
+          {/* A step's body may carry the formula it is describing, as lines indented by
+              four spaces. Prose stays prose; the arithmetic is set as code so it can be
+              read as arithmetic. Steps with no newlines render exactly as before. */}
+          {current.body.split('\n').map((line, i) => {
+            if (line.trim() === '') return <div key={i} className={styles.gap} />;
+            if (line.startsWith('    ')) return <p key={i} className={styles.formula}>{line.trim()}</p>;
+            // A line opening with an arrow is the step's action: what to go and do.
+            if (line.startsWith('→ ')) return <p key={i} className={styles.action}>{line.slice(2)}</p>;
+            return <p key={i} className={styles.text}>{line}</p>;
+          })}
         </div>
       </div>
 

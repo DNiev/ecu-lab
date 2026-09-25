@@ -711,7 +711,9 @@ describe('ScoreScreen', () => {
 describe('DYNO while a pull is running', () => {
   it('shows the live curves and hides the switcher even when DATALOG was the selected view', async () => {
     render(<EcuLab />);
-    fireEvent.click(screen.getByRole('button', { name: 'START' }));
+    // The start screen offers CAREER, SANDBOX and TUTORIAL rather than a single START.
+    // SANDBOX is the free-play entry the old button was.
+    fireEvent.click(screen.getByRole('button', { name: 'SANDBOX' }));
     fireEvent.click(screen.getByRole('button', { name: /DYNO/ }));
 
     // First pull, run to completion, so the switcher and a result both exist.
@@ -770,7 +772,7 @@ describe('DYNO body gating — HISTORY outlives result', () => {
         <EcuLabApp />
       </StoreProvider>,
     );
-    fireEvent.click(screen.getByRole('button', { name: 'START' }));
+    fireEvent.click(screen.getByRole('button', { name: 'SANDBOX' }));
     fireEvent.click(screen.getByRole('button', { name: /DYNO/ }));
 
     // Seed a restored run directly, the way RESTORE_CAREER would on a cold start —
@@ -799,7 +801,7 @@ describe('DYNO body gating — HISTORY outlives result', () => {
     // The converse: a brand-new career has neither `runs` nor `result`, and the
     // switcher — HISTORY included — must not appear for it to click into.
     render(<EcuLab />);
-    fireEvent.click(screen.getByRole('button', { name: 'START' }));
+    fireEvent.click(screen.getByRole('button', { name: 'SANDBOX' }));
     fireEvent.click(screen.getByRole('button', { name: /DYNO/ }));
 
     expect(screen.queryByRole('button', { name: 'HISTORY' })).toBeNull();
@@ -1200,7 +1202,7 @@ describe('DYNO event bands during the reveal', () => {
         <EcuLabApp />
       </StoreProvider>,
     );
-    fireEvent.click(screen.getByRole('button', { name: 'START' }));
+    fireEvent.click(screen.getByRole('button', { name: 'SANDBOX' }));
     fireEvent.click(screen.getByRole('button', { name: /DYNO/ }));
     act(() => {
       dispatch({ type: ACTIONS.SET_SESSION_FIELD, field: 'result', value: RESULT_WITH_EVENTS });

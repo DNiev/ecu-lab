@@ -56,8 +56,9 @@ export const COEFF = {
   IVC_PER_CAM_DEG: 0.5,
   // Ratio of specific heats, blended by mass fraction burned. Unburned air at chamber
   // temperature is ~1.35. Burned products dissociate, dropping the effective value into
-  // the published 1.20-1.27 band; this sits at the dissociated end, without which the
-  // cycle reads ~8% high. Holding gamma unburned throughout overstates peak pressure ~15%.
+  // the published 1.20-1.27 band; this sits at the dissociated end. Holding gamma at the
+  // unburned value throughout overstates the cycle — measured on the stock V6 at 4500 RPM
+  // wide open, peak pressure by about 7% and IMEP by about 5%.
   GAMMA_UNBURNED: 1.35,
   GAMMA_BURNED: 1.235,
   // --- Wall heat transfer (Woschni) ---
@@ -76,6 +77,12 @@ export const COEFF = {
   // open throttle, falling through about 700 at part throttle to 400-500 at light cruise
   // — because those are the numbers a tuner reads off a gauge and the only ones worth
   // matching. See EXHAUST_PORT_FLOW_REF for what the reference flow is.
+  //
+  // WHERE IT LANDS NOW (tests/benchmark.test.js measures it): cruise and part throttle
+  // sit in their bands, but wide open throttle reads low — about 780 C on the stock V6 at
+  // 6500 RPM, and 795-830 C on the boosted presets against the 880-950 C a production
+  // turbine inlet runs at. Lowering this to lift WOT would put a 30 kPa cruise at ~670 C,
+  // so one number cannot fix both; docs/accuracy.md carries it as a known approximation.
   EXHAUST_PORT_NTU: 1.0,
   // Reference value of trappedMass x rpm, in the units the cycle carries them (kg and
   // rev/min), measured at the stock V6 at wide-open throttle and 6500 RPM: 6.18e-4 kg of
@@ -116,8 +123,9 @@ export const COEFF = {
   BURN_LAMBDA_PENALTY_RICH: 1.4,
   BURN_LAMBDA_PENALTY_LEAN: 4.2,
   // Dilution slows the flame: residual gas carries no oxygen and soaks up heat. This is
-  // a big cam's lumpy idle. ANCHOR: 20 kPa cruise lands ~26% residual, an 82 degree burn
-  // and 42 degrees of MBT, which is the 40-50 band real factory cruise maps carry (#34).
+  // a big cam's lumpy idle. ANCHOR: 20 kPa cruise lands ~26% residual, a burn of about
+  // 85 degrees and 43 degrees of MBT (stock V6, 2000-2500 RPM), which is the 40-50 band
+  // real factory cruise maps carry (#34).
   BURN_RESIDUAL_PENALTY: 3.8,
   // Fuel that finds oxygen and burns to completion. Real homogeneous SI combustion leaves
   // 1-3% in crevices and quench layers — this is why an engine has HC emissions.
@@ -147,9 +155,11 @@ export const COEFF = {
   //
   // THREE ANCHORS, and changing SCALE must keep all three:
   //   1. Every preset reaches published output with its factory calibration knock-free.
-  //   2. A stock 10.3:1 on 91 octane runs out of margin at 36.0 deg at 5500 RPM, falling
-  //      to 23.5 at 3000 — a real one does. (Emergent: low speed means more milliseconds
-  //      of dwell for the end gas. The old additive envelope needed a term for it.)
+  //   2. A stock 10.3:1 on 91 octane runs out of margin lower at low speed than high —
+  //      measured now at about 37 deg at 5500 RPM, 31 at 4000, 29.5 at 3000 and 28.5 at
+  //      2500 — as a real one does. (Emergent: low speed means more milliseconds of
+  //      dwell for the end gas. The old additive envelope needed a term for it. The
+  //      figures this comment once quoted, 36.0 and 23.5, predate later model changes.)
   //   3. The shipped stock calibration runs knock-free — what a new player meets first.
   // Higher values pass the presets more easily but push the NA limit past anything the
   // app can command, deleting the tutorial's most basic lesson.
@@ -203,6 +213,28 @@ export const COEFF = {
   // all of it in the trapped charge; port injection loses much to the runner walls. No
   // injection-type input yet (issue #24), so this is the blended middle.
   FUEL_EVAP_IN_CYLINDER: 0.6,
+  // How much fuel the charge can hold as vapour. Past its dew point the rest stays liquid
+  // on the port, walls and plugs — a flooded engine, and the reason a cold one needs so
+  // much enrichment. Saturation pressure by Clausius-Clapeyron through the Reid vapour
+  // pressure (37.8 °C): p = RVP · exp(-B · (1/T - 1/311)). Blends are placed by ethanol
+  // mass fraction between three anchors, because gasoline-ethanol blends are far from
+  // ideal (E85 sits near 45 kPa, nowhere near the ~20 a straight mix of the two predicts).
+  //   gasoline  RVP ~60 kPa (summer grade), vapour ~65 g/mol (API, its light ends), and an
+  //             effective B that gives the ~15-20 kPa true vapour pressure API charts
+  //             show at 0 °C;
+  //   E85       ~45 kPa, mid ASTM D5798;
+  //   ethanol   15.9 kPa, 46.07 g/mol, B = 42.3 kJ/mol ÷ R.
+  FUEL_VAPOUR_ANCHORS: [
+    { ethanol: 0, rvpKpa: 60, b: 3000, molarG: 65 },
+    { ethanol: 0.86, rvpKpa: 45, b: 4800, molarG: 48 },
+    { ethanol: 1, rvpKpa: 15.9, b: 5090, molarG: 46.07 },
+  ],
+  FUEL_RVP_REF_K: 310.93,
+  AIR_MOLAR_G: 28.97,
+  // Ethanol mass fraction from stoichiometric ratio, for pump fuels that carry no blend
+  // figure: gasoline 14.7, ethanol 9.0.
+  STOICH_GASOLINE: 14.7,
+  STOICH_ETHANOL: 9.0,
 
   // --- Residual gas (internal EGR) ---
   // Exhaust left from the previous cycle. Dilutes the charge, slows the burn, and arrives
@@ -233,9 +265,11 @@ export const COEFF = {
   // needed upstream — the nozzle relation collapsed to one constant. This is what makes
   // backpressure scale with FLOW rather than boost.
   //
-  // ANCHOR: the medium housing at 0.16 kg/s (a 2.0 L four at 16 psi, 3500 RPM) lands EMP
-  // near 1.4x boost, mid-band for a matched turbo. Small then exceeds 2x at that flow and
-  // large sits just under 1x — the sizing trade, emergent rather than a multiplier.
+  // At 0.16 kg/s (a 2.0 L four at 16 psi, 3500 RPM) and the reference exhaust
+  // temperature, measured: the small housing holds the exhaust manifold at about 1.2x
+  // the intake manifold's absolute pressure, the medium at about 0.9x and the large at
+  // about 0.8x — the sizing trade, emergent rather than a multiplier. (This comment once
+  // quoted 1.4x / over 2x / under 1x; those figures predate later changes.)
   TURBINE_FLOW_TO_KPA: 0.04,
   // AFR the exhaust-mass estimate assumes. Only total mass matters, so gasoline is close
   // enough for every fuel.
@@ -243,13 +277,21 @@ export const COEFF = {
   // NA exhaust system backpressure per kg/s, kPa. A turbine dwarfs this; without one it
   // is the whole restriction.
   EXHAUST_SYSTEM_KPA_PER_KGS: 90,
-  // The induction solve is a fixed point (boost -> airflow -> exhaust energy -> boost).
-  // Three damped passes converge inside a tenth of a psi everywhere the app can reach.
-  INDUCTION_SOLVE_PASSES: 3,
-  INDUCTION_RELAX: 0.7,
+  // The induction solve spools the turbo up from zero (see solveInduction): it climbs in
+  // steps of at least this many psi, and at most this many steps to the target, then
+  // bisects the last step this many times — 12 halvings of a quarter psi is 0.0001 psi,
+  // far inside anything the app displays.
+  INDUCTION_SPOOL_STEP_PSI: 0.25,
+  INDUCTION_SPOOL_MAX_STEPS: 48,
+  INDUCTION_EDGE_PASSES: 12,
   // Backpressure a wastegate relieves while bleeding exhaust around the turbine. This is
   // why a larger turbine is worth power at the same boost: it spends more life gated.
-  WASTEGATE_RELIEF: 0.55,
+  // Scales the share of turbine capability above the target (see solveInduction). Fitted
+  // to the turbo presets' published ratings after the gate was corrected to open on
+  // SURPLUS rather than shortfall; at 0.2 every one lands within 5% of its rated power,
+  // with exhaust backpressure at rated power 1.0-1.4x the boost pressure, which is where
+  // small OEM turbos run. It was 0.55 when it acted in the wrong direction.
+  WASTEGATE_RELIEF: 0.2,
   // --- Compressor map (see compressorMap in turbo.js) ---
   // How sharply efficiency falls away from the island centre, and how much a unit of
   // normalised pressure-ratio error costs relative to a unit of flow error. Real islands
@@ -299,9 +341,10 @@ export const COEFF = {
   EXHAUST_PER_RETARD_K: 14,
   EXHAUST_RICH_COOLING_K: 420,
   // Where the datalog calls the pull hot, °C. Production turbine wheels and exhaust
-  // valves are rated 950-1000 sustained. The seven presets peak 881-951 on their factory
-  // calibrations, so ~30 °C of margin above the hottest (the Golf R) — RE-CHECK this if a
-  // hotter preset is added. Drives the `egtRisk` flag only; heat damage is not separately
+  // valves are rated 950-1000 sustained. On the datalog's EGT (the cycle's port
+  // temperature, not the correlation above) the seven presets peak 785-825 °C on their
+  // factory calibrations, so this is reached only by a build running far hotter than any
+  // factory one — RE-CHECK this if a hotter preset is added. Drives the `egtRisk` flag only; heat damage is not separately
   // priced, since lean-under-boost already pays through WEAR_VALVE_LEAN_BOOST.
   EGT_LIMIT_C: 980,
 
@@ -333,14 +376,16 @@ export const COEFF = {
   // not the mixture ever detonates.
   //
   // Anchored on THIS MODEL's pressure scale, measured across a build ladder on E85 so
-  // knock does not confound it:
-  //     seven factory presets   63-75 bar   clear by ~30
-  //     stock CR, 8 psi         99 bar      clear by 6      (a mild, sane build)
-  //     stock CR, 14 psi       108 bar      trips           (stock rods, serious boost)
-  //     12.5:1, 18 psi         118 bar      trips
-  //     13.5:1, 24 psi         122 bar      trips
+  // knock does not confound it (stock V6, intercooled, large compressor, 850 cc
+  // injectors; re-measured after the turbo solve and exhaust fixes):
+  //     seven factory presets   65-89 bar   clear by 16 or more
+  //     stock CR, 8 psi        104 bar      clear by 1      (a mild, sane build)
+  //     stock CR, 14 psi       112 bar      trips           (stock rods, serious boost)
+  //     12.5:1, 18 psi         122 bar      trips
+  //     13.5:1, 24 psi         125 bar      trips
   //
-  // Published failure thresholds for production internals are 110-130 bar. The two-zone
+  // Failure thresholds quoted for production internals are about 110-130 bar (a
+  // practitioners' figure; no primary source is cited here). The two-zone
   // cycle reads close enough to that band for this to sit just under it, where the old
   // single-zone estimate read low enough that borrowing the literature figure would have
   // made the overload unreachable. `tests/presets.test.js` asserts every preset clears.
@@ -361,15 +406,18 @@ export const COEFF = {
   // tracks a pull's AVERAGE peak pressure, not boost. Boost was the old proxy and a bad
   // one: it charged a 9.5:1 and a 12.5:1 engine alike for the same manifold pressure.
   //
-  // These are ORDERING numbers, calibrated so a stock NA pull stays near 0.15 and the
-  // N54 near 0.6: NA nearly free, factory turbo a few tenths, compression-on-boost whole
-  // points per pull. Below the free threshold the oil film carries the load indefinitely,
+  // These are ORDERING numbers: NA cheap, factory turbo about a point, compression-on-
+  // boost whole points per pull. Measured now: a stock NA pull costs about 0.3 and the
+  // N54 about 1.2. They were calibrated at 0.15 and 0.6 under an earlier model; the
+  // ordering holds, the absolute figures have doubled, and nothing downstream relies on
+  // the absolute value beyond the health bar. Below the free threshold the oil film carries the load indefinitely,
   // so a part-throttle pull costs nothing — deliberate, where the old expression charged
   // a flat 0.05. Refitted when the cycle replaced the empirical pressure estimate.
   BEARING_PRESSURE_FREE_BAR: 55,
   WEAR_BEARING_PER_BAR: 0.075,
-  // Average peak pressure that raises the bottom-end advisory. Above a healthy NA pull
-  // (~65 bar averaged), so it means "boosted-engine loading", not "you drove it".
+  // Average peak pressure that raises the bottom-end advisory. Just above a healthy NA
+  // pull (the stock V6 averages about 59 bar), so it means "boosted-engine loading", not
+  // "you drove it".
   BEARING_EVENT_BAR: 60,
 
   // --- Inlet Mach index: the high-speed breathing limit (see engine.js) ---
@@ -521,13 +569,18 @@ export const COEFF = {
   // boost term and has no intercooler to credit, so octane is the only lever, and the
   // ceiling sits higher than the boosted base.
   //
-  // Fitted against the cycle, not guessed. On the stock V6 at wide-open throttle on 91
-  // octane the knock integral starts costing a degree at 9.55:1 at 2500 RPM, 10.50 at
-  // 3000 and 11.40 at 3500 — knock binds hardest low, where each crank degree is the
-  // most milliseconds. 11.5 sits just above the 3000 RPM figure, which keeps this rule
-  // the same kind of pre-flight warning the boosted branch is: gentler than the physics,
-  // so a build is not billed twice for one decision, but no longer silent about the
-  // 13.0:1 pump-gas NA engine the slider will happily build.
+  // Fitted against the cycle when it was written: on the stock V6 at wide-open throttle
+  // on 91 octane the knock integral then started costing a degree at 9.55:1 at 2500 RPM,
+  // 10.50 at 3000 and 11.40 at 3500, and 11.5 sat just above the 3000 RPM figure —
+  // gentler than the physics, so a build was not billed twice for one decision.
+  //
+  // RE-MEASURED (accuracy audit): the knock limit at low speed has since become more
+  // lenient, and the same engine now loses a degree only at about 12.7:1 at 2500, 3000
+  // and 3500 RPM alike. So 11.5 is now STRICTER than the physics by about 1.2 points of
+  // compression, the opposite of the intent above. Whether to move this to ~12.7 (a
+  // scoring change) or to revisit the low-speed knock limit is a decision for the
+  // maintainers; docs/accuracy.md records it. It still warns about the 13.0:1 pump-gas
+  // NA engine the slider will happily build.
   COMPRESSION_NA_BASE: 11.5,
   // How much static compression one psi of boost takes off the headroom, and the boost
   // level the base above is implicitly calibrated at.

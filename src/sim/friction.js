@@ -48,16 +48,17 @@ export function rubbingFmepPa(rpm, springPa = 0, arch = {}) {
  * @param {number} input.exhaustK turbine inlet temperature
  * @param {{effectiveAreaM2: number}|null} [input.turbine]
  * @param {number} [input.wastegateRelief] fraction of turbine backpressure the gate bleeds
+ * @param {number} [input.baroKpa] the pressure the tailpipe exhausts to
  * @returns {number} exhaust manifold pressure, kPa
  */
 export function exhaustManifoldKpa({
-  turboOn, exhaustFlowKgS, exhaustK, turbine = null, wastegateRelief = 0,
+  turboOn, exhaustFlowKgS, exhaustK, turbine = null, wastegateRelief = 0, baroKpa = BARO_KPA,
 }) {
   const systemKpa = COEFF.EXHAUST_SYSTEM_KPA_PER_KGS * Math.max(0, exhaustFlowKgS);
-  if (!turboOn || !turbine) return BARO_KPA + systemKpa;
-  const turbineKpa = turbineBackPressureKpa(exhaustFlowKgS, exhaustK, turbine.effectiveAreaM2)
-    - BARO_KPA;
-  return BARO_KPA + systemKpa + turbineKpa * (1 - clamp(wastegateRelief, 0, 1));
+  if (!turboOn || !turbine) return baroKpa + systemKpa;
+  const turbineKpa = turbineBackPressureKpa(exhaustFlowKgS, exhaustK, turbine.effectiveAreaM2, baroKpa)
+    - baroKpa;
+  return baroKpa + systemKpa + turbineKpa * (1 - clamp(wastegateRelief, 0, 1));
 }
 
 /**

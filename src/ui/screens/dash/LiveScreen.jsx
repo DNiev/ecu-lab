@@ -1,30 +1,31 @@
 /**
- * HOME > Live Engine.
+ * LIVE — the engine running in real time: tach, ECU state, sensor gauges and fuel trims.
  *
- * The engine running in real time: tach, ECU state, sensor gauges and fuel trims.
+ * A page of its own, laid out the way the reference build (v4.8) laid it out: a heading,
+ * one line saying what this is, and the engine panel always open. It used to be a
+ * collapsed accordion card — the same card HOME's sections use — which read as though
+ * the live engine were still a HOME section, and hid the controls behind one more tap.
  *
  * THIS IS THE 20 Hz SCREEN. `session.live` is rewritten twenty times a second by the
  * LIVE_STEP action, and every one of those writes re-renders this component. That is
  * the point of it being its own file: nothing that reads `live` is allowed to move up
- * into a parent that also renders the other three HOME sections, or all four would
- * re-render at 20 Hz to redraw three panels that did not change. The accordion
- * header's own subtitle counts — it shows live RPM — which is why this screen owns
- * its `BuildSection` rather than being handed one as children.
+ * into a parent that renders anything else, or that would re-render at 20 Hz too.
  */
 
-import { Activity } from 'lucide-react';
+import { Flame } from 'lucide-react';
 import React from 'react';
 
 import { clamp } from '../../../sim/index.js';
-import { BuildSection } from '../../components/BuildSection.jsx';
 import { Button } from '../../primitives/Button.jsx';
 import { DialMark } from '../../components/DialMark.jsx';
 import { ExpandableInfo } from '../../components/ExpandableInfo.jsx';
+import { Eyebrow } from '../../primitives/Eyebrow.jsx';
 import { Panel } from '../../primitives/Panel.jsx';
 import { ACTIONS } from '../../state/reducer.js';
 import { useSession } from '../../state/StoreProvider.jsx';
 import { T } from '../../theme.js';
 
+import { LiveEcuPanel } from './LiveEcuPanel.jsx';
 import styles from './LiveScreen.module.css';
 
 /**
@@ -83,8 +84,6 @@ function TrimBar({ label, value }) {
 
 /**
  * @param {object} props
- * @param {boolean} props.active whether this is HOME's open section
- * @param {(section: string) => void} props.onToggle opens or closes a HOME section
  * @param {number} props.tachFullScaleRpm redline plus the limiter's overshoot
  *   headroom. Derived from `engineConfig` in the shell because the dyno tach needs
  *   the same number — see the note on `tachFullScaleRpm` in EcuLab.jsx.
@@ -95,7 +94,7 @@ function TrimBar({ label, value }) {
  * @param {(percent: number) => void} props.onThrottle driver throttle input, 0 or 100
  * @returns {React.ReactElement}
  */
-export function LiveScreen({ active, onToggle, tachFullScaleRpm, onStart, onStop, onToggleSound, onTestSound, onThrottle }) {
+export function LiveScreen({ tachFullScaleRpm, onStart, onStop, onToggleSound, onTestSound, onThrottle }) {
   const [session, dispatch] = useSession();
   const { soundOn, throttleInput, volume, audioStatus } = session;
   // `SessionState.live` is typed `object` because the live model it holds is built in
@@ -105,26 +104,29 @@ export function LiveScreen({ active, onToggle, tachFullScaleRpm, onStart, onStop
   const live = /** @type {Record<string, any>} */ (session.live);
 
   return (
-    <BuildSection
-      active={active} onClick={() => onToggle('live')}
-      icon={Activity} label="Live Engine"
-      sub={live.running ? `Running · ${Math.round(live.sensedRpm)} RPM · ${Math.round(live.coolantC)}°C` : live.cranking ? 'Cranking…' : 'Off'}
-    >
+    <>
+      <Eyebrow icon={Flame}>Live Engine</Eyebrow>
+      <p className={styles.intro}>
+        Your calibration, actually running. Start it, hold the throttle, and watch the
+        sensors and fuel trims respond the way they would on a running car.
+      </p>
       <Panel style={{ background: T.panel, marginBottom: 10 }}>
         <div className={styles.head}>
           <div className={styles.dial}>
             <DialMark size={104} pct={clamp(live.sensedRpm / tachFullScaleRpm, 0, 1)} live />
             <div className={styles.dialReadout}>
-              <div className={styles.dialRpm} style={{ color: live.fuelCut ? T.danger : T.ink }}>{Math.round(live.sensedRpm)}</div>
+              <div className={styles.dialRpm} role="status" aria-label="Engine speed" style={{ color: live.fuelCut ? T.danger : T.ink }}>{Math.round(live.sensedRpm)}</div>
               <div className={styles.dialCaption}>RPM</div>
             </div>
           </div>
           <div className={styles.column}>
             <div className={styles.status}>
               {live.running
-                ? (live.limiterCut ? 'Rev limiter — fuel cut to protect the engine.'
+                ? (live.limiterCut || live.onLimiter ? 'On the rev limiter — the ECU is cutting cylinders to hold the engine at its limit. With a fuel cut those cylinders pump plain air, so the wideband reads lean here; that is not a lean mixture.'
                   : live.dfco ? 'Overrun fuel cut — injectors off while coasting down. Real ECUs do this; it costs nothing to spin.'
-                  : live.coolantC < 70 ? 'Warming up — the ECU is running extra fuel until it reaches temperature.'
+                  : live.ecu?.knockNow ? `Knock — your TIMING table asks for more advance than the engine tolerates at this RPM and boost. The ECU is pulling ${(live.ecu.knockRetard ?? 0).toFixed(1)}° to protect it; take timing out of that part of the table.`
+                  : (live.ecu?.knockRetard ?? 0) > 0.5 ? `Nothing is knocking now. The ECU is still giving back ${live.ecu.knockRetard.toFixed(1)}° it pulled for knock a moment ago, a little each second.`
+                  : live.coolantC < 80 ? 'Warming up — the ECU adds extra fuel until the coolant reaches 80 °C.'
                   : live.closedLoop ? 'Warm and in closed loop — the ECU is trimming fuel against the O2 sensor.'
                   : 'Open loop — the ECU is following your tables directly, ignoring O2 feedback.')
                 : live.cranking ? 'Starter engaged…' : 'Engine off. Start it to watch the ECU work in real time.'}
@@ -172,7 +174,7 @@ export function LiveScreen({ active, onToggle, tachFullScaleRpm, onStart, onStop
 
         {/* An engine is the loudest thing in the app and the one a player is most
             likely to want turned down without turning off. It writes the same session
-            field the waveguide's output trim reads. */}
+            field the engine audio's output level reads. */}
         <div className={styles.volume}>
           <span className={styles.volumeLabel}>VOL</span>
           <input
@@ -203,7 +205,7 @@ export function LiveScreen({ active, onToggle, tachFullScaleRpm, onStart, onStop
         <div className={styles.gaugeRow}>
           <LiveGauge label="LAMBDA" value={live.sensedLambda.toFixed(2)} unit="λ" color={T.violet} />
           <LiveGauge label="COOLANT" value={Math.round(live.sensedCoolant)} unit="°C" warn={live.sensedCoolant > 105} />
-          <LiveGauge label="TIMING" value={live.live ? live.live.timing : '—'} unit="°" warn={!!(live.live && live.live.knock)} />
+          <LiveGauge label="TIMING" value={live.live ? live.live.timing : '—'} unit="°" warn={!!(live.live && (live.ecu ? live.ecu.knockNow : live.live.knock))} />
         </div>
         <div className={styles.gaugeRow}>
           <LiveGauge label="INJ PW" value={live.live ? live.live.pw : '—'} unit="ms" />
@@ -217,9 +219,10 @@ export function LiveScreen({ active, onToggle, tachFullScaleRpm, onStart, onStop
           <TrimBar label="LONG TERM FUEL TRIM (LTFT)" value={live.ltft} />
         </div>
       </Panel>
+      <LiveEcuPanel />
       <ExpandableInfo title="Why these gauges jitter">
         Every value above is a simulated sensor reading, with real noise and lag — not the exact internal number. That is what a tuner actually sees on a scan tool, and why real logs never look perfectly smooth.
       </ExpandableInfo>
-    </BuildSection>
+    </>
   );
 }

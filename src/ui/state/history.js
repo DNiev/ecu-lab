@@ -58,7 +58,8 @@ export const HISTORY_LIMIT = 50;
 const BUILD_KEYS = [
   'engineConfig', 'mods', 'turboOn', 'boostCurve', 'turbineIdx', 'turbineCount',
   'compressorIdx', 'injIdx', 'ecuInjectorCc', 'octaneIdx', 'exhaustDiaIdx',
-  'mafScalar', 'presetId',
+  'mafScalar', 'presetId', 'fuelSystem', 'sensorHw', 'wastegate', 'coil', 'plugGapMm',
+  'ethanolPct',
 ];
 
 /**
@@ -69,7 +70,7 @@ const BUILD_KEYS = [
  * calibration. Restoring it would make undo move the player's highlight around, and the
  * grid's dimensions never change, so a selection is always still valid after a restore.
  */
-const TUNE_KEYS = ['ve', 'timing', 'afr', 'tablesDirty'];
+const TUNE_KEYS = ['ve', 'timing', 'afr', 'ecu', 'maps', 'activeMap', 'tablesDirty'];
 
 /**
  * Does a write to `tune.<field>` touch something a snapshot carries?

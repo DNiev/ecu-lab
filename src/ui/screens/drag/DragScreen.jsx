@@ -197,7 +197,7 @@ export function DragScreen({ section, onToggle, result, engineDerived, onRun }) 
 
             <ExpandableInfo title="Why the same engine is not the same car">
               Nothing here is a handicap number — every figure is a term in an equation that is already running.
-              <br /><br /><b className={styles.em}>Mass</b> divides straight into acceleration (a = F ÷ m), and it also has to be spun up through the gearing, so it costs twice.
+              <br /><br /><b className={styles.em}>Mass</b> divides straight into acceleration (a = F ÷ m). On top of the car's own mass, the engine and gearbox have to be spun up through the gearing, which acts like extra weight — most of all in first, where the ratio is highest.
               <br /><br /><b className={styles.em}>Cd × frontal area</b> is drag, and it grows with the square of speed. Almost nothing at the line, everything at the trap — which is why a van gives up far more trap speed than ET against a coupe.
               <br /><br /><b className={styles.em}>Centre of gravity height and wheelbase</b> set weight transfer, ΔN = m·a·h ÷ L. A tall van transfers more load rearward than a low supercar, which genuinely helps it hook up — one of the few things working in its favour.
               <br /><br /><b className={styles.em}>Static rear weight</b> is how much grip you start with before any transfer at all. A mid-engined supercar begins with 57% over the driven axle; a pickup has 38%.
@@ -295,7 +295,7 @@ export function DragScreen({ section, onToggle, result, engineDerived, onRun }) 
             <ExpandableInfo title="Why grip is a hard ceiling on acceleration">
               However much torque you make, the tyre can only transmit what friction allows:
               <br /><br /><span className={styles.formula}>F_max = μ × N</span>
-              <br /><br />μ is the coefficient of friction, N the load pressing the driven tyres onto the road. Measured values: street tyres 0.8–0.9, good summer tyres about 1.0, racing slicks 1.7–1.9, prepared drag surfaces higher again.
+              <br /><br />μ is the coefficient of friction, N the load pressing the driven tyres onto the road. Typical values: street tyres 0.8–0.9, good summer tyres about 1.0, racing slicks 1.7–1.9, prepared drag surfaces higher again.
               <br /><br />Divide by mass and μ is directly a ceiling on acceleration in g. At μ = 0.85 the very best possible is 0.85 g <i>if every kilogram sat on the driven wheels</i> — and on a rear-drive car only about 47% does at rest. Past that point, more power simply makes smoke.
               <br /><br /><b className={styles.em}>Weight transfer is what rescues it.</b> Accelerating shifts load rearward by <span className={styles.formula}>ΔN = m × a × h ÷ L</span>, so grip grows with the very acceleration it enables. That is why a rear-drive car out-launches its static weight distribution, and why all-wheel drive wins anyway: it starts with all of it.
               <br /><br />There is one more consequence worth noticing, because it surprises people. When the tyre is the limit, a = μ·g·f ÷ (1 − μ·h/L) — the mass cancels out entirely. Adding weight to a car that is already spinning its tyres does not slow the launch at all. It slows everything after it.
