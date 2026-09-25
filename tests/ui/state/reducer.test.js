@@ -510,7 +510,7 @@ describe('APPLY_PRESET — exact write surface (catches drift in both directions
   // contract this action documents: a stray write grows the changed set past 21, a
   // dropped write shrinks it below 21, and the failure message names the field either
   // way.
-  it('changes exactly the 21 documented fields, plus the two history fields', () => {
+  it('changes exactly the 22 documented fields, plus the two history fields', () => {
     const before = makeSentinelState();
     const after = reducer(before, { type: ACTIONS.APPLY_PRESET, preset: N54_PRESET });
     const changed = changedFieldKeys(before, after);
@@ -521,6 +521,9 @@ describe('APPLY_PRESET — exact write surface (catches drift in both directions
       'build.ecuInjectorCc', 'build.octaneIdx', 'build.exhaustDiaIdx', 'build.mafScalar',
       'build.presetId', 'build.presetPrompt',
       'tune.ve', 'tune.timing', 'tune.afr', 'tune.tablesDirty', 'tune.selection',
+      // baseline (issue 106): APPLY_PRESET takes the preset's own tables as the
+      // CHANGES view's comparison point, in the same pass as the tables themselves.
+      'tune.baseline',
       'session.result', 'session.pullScores',
       // APPLY_PRESET is undoable, so it records a snapshot in the same pass. These two
       // belong in the exact-write-surface contract like any other field it touches.
@@ -1579,14 +1582,14 @@ describe('snapshot field coverage', () => {
   // module iterates over would let a key deleted from both the list AND this
   // expectation pass vacuously. That is exactly the vulnerability a reviewer found —
   // cutting BUILD_KEYS to 3 entries and TUNE_KEYS to 2 left all 871 tests green.
-  it('snapshots exactly the documented 13 build and 4 tune fields', () => {
+  it('snapshots exactly the documented 13 build and 5 tune fields', () => {
     const snap = snapshot(makeInitialState());
     expect(Object.keys(snap.build).sort()).toEqual([
       'boostCurve', 'compressorIdx', 'ecuInjectorCc', 'engineConfig', 'exhaustDiaIdx',
       'injIdx', 'mafScalar', 'mods', 'octaneIdx', 'presetId', 'turbineCount',
       'turbineIdx', 'turboOn',
     ]);
-    expect(Object.keys(snap.tune).sort()).toEqual(['afr', 'tablesDirty', 'timing', 've']);
+    expect(Object.keys(snap.tune).sort()).toEqual(['afr', 'baseline', 'tablesDirty', 'timing', 've']);
   });
 
   // Every field below is seeded to a value that differs from BOTH its
@@ -1607,6 +1610,7 @@ describe('snapshot field coverage', () => {
     const beforeVe = [[55]];
     const beforeTiming = [[33]];
     const beforeAfr = [[7]];
+    const beforeBaseline = { ve: [[1]], timing: [[2]], afr: [[3]] };
 
     const start = { ...makeInitialState() };
     start.build = {
@@ -1631,6 +1635,7 @@ describe('snapshot field coverage', () => {
       timing: beforeTiming,
       afr: beforeAfr,
       tablesDirty: true,
+      baseline: beforeBaseline,
     };
 
     const applied = reducer(start, { type: ACTIONS.APPLY_PRESET, preset: N54_PRESET });
@@ -1643,6 +1648,7 @@ describe('snapshot field coverage', () => {
     expect(applied.build.exhaustDiaIdx).toBe(2);
     expect(applied.build.mafScalar).toBe(1.0);
     expect(applied.tune.tablesDirty).toBe(false);
+    expect(applied.tune.baseline).toEqual({ ve: [[80]], timing: [[20]], afr: [[12]] });
 
     const undone = reducer(applied, { type: ACTIONS.UNDO });
 
@@ -1663,6 +1669,7 @@ describe('snapshot field coverage', () => {
     expect(undone.tune.timing).toBe(beforeTiming);
     expect(undone.tune.afr).toBe(beforeAfr);
     expect(undone.tune.tablesDirty).toBe(true);
+    expect(undone.tune.baseline).toBe(beforeBaseline);
   });
 });
 
@@ -1752,6 +1759,53 @@ describe('tune.rangeMode (#105)', () => {
     const undone = reducer(edited, { type: ACTIONS.UNDO });
     const toggled = reducer(undone, { type: ACTIONS.SET_TUNE_FIELD, field: 'rangeMode', value: true });
     expect(toggled.tune.rangeMode).toBe(true);
+    expect(toggled.history.past).toHaveLength(0);
+    expect(toggled.history.future).toHaveLength(1);
+  });
+});
+
+describe('tune.baseline (#106)', () => {
+  it('starts as the tables themselves', () => {
+    const s = makeInitialState();
+    expect(s.tune.baseline.ve).toBe(s.tune.ve);
+    expect(s.tune.baseline.timing).toBe(s.tune.timing);
+    expect(s.tune.baseline.afr).toBe(s.tune.afr);
+  });
+
+  it('APPLY_PRESET takes the preset tables as the baseline', () => {
+    const s = reducer(makeInitialState(), { type: ACTIONS.APPLY_PRESET, preset: N54_PRESET });
+    expect(s.tune.baseline).toEqual({ ve: [[80]], timing: [[20]], afr: [[12]] });
+  });
+
+  it('RESET_TO_STOCK takes the reset tables as the baseline', () => {
+    const s = reducer(makeInitialState(), { type: ACTIONS.RESET_TO_STOCK, ve: [[70]] });
+    expect(s.tune.baseline.ve).toEqual([[70]]);
+    expect(s.tune.baseline.timing).toBe(s.tune.timing);
+    expect(s.tune.baseline.afr).toBe(s.tune.afr);
+  });
+
+  it('a table edit leaves it alone', () => {
+    const s0 = makeInitialState();
+    const s = reducer(s0, { type: ACTIONS.SET_TABLE, table: 'timing', value: [[1]] });
+    expect(s.tune.baseline).toBe(s0.tune.baseline);
+  });
+
+  it('undoing a preset load puts the previous baseline back', () => {
+    const s0 = makeInitialState();
+    const loaded = reducer(s0, { type: ACTIONS.APPLY_PRESET, preset: N54_PRESET });
+    const undone = reducer(loaded, { type: ACTIONS.UNDO });
+    expect(undone.tune.baseline).toBe(s0.tune.baseline);
+  });
+});
+
+describe('tune.diffView (#106)', () => {
+  it('starts off and is not undoable work', () => {
+    const s0 = makeInitialState();
+    expect(s0.tune.diffView).toBe(false);
+    const edited = reducer(s0, { type: ACTIONS.SET_TABLE, table: 've', value: [[1]] });
+    const undone = reducer(edited, { type: ACTIONS.UNDO });
+    const toggled = reducer(undone, { type: ACTIONS.SET_TUNE_FIELD, field: 'diffView', value: true });
+    expect(toggled.tune.diffView).toBe(true);
     expect(toggled.history.past).toHaveLength(0);
     expect(toggled.history.future).toHaveLength(1);
   });

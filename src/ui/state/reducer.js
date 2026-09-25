@@ -496,6 +496,8 @@ function baseReducer(state, action) {
           ve: p.ve,
           timing: p.timing,
           afr: p.afr,
+          // What the CHANGES view compares against from here on (issue 106).
+          baseline: { ve: p.ve, timing: p.timing, afr: p.afr },
           // Fresh factory calibration is not unsaved player work.
           tablesDirty: false,
           selection: null,
@@ -512,7 +514,9 @@ function baseReducer(state, action) {
       };
     }
 
-    case ACTIONS.RESET_TO_STOCK:
+    case ACTIONS.RESET_TO_STOCK: {
+      const timing = clone2D(DEFAULT_TIMING);
+      const afr = clone2D(DEFAULT_AFR);
       return {
         ...state,
         build: {
@@ -524,13 +528,15 @@ function baseReducer(state, action) {
         tune: {
           ...state.tune,
           ve: action.ve,
-          timing: clone2D(DEFAULT_TIMING),
-          afr: clone2D(DEFAULT_AFR),
+          timing,
+          afr,
+          baseline: { ve: action.ve, timing, afr },
           // A reset baseline is not unsaved player work — no "last call" needed to
           // pin this false, it is simply false in this same pass.
           tablesDirty: false,
         },
       };
+    }
 
     case ACTIONS.REPAIR_ENGINE:
       return {
