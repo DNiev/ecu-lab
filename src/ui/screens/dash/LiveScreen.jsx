@@ -1,25 +1,25 @@
 /**
- * HOME > Live Engine.
+ * LIVE — the engine running in real time: tach, ECU state, sensor gauges and fuel trims.
  *
- * The engine running in real time: tach, ECU state, sensor gauges and fuel trims.
+ * A page of its own, laid out the way the reference build (v4.8) laid it out: a heading,
+ * one line saying what this is, and the engine panel always open. It used to be a
+ * collapsed accordion card — the same card HOME's sections use — which read as though
+ * the live engine were still a HOME section, and hid the controls behind one more tap.
  *
  * THIS IS THE 20 Hz SCREEN. `session.live` is rewritten twenty times a second by the
  * LIVE_STEP action, and every one of those writes re-renders this component. That is
  * the point of it being its own file: nothing that reads `live` is allowed to move up
- * into a parent that also renders the other three HOME sections, or all four would
- * re-render at 20 Hz to redraw three panels that did not change. The accordion
- * header's own subtitle counts — it shows live RPM — which is why this screen owns
- * its `BuildSection` rather than being handed one as children.
+ * into a parent that renders anything else, or that would re-render at 20 Hz too.
  */
 
-import { Activity } from 'lucide-react';
+import { Flame } from 'lucide-react';
 import React from 'react';
 
 import { clamp } from '../../../sim/index.js';
-import { BuildSection } from '../../components/BuildSection.jsx';
 import { Button } from '../../primitives/Button.jsx';
 import { DialMark } from '../../components/DialMark.jsx';
 import { ExpandableInfo } from '../../components/ExpandableInfo.jsx';
+import { Eyebrow } from '../../primitives/Eyebrow.jsx';
 import { Panel } from '../../primitives/Panel.jsx';
 import { ACTIONS } from '../../state/reducer.js';
 import { useSession } from '../../state/StoreProvider.jsx';
@@ -83,8 +83,6 @@ function TrimBar({ label, value }) {
 
 /**
  * @param {object} props
- * @param {boolean} props.active whether this is HOME's open section
- * @param {(section: string) => void} props.onToggle opens or closes a HOME section
  * @param {number} props.tachFullScaleRpm redline plus the limiter's overshoot
  *   headroom. Derived from `engineConfig` in the shell because the dyno tach needs
  *   the same number — see the note on `tachFullScaleRpm` in EcuLab.jsx.
@@ -95,7 +93,7 @@ function TrimBar({ label, value }) {
  * @param {(percent: number) => void} props.onThrottle driver throttle input, 0 or 100
  * @returns {React.ReactElement}
  */
-export function LiveScreen({ active, onToggle, tachFullScaleRpm, onStart, onStop, onToggleSound, onTestSound, onThrottle }) {
+export function LiveScreen({ tachFullScaleRpm, onStart, onStop, onToggleSound, onTestSound, onThrottle }) {
   const [session, dispatch] = useSession();
   const { soundOn, throttleInput, volume, audioStatus } = session;
   // `SessionState.live` is typed `object` because the live model it holds is built in
@@ -105,17 +103,18 @@ export function LiveScreen({ active, onToggle, tachFullScaleRpm, onStart, onStop
   const live = /** @type {Record<string, any>} */ (session.live);
 
   return (
-    <BuildSection
-      active={active} onClick={() => onToggle('live')}
-      icon={Activity} label="Live Engine"
-      sub={live.running ? `Running · ${Math.round(live.sensedRpm)} RPM · ${Math.round(live.coolantC)}°C` : live.cranking ? 'Cranking…' : 'Off'}
-    >
+    <>
+      <Eyebrow icon={Flame}>Live Engine</Eyebrow>
+      <p className={styles.intro}>
+        Your calibration, actually running. Start it, hold the throttle, and watch the
+        sensors and fuel trims respond the way they would on a running car.
+      </p>
       <Panel style={{ background: T.panel, marginBottom: 10 }}>
         <div className={styles.head}>
           <div className={styles.dial}>
             <DialMark size={104} pct={clamp(live.sensedRpm / tachFullScaleRpm, 0, 1)} live />
             <div className={styles.dialReadout}>
-              <div className={styles.dialRpm} style={{ color: live.fuelCut ? T.danger : T.ink }}>{Math.round(live.sensedRpm)}</div>
+              <div className={styles.dialRpm} role="status" aria-label="Engine speed" style={{ color: live.fuelCut ? T.danger : T.ink }}>{Math.round(live.sensedRpm)}</div>
               <div className={styles.dialCaption}>RPM</div>
             </div>
           </div>
@@ -172,7 +171,7 @@ export function LiveScreen({ active, onToggle, tachFullScaleRpm, onStart, onStop
 
         {/* An engine is the loudest thing in the app and the one a player is most
             likely to want turned down without turning off. It writes the same session
-            field the waveguide's output trim reads. */}
+            field the engine audio's output level reads. */}
         <div className={styles.volume}>
           <span className={styles.volumeLabel}>VOL</span>
           <input
@@ -220,6 +219,6 @@ export function LiveScreen({ active, onToggle, tachFullScaleRpm, onStart, onStop
       <ExpandableInfo title="Why these gauges jitter">
         Every value above is a simulated sensor reading, with real noise and lag — not the exact internal number. That is what a tuner actually sees on a scan tool, and why real logs never look perfectly smooth.
       </ExpandableInfo>
-    </BuildSection>
+    </>
   );
 }

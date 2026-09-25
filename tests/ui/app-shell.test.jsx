@@ -106,7 +106,9 @@ describe('onNavigate', () => {
     // would still hold the old cell, and the dock would reappear the moment TUNE
     // remounts — this assertion is what catches that.
     render(<EcuLab />);
-    fireEvent.click(screen.getByRole('button', { name: 'START' }));
+    // The start screen offers CAREER, SANDBOX and TUTORIAL rather than a single START.
+    // SANDBOX is the free-play entry the old button was.
+    fireEvent.click(screen.getByRole('button', { name: 'SANDBOX' }));
     fireEvent.click(screen.getByRole('button', { name: 'TUNE' }));
 
     const grid = within(screen.getByTestId('tuning-grid'));
@@ -218,7 +220,7 @@ describe('the app\'s name', () => {
     // find nothing at all post-click — not a leftover match from the start screen,
     // and ErrorBoundary is never mounted here since nothing throws.
     render(<EcuLab />);
-    fireEvent.click(screen.getByRole('button', { name: 'START' }));
+    fireEvent.click(screen.getByRole('button', { name: 'SANDBOX' }));
 
     expect(screen.getByText('CARIBOU TUNING')).toBeTruthy();
     expect(screen.getByText('ECU Lab')).toBeTruthy();

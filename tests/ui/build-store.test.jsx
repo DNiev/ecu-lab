@@ -78,7 +78,11 @@ function headerEngineName() {
 /** Renders the app and clicks past the start screen. */
 function launch() {
   const view = render(<EcuLab />);
-  fireEvent.click(screen.getByRole('button', { name: 'START' }));
+  // The start screen offers CAREER, SANDBOX and TUTORIAL on this branch rather than a
+  // single START. SANDBOX is the free-play entry the old button was.
+  // The start screen offers CAREER, SANDBOX and TUTORIAL rather than a single START.
+  // SANDBOX is the free-play entry the old button was.
+  fireEvent.click(screen.getByRole('button', { name: 'SANDBOX' }));
   return view;
 }
 
@@ -197,7 +201,7 @@ describe('opening and dismissing the overwrite prompt', () => {
         <EcuLabApp />
       </StoreProvider>,
     );
-    fireEvent.click(screen.getByRole('button', { name: 'START' }));
+    fireEvent.click(screen.getByRole('button', { name: 'SANDBOX' }));
 
     // Hand-edit a calibration table: this is what sets `tablesDirty`, which is what
     // makes choosePreset offer the prompt instead of loading straight away.
@@ -322,7 +326,7 @@ describe('resetting the calibration to stock', () => {
         <EcuLabApp />
       </StoreProvider>,
     );
-    fireEvent.click(screen.getByRole('button', { name: 'START' }));
+    fireEvent.click(screen.getByRole('button', { name: 'SANDBOX' }));
     // Turbo on in BOTH runs, so the hardware half of the VE calculation is identical
     // and the only difference between them is the mod set.
     fireEvent.click(screen.getByText('Induction'));
@@ -380,7 +384,7 @@ describe('accepting a re-logged VE table', () => {
         <EcuLabApp />
       </StoreProvider>,
     );
-    fireEvent.click(screen.getByRole('button', { name: 'START' }));
+    fireEvent.click(screen.getByRole('button', { name: 'SANDBOX' }));
 
     // Drift the hardware away from the stock VE table the store starts with, so
     // veAdvice.inSync goes false and the ACCEPT button actually renders.
@@ -423,7 +427,7 @@ describe('applying a fuel-trim histogram', () => {
         <EcuLabApp />
       </StoreProvider>,
     );
-    fireEvent.click(screen.getByRole('button', { name: 'START' }));
+    fireEvent.click(screen.getByRole('button', { name: 'SANDBOX' }));
 
     fireEvent.click(screen.getByText('Induction'));
     fireEvent.click(toggleFor('Turbo kit'));
@@ -658,7 +662,7 @@ describe('every toggle', () => {
         <EcuLabApp />
       </StoreProvider>,
     );
-    fireEvent.click(screen.getByRole('button', { name: 'START' }));
+    fireEvent.click(screen.getByRole('button', { name: 'SANDBOX' }));
     fireEvent.click(screen.getByText('Induction'));
     const intercooler = screen.getByRole('switch', { name: /Intercooler/ });
     expect(intercooler.getAttribute('aria-checked')).toBe('false');

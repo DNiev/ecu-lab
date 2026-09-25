@@ -73,6 +73,36 @@ function LearnScreenInner({ active, onToggle }) {
 
       <div className={styles.part}>PART 2 · WHAT THE ECU CALCULATES</div>
 
+      {/* Unnumbered, as it was in the reference build: a key to read the numbered
+          articles by, not an article in the sequence. */}
+      <ExpandableInfo title="Symbol key — plain-English version">
+        Read this once and the formulas below stop looking like maths and start looking like a description of what the engine is doing.
+        <br /><br /><b className={styles.em}>AIR SIDE</b>
+        <br /><span className={styles.formula}>MAP</span> — manifold absolute pressure. <i>How hard the air is being pushed toward the cylinder.</i> About 101 kPa is atmospheric; 20-30 kPa at idle, because the throttle is shut and the engine pulls vacuum; above 101 means a turbo is pushing. Formulas need it in pascals, so kPa × 1000.
+        <br /><br /><span className={styles.formula}>T</span> — charge temperature in <b className={styles.em}>kelvin</b>, not celsius: add 273.15 to your °C. It has to be absolute because at 0 K a gas has no volume; celsius has no such meaning, and the formula would break.
+        <br /><br /><span className={styles.formula}>R</span> — the gas constant for air, 287 J/(kg·K). <i>A property of air itself</i> — never a tuning value; it is the same on every engine on earth.
+        <br /><br /><span className={styles.formula}>ρ</span> (rho) — air density in kg/m³. <i>How much air is actually packed into a given space.</i> Cold, dense air is more oxygen and more possible power, which is why the same car makes more power on a cold night.
+        <br /><br /><span className={styles.formula}>VE</span> — volumetric efficiency, as a fraction. <i>How good the engine is at filling its own cylinders.</i> A 95% cell means the cylinder took in 95% of what its volume could hold at that pressure.
+        <br /><br /><span className={styles.formula}>V_cyl</span> — swept volume of ONE cylinder in m³ (displacement ÷ cylinders). <span className={styles.formula}>Vd</span> — the whole engine's displacement in m³: a 3.5 L engine is 0.0035 m³.
+        <br /><br /><b className={styles.em}>FUEL SIDE</b>
+        <br /><span className={styles.formula}>stoichRatio</span> — the air:fuel mass ratio at which fuel and oxygen exactly consume each other. <i>A chemical property of the fuel, not a choice:</i> 14.7:1 for gasoline, 9.8:1 for E85.
+        <br /><br /><span className={styles.formula}>λ</span> (lambda) — measured AFR ÷ that fuel's stoichRatio. <i>How rich or lean you are, expressed so it means the same thing on any fuel.</i> 1.00 is exactly balanced, 0.85 is 15% more fuel than strictly needed — rich, and where power lives — and 1.10 is lean.
+        <br /><br /><span className={styles.formula}>LHV</span> — lower heating value, J/kg. <i>How much energy is in a kilogram of the fuel.</i> Gasoline about 44 MJ/kg, E85 about 29.2 MJ/kg. E85 has less energy per kilogram but you burn far more kilograms, which is why the power comes out similar.
+        <br /><br /><span className={styles.formula}>PW</span> — injector pulse width, milliseconds. <i>How long the injector is held open.</i> The ECU does not command fuel; it commands time.
+        <br /><br /><b className={styles.em}>OUTPUT SIDE</b>
+        <br /><span className={styles.formula}>CR</span> — compression ratio: 10.3 means the mixture is squeezed into 1/10.3 of its starting volume.
+        <br /><br /><span className={styles.formula}>η</span> (eta) — thermal efficiency, a fraction between 0 and 1. <i>The share of the fuel's chemical energy that becomes work instead of heat out of the exhaust.</i> Around 0.35 is typical; most of a fuel's energy genuinely leaves as heat.
+        <br /><br /><span className={styles.formula}>MEP</span> — mean effective pressure. <i>The single average pressure that, pushing on the piston for one stroke, would do the same work the real, varying pressure does.</i> It lets engines of different sizes be compared fairly, and comes in three kinds:
+        <br /><span className={styles.formula}>IMEP</span> — what combustion produced on the piston
+        <br /><span className={styles.formula}>FMEP</span> — what the engine spends on itself: rubbing friction, pumping air past a closed throttle, compressing valve springs
+        <br /><span className={styles.formula}>BMEP</span> — what is left and reaches the crank, IMEP − FMEP
+        <br />A healthy naturally aspirated engine peaks around 11-13 bar BMEP. Below zero, the engine cannot even pay for its own losses — which is exactly what engine braking is.
+        <br /><br /><span className={styles.formula}>MBT</span> — minimum spark advance for best torque. <i>The least advance that still makes maximum power.</i> "Minimum" matters: past MBT you gain nothing and only add knock risk.
+        <br /><br /><b className={styles.em}>TWO CONSTANTS THAT LOOK ARBITRARY</b>
+        <br /><span className={styles.formula}>4π</span> in the torque formula: a four-stroke fires once every <b className={styles.em}>two</b> crank revolutions. Work per cycle is MEP × Vd, and two revolutions is 4π radians, so torque = work ÷ angle = MEP × Vd ÷ 4π. A two-stroke fires every revolution and uses 2π.
+        <br /><br /><span className={styles.formula}>120000</span> in the duty-cycle formula: one injection per two revolutions. Two revolutions at N rpm take 2 ÷ (N/60) seconds = 120/N seconds = <b className={styles.em}>120000/N milliseconds</b>. At 7500 rpm that is 16 ms — the injector's whole time budget.
+      </ExpandableInfo>
+
       <ExpandableInfo title="6. The control loop, in order">
         Thousands of times a minute, the ECU runs the same sequence:
         <br /><br />read sensors → calculate cylinder air mass → decide open or closed loop → work out required fuel mass → convert that to an injector pulse width → apply fuel trims → look up ignition timing → check for knock → retard if needed → fire injectors and coils → update learned values.

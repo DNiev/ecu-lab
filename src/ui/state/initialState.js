@@ -153,6 +153,17 @@ import {
  *   run on (`dragSignature` in DragScreen.jsx). What lets the time slip say "these are
  *   last run's numbers, from before your change" instead of presenting a time the
  *   current car cannot run — the same rule `pullScores.signature` follows.
+ * @property {'sandbox'|'career'} mode which door the player came in by. CAREER is a
+ *   run of customer cars, so HOME leads with the jobs board; SANDBOX is free play with
+ *   no objectives, so it has no jobs board at all — the split the reference build (v4.8)
+ *   made at its start screen.
+ * @property {number|null} activeJob index into CAREER_JOBS of the customer car being
+ *   worked on, or null in free play. Career progress, which is what this slice holds:
+ *   taking a job resets the build and applies that job's fault, and it has to survive
+ *   every screen the player visits while diagnosing it.
+ * @property {number[]} completedJobs indices of the jobs already passed
+ * @property {'pass'|'fail'|null} jobResult how the last pull graded against the active
+ *   job's target, or null before one has been run against it
  */
 
 /**
@@ -248,6 +259,10 @@ export function makeInitialState() {
       dragRunning: false,
       dragT: 0,
       treePhase: 0,
+      mode: 'sandbox',
+      activeJob: null,
+      completedJobs: [],
+      jobResult: null,
     },
     history: { past: [], future: [] },
   };

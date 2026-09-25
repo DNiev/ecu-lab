@@ -21,6 +21,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { HealthScreen } from '../../src/ui/screens/dash/HealthScreen.jsx';
 import { LearnScreen } from '../../src/ui/screens/dash/LearnScreen.jsx';
 import { LiveScreen } from '../../src/ui/screens/dash/LiveScreen.jsx';
+import { RealCarScreen } from '../../src/ui/screens/dash/RealCarScreen.jsx';
 import { StatsScreen } from '../../src/ui/screens/dash/StatsScreen.jsx';
 import { ACTIONS } from '../../src/ui/state/reducer.js';
 import { StoreProvider, useSession } from '../../src/ui/state/StoreProvider.jsx';
@@ -68,37 +69,36 @@ describe('LiveScreen', () => {
   it('reads the live engine off the store rather than off a prop', () => {
     mount(
       <LiveScreen
-        active onToggle={noop} tachFullScaleRpm={7500}
+        tachFullScaleRpm={7500}
         onStart={noop} onStop={noop} onToggleSound={noop} onTestSound={noop} onThrottle={noop}
       />,
     );
     // The engine's own state machine, straight from `session.live`: nothing above this
     // component told it the engine was off.
-    expect(screen.getByText('Off')).toBeTruthy();
+    expect(screen.getByText('Engine off. Start it to watch the ECU work in real time.')).toBeTruthy();
     expect(screen.getByRole('button', { name: 'START ENGINE' })).toBeTruthy();
     expect(screen.getByText('START THE ENGINE FIRST')).toBeTruthy();
   });
 
-  it('reports which section it is when its header is clicked', () => {
-    // Navigation is the shell's, so the screen's only job is to name itself. Getting
-    // this wrong routes HOME to the wrong section, and every section still opens —
-    // just never the one that was clicked.
-    const onToggle = vi.fn();
+  it('is a page, not an accordion: the controls are there without opening anything', () => {
+    // It used to be HOME's collapsible card moved to its own tab, which still read as a
+    // HOME section and hid START behind one more tap. v4.8 laid it out as a page.
     mount(
       <LiveScreen
-        active={false} onToggle={onToggle} tachFullScaleRpm={7500}
+        tachFullScaleRpm={7500}
         onStart={noop} onStop={noop} onToggleSound={noop} onTestSound={noop} onThrottle={noop}
       />,
     );
-    fireEvent.click(screen.getByText('Live Engine'));
-    expect(onToggle).toHaveBeenCalledWith('live');
+    expect(screen.getByText('Live Engine').closest('button')).toBeNull();
+    expect(screen.getByRole('button', { name: 'START ENGINE' })).toBeTruthy();
+    expect(screen.getByRole('status', { name: 'Engine speed' }).textContent).toBe('0');
   });
 
   it('opens and closes the throttle through the shell, which owns the ref the loop reads', () => {
     const onThrottle = vi.fn();
     mount(
       <LiveScreen
-        active onToggle={noop} tachFullScaleRpm={7500}
+        tachFullScaleRpm={7500}
         onStart={noop} onStop={noop} onToggleSound={noop} onTestSound={noop} onThrottle={onThrottle}
       />,
     );
@@ -192,5 +192,27 @@ describe('LearnScreen', () => {
     render(<LearnScreen active={false} onToggle={onToggle} />);
     fireEvent.click(screen.getByText('Learn How It Works'));
     expect(onToggle).toHaveBeenCalledWith('learn');
+  });
+});
+
+describe('RealCarScreen', () => {
+  it('carries the reference build\'s real-world articles and names its own section', () => {
+    const onToggle = vi.fn();
+    render(<RealCarScreen active onToggle={onToggle} />);
+    for (const title of [
+      'What the tables are called on real software',
+      'A real tuning session, in order',
+      'Reading a real log — it is messier than this one',
+      'What this simulator cannot teach you',
+    ]) expect(screen.getByText(title)).toBeTruthy();
+    fireEvent.click(screen.getByText('Taking It To A Real Car'));
+    expect(onToggle).toHaveBeenCalledWith('realcar');
+  });
+});
+
+describe('the Learn guide', () => {
+  it('opens its maths part with the reference build\'s plain-English symbol key', () => {
+    render(<LearnScreen active onToggle={() => {}} />);
+    expect(screen.getByText('Symbol key — plain-English version')).toBeTruthy();
   });
 });

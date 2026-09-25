@@ -15,22 +15,45 @@ const STEPS = [
 ];
 
 describe('StartScreen', () => {
-  it('starts the app', () => {
+  /** @param {Record<string, () => void>} on */
+  const start = (on = {}) => render(
+    <StartScreen
+      onCareer={on.onCareer ?? (() => {})}
+      onStart={on.onStart ?? (() => {})}
+      onTutorial={on.onTutorial ?? (() => {})}
+      version="v1.4.0"
+    />,
+  );
+
+  it('opens the job board', () => {
+    const onCareer = vi.fn();
+    start({ onCareer });
+    fireEvent.click(screen.getByRole('button', { name: 'CAREER' }));
+    expect(onCareer).toHaveBeenCalledTimes(1);
+  });
+
+  it('opens the sandbox', () => {
     const onStart = vi.fn();
-    render(<StartScreen onStart={onStart} onTutorial={() => {}} version="v1.4.0" />);
-    fireEvent.click(screen.getByRole('button', { name: 'START' }));
+    start({ onStart });
+    fireEvent.click(screen.getByRole('button', { name: 'SANDBOX' }));
     expect(onStart).toHaveBeenCalledTimes(1);
   });
 
   it('opens the tutorial', () => {
     const onTutorial = vi.fn();
-    render(<StartScreen onStart={() => {}} onTutorial={onTutorial} version="v1.4.0" />);
+    start({ onTutorial });
     fireEvent.click(screen.getByRole('button', { name: 'TUTORIAL' }));
     expect(onTutorial).toHaveBeenCalledTimes(1);
   });
 
+  it('says what each way in is for, so the first choice is not a guess', () => {
+    start();
+    expect(screen.getByText('Customer cars with real faults to diagnose')).toBeTruthy();
+    expect(screen.getByText('Build and tune anything, no objectives')).toBeTruthy();
+  });
+
   it('shows the build version', () => {
-    render(<StartScreen onStart={() => {}} onTutorial={() => {}} version="v1.4.0" />);
+    start();
     expect(screen.getByText('v1.4.0')).toBeTruthy();
   });
 });

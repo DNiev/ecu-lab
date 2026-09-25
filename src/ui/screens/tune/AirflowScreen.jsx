@@ -81,7 +81,7 @@ export function AirflowScreen({ veAdvice, veTruth }) {
 
           <ExpandableInfo title="What VE actually means">
             VE compares the air trapped in the cylinder to the theoretical maximum the swept volume could hold. It rises with RPM as intake tuning matches resonance, then falls as the valves cannot flow fast enough — that fall is why every N/A engine has a torque peak. More air here means more fuel needed to hit a given AFR and more potential torque; VE is really the master variable, and timing/AFR are how you extract power from whatever air is already there.
-            <br /><br /><b className={styles.em}>As a beginner:</b> leave VE alone at first. It is set by real hardware (intake, heads, cams) — the Bolt-Ons on BUILD already move it for you when you install parts. Spend your early pulls learning TIMING and AFR before you start hand-editing VE.
+            <br /><br /><b className={styles.em}>As a beginner:</b> leave VE alone at first. It is set by real hardware (intake, heads, cams) — fitting an intake, headers or a cat-back on BUILD already moves it for you. Spend your early pulls learning TIMING and AFR before you start hand-editing VE.
           </ExpandableInfo>
         </div>
         <AdvisorPanel headline={report.headline} tone={report.tone}>

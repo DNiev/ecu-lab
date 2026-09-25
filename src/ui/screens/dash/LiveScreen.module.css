@@ -1,4 +1,12 @@
-/* HOME > Live Engine.
+/* The one line under the heading saying what this page is. */
+.intro {
+  margin: 0 0 var(--sp-md);
+  font-size: var(--fs-sm);
+  line-height: 1.55;
+  color: var(--ink2);
+}
+
+/* LIVE — the engine running in real time.
  *
  * Values that are genuinely per-render stay inline in the JSX: the throttle fill's
  * width, and the hue a gauge or a trim is currently reading in. Everything else,

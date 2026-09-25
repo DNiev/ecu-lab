@@ -63,6 +63,7 @@ export const ACTIONS = Object.freeze({
   LIVE_PATCH: 'LIVE_PATCH',
   UNDO: 'UNDO',
   REDO: 'REDO',
+  TAKE_JOB: 'TAKE_JOB',
 });
 
 /**
@@ -185,6 +186,23 @@ export const ACTIONS = Object.freeze({
  * Restores every worn engine component to full health, mirroring `repairEngine`
  * (`EcuLab.jsx:737`).
  * @typedef {{type: 'REPAIR_ENGINE'}} RepairEngineAction
+ */
+
+/**
+ * Takes a career job: fits the customer's car and clears the bench, in one pass.
+ *
+ * A job is a car that arrives with one fault already in it, so taking one has to write
+ * across all three slices at once — the hardware the customer turned up with, a stock
+ * calibration to diagnose it against, and a bench with no trace of the last job on it.
+ * Split into fifteen separate writes it would render fifteen times, and worse, a
+ * half-applied job is a car with the fault fitted and the old tables still loaded, which
+ * is not any car the player was handed.
+ *
+ * `build` and `ve` are computed by the caller for the same reason `RESET_TO_STOCK`'s are:
+ * they need `computeHardwareVE` fed a hardware description, which is exactly the lookup
+ * the reducer should not be reaching for. Everything the reducer can set from constants —
+ * the stock timing and fuel tables, full health, an empty result — it sets itself.
+ * @typedef {{type: 'TAKE_JOB', index: number, build: Partial<BuildState>, ve: number[][]}} TakeJobAction
  */
 
 /**
@@ -352,7 +370,7 @@ export const ACTIONS = Object.freeze({
  *   SetPresetPromptAction | SetEngineConfigPatchAction | ApplyPresetAction |
  *   ResetToStockAction | RepairEngineAction | BankPullAction | RestoreCareerAction |
  *   PinRunAction | UnpinRunAction | LiveStepAction | LivePatchAction | UndoAction |
- *   RedoAction
+ *   RedoAction | TakeJobAction
  * } KnownStoreAction
  */
 
@@ -529,6 +547,41 @@ function baseReducer(state, action) {
           // A reset baseline is not unsaved player work — no "last call" needed to
           // pin this false, it is simply false in this same pass.
           tablesDirty: false,
+        },
+      };
+
+    case ACTIONS.TAKE_JOB:
+      return {
+        ...state,
+        build: {
+          ...state.build,
+          ...action.build,
+          // The customer's car is not one of the factory presets, whatever hardware it
+          // happens to share with one.
+          presetId: null,
+          mafScalar: 1.0,
+        },
+        tune: {
+          ...state.tune,
+          ve: action.ve,
+          timing: clone2D(DEFAULT_TIMING),
+          afr: clone2D(DEFAULT_AFR),
+          // A car handed over for diagnosis carries no unsaved work of the player's.
+          tablesDirty: false,
+          selection: null,
+        },
+        session: {
+          ...state.session,
+          activeJob: action.index,
+          jobResult: null,
+          // A fresh bench. A pull logged on the last customer's car next to this one's
+          // target is worse than no pull at all, and the run log is where those live now.
+          result: null,
+          runs: [],
+          pinnedRunId: null,
+          pullScores: null,
+          histogram: null,
+          health: { piston: 100, bearing: 100, valve: 100 },
         },
       };
 
