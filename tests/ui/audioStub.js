@@ -66,14 +66,7 @@ export function stubContext({ state = 'running' } = {}) {
     },
     createBufferSource: () => node({ buffer: null, loop: false, playbackRate: param(1), onended: null }),
     createStereoPanner: () => node({ pan: param(0) }),
-    // The exhaust falls back to this wherever an AudioWorklet module cannot be loaded,
-    // which is every strict-CSP page the app is served from — so the stub has no
-    // `audioWorklet` and these tests run the path that most players actually get.
-    createScriptProcessor: (len, _in, out) => node({
-      onaudioprocess: null,
-      bufferSize: len,
-      outputBuffer: { getChannelData: () => new Float32Array(len), numberOfChannels: out },
-    }),
+    createConvolver: () => node({ buffer: null, normalize: true }),
   };
   return ctx;
 }

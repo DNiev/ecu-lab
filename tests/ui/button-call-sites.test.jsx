@@ -49,7 +49,9 @@ const VARIANTS = ['primary', 'ghost', 'danger', 'quiet'];
 /** Renders the app and clicks past the start screen. */
 function launch() {
   render(<EcuLab />);
-  clickButton('START');
+  // The start screen offers CAREER, SANDBOX and TUTORIAL on this branch rather than a
+  // single START. SANDBOX is the free-play entry the old button was.
+  clickButton('SANDBOX');
 }
 
 /** @param {string|RegExp} name */
@@ -61,9 +63,8 @@ function clickButton(name) {
  * Walks the app, collecting every Button that mounts along the way.
  *
  * Most of this is setup rather than navigation, and deliberately so — six of the
- * call sites only exist in a state the app has to be driven into. A bolt-on has to
- * be fitted before the VE table goes stale and offers ACCEPT RE-LOGGED VALUES; the
- * ECU scaling has to be knocked off the fitted injectors before RESCALE appears; the
+ * call sites only exist in a state the app has to be driven into. A pull has to be
+ * logged before TUNE > AIRFLOW has a VE correction to APPLY; the ECU scaling has to be knocked off the fitted injectors before RESCALE appears; the
  * engine has to be started before STOP replaces START; a pull has to finish before
  * the histogram trio exists at all. A Button that never mounts is a Button this
  * sweep never checks.
@@ -83,8 +84,8 @@ async function sweep() {
     fireEvent.click(screen.getByText(section));
     collect();
   }
-  // Fitting a part leaves the logged VE table behind the hardware, which is what
-  // puts the ACCEPT RE-LOGGED VALUES advisory on TUNE > AIRFLOW.
+  // Fitting a part leaves the VE table behind the hardware, so the pull below logs
+  // a correction for TUNE > AIRFLOW to apply.
   const uninstalled = screen.getAllByRole('button')
     .filter((b) => b.textContent.includes('INSTALL') && !(/** @type {HTMLButtonElement} */ (b).disabled));
   fireEvent.click(uninstalled[0]);
@@ -113,7 +114,8 @@ async function sweep() {
 
   clickButton(/HOME/);
   collect();
-  fireEvent.click(screen.getByText('Live Engine'));
+  // The live engine is its own tab on this branch, not a section of HOME.
+  clickButton(/^LIVE$/);
   collect();
   clickButton('START ENGINE'); // mounts STOP, the other branch of that variant
   collect();
@@ -134,6 +136,12 @@ async function sweep() {
   collect();
   clickButton('BUILD HISTOGRAM FROM THIS PULL'); // mounts APPLY CORRECTIONS / DISCARD
   collect();
+  // The pull is what TUNE > AIRFLOW corrects VE from: APPLY HALF / APPLY ALL mount
+  // only once there is a log to apply.
+  // The pull's log also badges the TUNE pages it points at, so the name gains a count.
+  clickButton(/TUNE/);
+  clickButton(/^AIRFLOW/);
+  collect();
 
   return [...seen];
 }
@@ -149,7 +157,7 @@ function variantsOn(el) {
 // below would go on passing over the shorter list.
 const EXPECTED = [
   'SKIP GUIDE', 'RESET ALL TO STOCK', 'FLAT ACROSS ALL', 'SPOOL RAMP', 'ZERO',
-  'ACCEPT RE-LOGGED VALUES', 'DONE', 'RESCALE ECU TO', 'STOP', 'TEST', 'RUN DYNO PULL',
+  'APPLY HALF', 'APPLY ALL', 'DONE', 'RESCALE ECU TO', 'STOP', 'TEST', 'RUN DYNO PULL',
   'BUILD HISTOGRAM FROM THIS PULL', 'APPLY CORRECTIONS TO VE', 'DISCARD',
 ];
 
@@ -297,7 +305,7 @@ describe('the Button call sites in the shell and its screens', () => {
     // BUILD did not delete a Button, it moved them — so the floor RISES to the total
     // across the shell, the screens and (since TUNE's split) the shared components
     // rather than dropping to what is left in the shell. TUNE's own extraction moved
-    // three call sites (VE's ACCEPT RE-LOGGED VALUES, ECU's RESCALE, and
+    // three call sites (VE's old one-tap accept, ECU's RESCALE, and
     // SelectionDock's DONE) but deleted none, so the total stays 23.
     //
     // Wiring `AppShell` moved two more (Tutorial, Repair engine) out of EcuLab.jsx and
@@ -305,7 +313,14 @@ describe('the Button call sites in the shell and its screens', () => {
     // still 23 because a move nets zero, not because nothing happened. Raise the floor
     // when a screen or shared component adds a real call site; lowering it is how this
     // stops guarding anything.
-    expect(openingTags().length).toBeGreaterThanOrEqual(23);
+    //
+    // 22, not 23, and this is the one lowering that is honest: the start screen now
+    // offers three ways in (CAREER, SANDBOX, TUTORIAL) rendered from `WAYS_IN` in ONE
+    // mapped `<Button>` where it previously had two hand-written tags. That is a
+    // rendered button MORE and a source tag fewer, and the scanner counts source tags.
+    // The sweep below still reaches all three, by label, which is what actually guards
+    // them.
+    expect(openingTags().length).toBeGreaterThanOrEqual(22);
   });
 
   it('names a real variant at every call site, including the ones the sweep cannot mount', () => {

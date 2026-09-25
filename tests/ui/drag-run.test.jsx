@@ -54,7 +54,7 @@ function SessionProbe({ onState }) {
 /** Renders the app, clicks past the start screen, and runs one dyno pull. */
 async function launchAndPull(node = <EcuLab />) {
   render(node);
-  fireEvent.click(screen.getByRole('button', { name: 'START' }));
+  fireEvent.click(screen.getByRole('button', { name: 'SANDBOX' }));
   fireEvent.click(screen.getByRole('button', { name: 'DYNO' }));
   fireEvent.click(screen.getByRole('button', { name: 'RUN DYNO PULL' }));
   await waitFor(
@@ -71,7 +71,7 @@ async function tick(ms) {
 describe('DRAG, end to end', () => {
   it('is reachable from the nav and needs no pull to be told a pull is needed', () => {
     render(<EcuLab />);
-    fireEvent.click(screen.getByRole('button', { name: 'START' }));
+    fireEvent.click(screen.getByRole('button', { name: 'SANDBOX' }));
     fireEvent.click(screen.getByRole('button', { name: 'DRAG' }));
     expect(screen.getByText(/Run a dyno pull first/i)).toBeTruthy();
   });
@@ -134,7 +134,7 @@ describe('DRAG, end to end', () => {
     // "Finish, let me explore freely". Walking the whole guide is the only way to
     // reach that banner, and the only way to prove the hand-off past it now exists.
     render(<EcuLab />);
-    fireEvent.click(screen.getByRole('button', { name: 'START' }));
+    fireEvent.click(screen.getByRole('button', { name: 'SANDBOX' }));
     fireEvent.click(screen.getByRole('button', { name: /Done building/i }));
     fireEvent.click(screen.getByRole('button', { name: /Calibration set/i }));
     fireEvent.click(screen.getByRole('button', { name: /Sounds good/i }));

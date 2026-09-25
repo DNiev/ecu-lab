@@ -12,11 +12,12 @@ import React from 'react';
 
 import { Grid3x3, Info } from 'lucide-react';
 
-import { clamp, LOAD, presetById, RPM, SWEEP_STEP_RPM } from '../../../sim/index.js';
+import { clamp, LOAD, presetById, RPM, SWEEP_STEP_RPM, veCorrections, veSamplesFromPull } from '../../../sim/index.js';
 import { ExpandableInfo } from '../../components/ExpandableInfo.jsx';
 import { downloadCsv, dynoSheetFilename, sweepToCsv } from '../../components/dynoCsv.js';
 import { eventBands } from '../../components/eventBands.js';
 import { initialScrubRpm, pointAt, pointGauges } from '../../components/scrubPoint.js';
+import { CorrectionStack } from '../../components/ecu/CorrectionStack.jsx';
 import { Button } from '../../primitives/Button.jsx';
 import { Eyebrow } from '../../primitives/Eyebrow.jsx';
 import { StatTile } from '../../primitives/StatTile.jsx';
@@ -153,28 +154,19 @@ export function DataScreen() {
 
   // HISTOGRAM — the core real-world tuning workflow. A pull's lambda error is
   // binned onto the same RPM x MAP grid as the VE table, so the correction can be
-  // applied cell-for-cell. This is what HP Tuners' scanner histogram does.
+  // applied cell-for-cell. This is what HP Tuners' scanner histogram does. It is
+  // the same measurement TUNE > AIRFLOW's correction runs on (src/sim/veLearn.js), so
+  // the two never disagree: the wideband's reading against the table's target, the
+  // MAF's own error left to the MAF calibration, and points the VE table did not set
+  // (nitrous, injectors at their limit, protection, fuel cut) left out.
+  //
+  // Sign convention, because getting it backwards makes the tool teach the exact wrong
+  // reflex: a positive number means the engine ran LEANER than commanded, so it
+  // swallowed MORE air than the table claimed, so the cell must come UP by that much.
   const buildHistogram = () => {
     if (!result) return;
-    const cells = LOAD.map(() => RPM.map(() => ({ sum: 0, n: 0 })));
-    result.points.forEach((p) => {
-      let ri = 0, best = Infinity;
-      LOAD.forEach((m, i) => { const d = Math.abs(m - p.map); if (d < best) { best = d; ri = i; } });
-      let ci = 0, bc = Infinity;
-      RPM.forEach((r, i) => { const d = Math.abs(r - p.rpm); if (d < bc) { bc = d; ci = i; } });
-      // Airflow error % = how far the ACTUAL mixture sat from what was commanded.
-      //
-      // Sign convention, because getting it backwards makes the tool teach the exact
-      // wrong reflex: the ECU fuels from the VE table, so
-      //     actualAfr / commandedAfr  =  trueVE / tableVE
-      // A positive number therefore means the engine ran LEANER than commanded, which
-      // means it swallowed MORE air than the table claimed, which means the table is
-      // reading low and must come UP by that percentage. Multiplying the cell by
-      // (1 + err/100) drives the table onto the truth in one pass.
-      const err = ((p.afr / p.afrCommanded) - 1) * 100;
-      cells[ri][ci].sum += err; cells[ri][ci].n += 1;
-    });
-    dispatch({ type: ACTIONS.SET_SESSION_FIELD, field: 'histogram', value: cells.map((row) => row.map((c) => (c.n ? c.sum / c.n : null))) });
+    const { ratio } = veCorrections(veSamplesFromPull(result.points));
+    dispatch({ type: ACTIONS.SET_SESSION_FIELD, field: 'histogram', value: ratio.map((row) => row.map((r) => (r == null ? null : (r - 1) * 100))) });
   };
   const applyHistogram = () => {
     if (!histogram) return;
@@ -246,15 +238,40 @@ export function DataScreen() {
           </div>
         )}
         <PairRows point={shown} />
+        {shown.breakdown && (
+          <div className={styles.ecu} data-testid="ecu-readout">
+            <div className={styles.ecuHead}>ENGINE MANAGEMENT AT THIS POINT</div>
+            <p className={styles.ecuNote}>
+              {!shown.protect?.length && !(shown.knockPull > 0) && !(shown.knockUnheard > 0.3) && !(shown.misfire > 5)
+                ? 'Nothing stepped in here: the engine ran your tables as written.'
+                : 'Something stepped in here. The amber and red tiles say what; the lists below show exactly how each value was changed.'}
+            </p>
+            <div className={styles.gauges}>
+              <StatTile label="KNOCK RETARD" value={shown.knockPull.toFixed(1)} unit="°" tone={shown.knockPull > 0 ? 'warn' : 'neutral'} />
+              <StatTile label="UNHEARD KNOCK" value={(shown.knockUnheard ?? 0).toFixed(1)} unit="°" tone={shown.knockUnheard > 0.3 ? 'danger' : 'neutral'} />
+              {shown.boostTarget > 0 && <StatTile label="BOOST TARGET" value={shown.boostTarget} unit="psi" />}
+              {shown.boostTarget > 0 && <StatTile label="WASTEGATE" value={shown.wgDuty} unit="%" />}
+              <StatTile label="FUEL ΔP" value={shown.railDp} unit="kPa" tone={shown.fuelStarved ? 'danger' : 'neutral'} />
+              <StatTile label="MISFIRE" value={shown.misfire} unit="%" tone={shown.misfire > 5 ? 'danger' : 'neutral'} />
+              {shown.blowerRpm != null && <StatTile label="BLOWER" value={shown.blowerRpm.toLocaleString('en-US')} unit="rpm" tone={shown.blowerOverspeed ? 'danger' : 'neutral'} />}
+              {shown.blowerHp != null && <StatTile label="BLOWER DRIVE" value={shown.blowerHp} unit="hp" />}
+              {shown.nitrousLbMin > 0 && <StatTile label="NITROUS" value={shown.nitrousLbMin} unit="lb/min" />}
+              {shown.nitrousLbMin > 0 && <StatTile label="BOTTLE" value={shown.bottlePsi} unit="psi" tone={shown.bottlePsi < 850 ? 'warn' : 'neutral'} />}
+              {(shown.camIn > 0 || shown.camEx > 0) && <StatTile label="CAMS IN / EX" value={`${shown.camIn} / ${shown.camEx}`} unit="°" />}
+              <StatTile label="PROTECTIONS" value={shown.protect?.length ? shown.protect.join(', ') : 'none'} tone={shown.protect?.length ? 'warn' : 'ok'} />
+            </div>
+            <CorrectionStack breakdown={shown.breakdown} result={{ timing: shown.timing, lambda: shown.lambda }} />
+          </div>
+        )}
       </div>
 
       <ExpandableInfo title="How to read a datalog">
         Diagnosis happens in the <b className={styles.em}>asked → got</b> pairs, not in the power number.
-        <br /><br /><b className={styles.em}>Timing</b>: if the two differ, the ECU overrode you. That is knock retard, and the gap is how far past the limit your table was. Tuners treat anything sustained above ~2° as damaging.
-        <br /><br /><b className={styles.em}>Mixture</b>: if actual is not what you commanded, the cause is upstream of the fuel table — usually injectors out of duty cycle, MAF scaling, or an ECU injector size that does not match the hardware. Do not paper over it by editing fuel cells; fix the cause.
+        <br /><br /><b className={styles.em}>Timing</b>: if the two differ, the ECU overrode you. That is knock retard, and the gap is roughly how far past the limit your table was (the ECU retards in whole steps). A common rule of thumb treats anything sustained above ~2° as a problem to fix.
+        <br /><br /><b className={styles.em}>Mixture</b>: if actual is not what you commanded, the cause is upstream of the fuel table — usually injectors out of duty cycle, MAF scaling, or injector scaling (TUNE › INJECTORS) that does not match the hardware. Do not paper over it by editing fuel cells; fix the cause.
         <br /><br /><b className={styles.em}>INJ PW / DUTY</b>: duty is a time budget. At 7500 RPM there are only 16 ms in an engine cycle. Past about 90% there is no room left and the mixture goes lean regardless of what you asked for.
-        <br /><br /><b className={styles.em}>EGT</b>: exhaust temperature rises with retarded timing and lean mixtures. Sustained above ~950°C cooks turbines and valves.
-        <br /><br /><b className={styles.em}>PEAK P</b>: peak cylinder pressure is what the piston, rod and bearings physically carry, and it is set by compression ratio multiplied by manifold pressure, not by boost alone. A naturally aspirated engine peaks near 50 bar; a factory turbo engine near 90-110. Past that, stock pistons and rods start failing <i>without</i> any detonation to warn you — which is exactly what high-octane fuel hides, because octane buys knock margin and nothing else.
+        <br /><br /><b className={styles.em}>EGT</b>: exhaust temperature rises with retarded timing and as the mixture leans toward stoichiometric. Sustained above about 950–1000°C cooks turbines and valves.
+        <br /><br /><b className={styles.em}>PEAK P</b>: peak cylinder pressure is what the piston, rod and bearings physically carry, and it is set by compression ratio multiplied by manifold pressure, not by boost alone. In this app a naturally aspirated engine peaks around 60–70 bar and a factory turbo engine around 75–90; practitioners quote about 100–120 for real production turbo engines, so the app runs low here (see Learn article 39). Its own limit, about 105 bar, is set on the app&apos;s scale. Past that, stock pistons and rods start failing <i>without</i> any detonation to warn you — which is exactly what high-octane fuel hides, because octane buys knock margin and nothing else.
       </ExpandableInfo>
 
       <div className={styles.buildWrap}>
@@ -268,6 +285,7 @@ export function DataScreen() {
         This is the workflow every professional platform is built around. You log a pull, bin the difference between commanded and actual mixture onto the same RPM x MAP grid as your VE table, then apply that error back into the cells.
         <br /><br />A cell reading <b className={styles.em}>+6%</b> means the engine ran 6% leaner than you commanded, which can only happen if it actually pulled 6% <i>more</i> air than your VE table claimed — so that cell should go <b className={styles.em}>up</b> 6%. A negative cell means the opposite: the table is over-reporting airflow, the ECU is over-fuelling, and the number should come down.
         <br /><br />The ECU has no way to measure cylinder filling directly. It fuels from your table and nothing else, so a wrong table means wrong fuel, every time. Blue cells are within tolerance; red means your table is lying to the ECU at that point. Correct, re-pull, repeat until it is flat. A cell you hit squarely lands on the truth in one pass; the rest take a couple, because every logged point is interpolated between four cells.
+        <br /><br />With a MAF blended into the fuel, part of the error is the MAF's own: a new intake housing changes what it reads. That part is taken out here and left for TUNE › SENSORS, because folding it into VE would have to be undone the moment the MAF is fixed. Points the table did not fuel (nitrous, maxed injectors, protection, fuel cut) are left out. TUNE › AIRFLOW runs the same numbers with the working shown per cell, and lets you apply half.
       </ExpandableInfo>
       {!histogram ? (
         /* Was a cyan-outlined width:100% bar. Cyan is the chart-series

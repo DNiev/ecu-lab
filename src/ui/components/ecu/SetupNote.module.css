@@ -1,0 +1,36 @@
+/* Whether the ECU is set up for the hardware just chosen on BUILD. */
+
+.ok,
+.warn {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 8px;
+  margin-top: 6px;
+  font-size: var(--fs-xs);
+  line-height: 1.45;
+}
+
+.ok { color: var(--ok-ink); }
+
+.warn {
+  padding: 8px 10px;
+  border: 1px solid var(--warn-line);
+  border-radius: var(--r-sm);
+  background: var(--warn-bg);
+  color: var(--warn-ink);
+}
+
+.icon { flex-shrink: 0; }
+
+.text { flex: 1 1 180px; }
+
+.fix {
+  padding: 5px 9px;
+  border: 1px solid var(--warn);
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--warn-ink);
+  font-size: var(--fs-xs);
+  font-weight: 800;
+}

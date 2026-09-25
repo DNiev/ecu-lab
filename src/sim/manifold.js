@@ -47,9 +47,11 @@ export function bestPowerAfr(boostPsi) {
  * @param {boolean} input.turboOn
  * @param {number[]} input.boostCurve boost target per `RPM` breakpoint, psi
  * @param {number} input.rpm
+ * @param {number} [input.boostPsi] boost the engine is known to make here, for a
+ *   supercharger, whose boost is its own physics rather than a curve anyone asked for
  * @returns {number} kPa absolute
  */
-export function reachableKpa({ turboOn, boostCurve, rpm }) {
-  return BARO_KPA + REACHABLE_SLACK_KPA
-    + (turboOn ? Math.max(0, interp1(RPM, boostCurve, rpm)) * PSI_TO_KPA : 0);
+export function reachableKpa({ turboOn, boostCurve, rpm, boostPsi }) {
+  const boost = boostPsi ?? (turboOn ? interp1(RPM, boostCurve, rpm) : 0);
+  return BARO_KPA + REACHABLE_SLACK_KPA + Math.max(0, boost) * PSI_TO_KPA;
 }

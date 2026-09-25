@@ -78,7 +78,11 @@ function headerEngineName() {
 /** Renders the app and clicks past the start screen. */
 function launch() {
   const view = render(<EcuLab />);
-  fireEvent.click(screen.getByRole('button', { name: 'START' }));
+  // The start screen offers CAREER, SANDBOX and TUTORIAL on this branch rather than a
+  // single START. SANDBOX is the free-play entry the old button was.
+  // The start screen offers CAREER, SANDBOX and TUTORIAL rather than a single START.
+  // SANDBOX is the free-play entry the old button was.
+  fireEvent.click(screen.getByRole('button', { name: 'SANDBOX' }));
   return view;
 }
 
@@ -197,7 +201,7 @@ describe('opening and dismissing the overwrite prompt', () => {
         <EcuLabApp />
       </StoreProvider>,
     );
-    fireEvent.click(screen.getByRole('button', { name: 'START' }));
+    fireEvent.click(screen.getByRole('button', { name: 'SANDBOX' }));
 
     // Hand-edit a calibration table: this is what sets `tablesDirty`, which is what
     // makes choosePreset offer the prompt instead of loading straight away.
@@ -322,7 +326,7 @@ describe('resetting the calibration to stock', () => {
         <EcuLabApp />
       </StoreProvider>,
     );
-    fireEvent.click(screen.getByRole('button', { name: 'START' }));
+    fireEvent.click(screen.getByRole('button', { name: 'SANDBOX' }));
     // Turbo on in BOTH runs, so the hardware half of the VE calculation is identical
     // and the only difference between them is the mod set.
     fireEvent.click(screen.getByText('Induction'));
@@ -366,12 +370,11 @@ describe('resetting the calibration to stock', () => {
   });
 });
 
-describe('accepting a re-logged VE table', () => {
-  it('rewrites the VE table on ACCEPT RE-LOGGED VALUES', () => {
-    // recalcVE (EcuLab.jsx:663) is the ACCEPT RE-LOGGED VALUES button's dispatch.
-    // Stub it out and the button silently does nothing — the player is told their
-    // hardware and calibration are out of sync and handed a button that claims to
-    // fix it, and nothing happens.
+describe('correcting VE from a logged pull', () => {
+  it('APPLY HALF on TUNE > AIRFLOW moves the cells the pull logged, and only those', async () => {
+    // The VE table is corrected from logs, the way a speed-density table really is —
+    // nothing hands over the engine's true VE. Fit hardware the stock table does not
+    // match, pull, and the pull's wideband error is what the correction applies.
     /** @type {*} */
     let tune;
     render(
@@ -380,30 +383,30 @@ describe('accepting a re-logged VE table', () => {
         <EcuLabApp />
       </StoreProvider>,
     );
-    fireEvent.click(screen.getByRole('button', { name: 'START' }));
-
-    // Drift the hardware away from the stock VE table the store starts with, so
-    // veAdvice.inSync goes false and the ACCEPT button actually renders.
+    fireEvent.click(screen.getByRole('button', { name: 'SANDBOX' }));
     fireEvent.click(screen.getByText('Induction'));
     fireEvent.click(toggleFor('Turbo kit'));
-    // `boltons` dissolved into Induction and Exhaust — the intake card is already in
-    // the DOM once this section is mounted (BuildSection stays mounted collapsed too,
-    // but opening it here matches how a real player would reach the card).
     fireEvent.click(screen.getByRole('button', { name: /Intake/ }));
 
+    fireEvent.click(screen.getByRole('button', { name: /DYNO/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'RUN DYNO PULL' }));
+    await waitFor(
+      () => expect(screen.getByRole('button', { name: 'RUN DYNO PULL' })).toBeTruthy(),
+      { timeout: 10000 },
+    );
+
     fireEvent.click(screen.getByRole('button', { name: /TUNE/ }));
+    // No one-tap copy of the answer exists any more.
+    expect(screen.queryByRole('button', { name: 'ACCEPT RE-LOGGED VALUES' })).toBeNull();
+    const panel = within(screen.getByRole('region', { name: 'Correct VE from logs' }));
+    const veBefore = tune.ve.map((/** @type {number[]} */ r) => [...r]);
+    fireEvent.click(panel.getByRole('button', { name: 'APPLY HALF' }));
 
-    // Guard: the button only renders when the advisor actually sees a gap. If the
-    // toggles above hadn't moved computeHardwareVE, this query would throw instead
-    // of silently finding nothing, and the assertion below could never run for the
-    // right reason.
-    const acceptBtn = screen.getByRole('button', { name: 'ACCEPT RE-LOGGED VALUES' });
-    const veBefore = tune.ve;
-
-    fireEvent.click(acceptBtn);
-
-    expect(tune.ve).not.toEqual(veBefore);
-  });
+    const changedRows = tune.ve.map((/** @type {number[]} */ row, /** @type {number} */ ri) => row.some((v, ci) => v !== veBefore[ri][ci]));
+    expect(changedRows.some(Boolean)).toBe(true);
+    // A full-throttle pull logs the full-throttle rows, never the idle row.
+    expect(changedRows.at(-1)).toBe(false);
+  }, DYNO_PULL_MS + 4000);
 });
 
 describe('applying a fuel-trim histogram', () => {
@@ -423,7 +426,7 @@ describe('applying a fuel-trim histogram', () => {
         <EcuLabApp />
       </StoreProvider>,
     );
-    fireEvent.click(screen.getByRole('button', { name: 'START' }));
+    fireEvent.click(screen.getByRole('button', { name: 'SANDBOX' }));
 
     fireEvent.click(screen.getByText('Induction'));
     fireEvent.click(toggleFor('Turbo kit'));
@@ -596,11 +599,17 @@ describe('every segmented control', () => {
     total += expectEverySegHasOneSelection();
 
     // Guard the sweep itself: if navigation silently failed, the per-tab assertions
-    // above would each pass on whatever happened to be showing. Eight is the count of
-    // <Seg> call sites across the app today — they live in the screen components now,
-    // not in EcuLab.jsx (see the breakdown above) — confirmed by
-    // `grep -rn '<Seg\b' src/ui | grep -v '\.module\.css'`.
-    expect(total).toBe(8);
+    // above would each pass on whatever happened to be showing. Nineteen is the count
+    // of segmented controls those three stops reach today:
+    //   BUILD 15 — Engine: Configuration, Block, Head, Cam Phasers, Ignition Coils, Plug
+    //     Gap; Induction: MAP Sensor, Compressor, Wastegate Actuator (the spring picker
+    //     only appears for a pneumatic gate), Nitrous Kit (its shot and bottle pickers
+    //     only appear with a kit fitted); Fuel: Octane, Regulation, Base Pressure,
+    //     Wideband Controller; Exhaust: Diameter.
+    //   TUNE > INJECTORS 3 — the map-slot picker above every TUNE view, ECU Injector
+    //     Scaling, and the ECU's Pressure Compensation.
+    //   DYNO 1 — the manifold-pressure picker.
+    expect(total).toBe(19);
   });
 });
 
@@ -658,7 +667,7 @@ describe('every toggle', () => {
         <EcuLabApp />
       </StoreProvider>,
     );
-    fireEvent.click(screen.getByRole('button', { name: 'START' }));
+    fireEvent.click(screen.getByRole('button', { name: 'SANDBOX' }));
     fireEvent.click(screen.getByText('Induction'));
     const intercooler = screen.getByRole('switch', { name: /Intercooler/ });
     expect(intercooler.getAttribute('aria-checked')).toBe('false');

@@ -43,9 +43,8 @@ function Spy() {
   return null;
 }
 
-const VE_ADVICE = { inSync: true, maxAbs: 0, recs: [], deltas: [] };
 function mountAir() {
-  return render(<StoreProvider><Spy /><AirflowScreen veAdvice={VE_ADVICE} veTruth={[[0]]} /></StoreProvider>);
+  return render(<StoreProvider><Spy /><AirflowScreen /></StoreProvider>);
 }
 const select = (value) => act(() => { store.dispatch({ type: ACTIONS.SET_TUNE_FIELD, field: 'selection', value }); });
 const dock = () => screen.getByTestId('selection-dock');

@@ -16,15 +16,29 @@ import { clamp } from './math.js';
 /**
  * Intake charge temperature after compression and (optionally) intercooling.
  *
+ * The day's air is an input, not a constant: `env` carries the ambient temperature and
+ * barometric pressure the compressor starts from. Left out, it is the sea-level 25 °C
+ * day the rest of the model was built on, so every existing caller is unchanged.
+ *
  * @param {number} boostPsi gauge boost pressure, psi
  * @param {boolean} intercooler whether an intercooler is fitted
+ * @param {{ambientK?: number, baroKpa?: number}} [env] ambient conditions
+ * @param {number} [isenEff] the compressor's adiabatic efficiency, for a supercharger;
+ *   absent, the turbo's fixed polytropic figure
  * @returns {number} charge temperature, K
  */
-export function chargeTempK(boostPsi, intercooler) {
-  if (boostPsi <= 0) return AMBIENT_K;
-  const pressureRatio = (BARO_KPA + boostPsi * PSI_TO_KPA) / BARO_KPA;
-  const tCompressed = AMBIENT_K * Math.pow(pressureRatio, GAMMA_EXP / COMP_ISEN_EFF);
-  return intercooler ? AMBIENT_K + (tCompressed - AMBIENT_K) * (1 - IC_EFFECTIVENESS) : tCompressed;
+export function chargeTempK(boostPsi, intercooler, env, isenEff = null) {
+  const ambientK = env?.ambientK ?? AMBIENT_K;
+  const baroKpa = env?.baroKpa ?? BARO_KPA;
+  if (boostPsi <= 0) return ambientK;
+  const pressureRatio = (baroKpa + boostPsi * PSI_TO_KPA) / baroKpa;
+  // Isentropic compression, degraded by the compressor's efficiency. The turbo keeps the
+  // one fixed efficiency it always had (see docs/accuracy.md); a supercharger passes its
+  // own, which is how a Roots blower heats the charge more than a twin-screw at equal boost.
+  const tCompressed = isenEff == null
+    ? ambientK * Math.pow(pressureRatio, GAMMA_EXP / COMP_ISEN_EFF)
+    : ambientK * (1 + (Math.pow(pressureRatio, GAMMA_EXP) - 1) / isenEff);
+  return intercooler ? ambientK + (tCompressed - ambientK) * (1 - IC_EFFECTIVENESS) : tCompressed;
 }
 
 /**
@@ -81,14 +95,45 @@ export function trappedChargeK(intakeK, residualFrac) {
  *
  * @param {number} fuelMassG fuel delivered to the cylinder, grams
  * @param {number} airMassG air trapped in the cylinder, grams
- * @param {{stoich: number}} fuel
+ * A blended fuel (a flex-fuel tank at, say, E40) carries its own `latentHeat`, mixed
+ * from its components by mass; the four pump fuels do not, and fall back to the
+ * gasoline/ethanol split on stoichiometric ratio they have always used.
+ *
+ * @param {{stoich: number, latentHeat?: number}} fuel
  * @returns {number} temperature drop, K
  */
 export function evaporativeCoolingK(fuelMassG, airMassG, fuel) {
-  const latent = fuel.stoich < COEFF.FUEL_ETHANOL_STOICH_MAX
-    ? COEFF.FUEL_LATENT_HEAT_ETHANOL : COEFF.FUEL_LATENT_HEAT_GASOLINE;
+  const latent = fuel.latentHeat ?? (fuel.stoich < COEFF.FUEL_ETHANOL_STOICH_MAX
+    ? COEFF.FUEL_LATENT_HEAT_ETHANOL : COEFF.FUEL_LATENT_HEAT_GASOLINE);
   const heatJ = (fuelMassG / 1000) * latent * COEFF.FUEL_EVAP_IN_CYLINDER;
   return heatJ / Math.max(1e-6, (airMassG / 1000) * COEFF.CHARGE_CP);
+}
+
+/**
+ * The dew point of the fuel vapour in a charge, K: the temperature below which the fuel
+ * could not all be vapour, because its saturation pressure would be less than the
+ * partial pressure it exerts at the given total pressure. Below it the rest stays liquid
+ * (see FUEL_VAPOUR_ANCHORS). `cycleInputsFor` asks it at the top of compression, which
+ * is where the evaporation its charge cooling stands for has to be complete.
+ *
+ * @param {number} fuelMassG fuel delivered to the cylinder, grams
+ * @param {number} airMassG air trapped in the cylinder, grams
+ * @param {number} pressureKpa total pressure of the charge, kPa
+ * @param {{stoich: number, ethanolPct?: number}} fuel
+ * @returns {number} K
+ */
+export function fuelDewPointK(fuelMassG, airMassG, pressureKpa, fuel) {
+  const ethanol = clamp((COEFF.STOICH_GASOLINE - fuel.stoich) / (COEFF.STOICH_GASOLINE - COEFF.STOICH_ETHANOL), 0, 1);
+  const A = COEFF.FUEL_VAPOUR_ANCHORS;
+  const i = ethanol <= A[1].ethanol ? 0 : 1;
+  const t = (ethanol - A[i].ethanol) / (A[i + 1].ethanol - A[i].ethanol);
+  const lnRvp = Math.log(A[i].rvpKpa) + t * (Math.log(A[i + 1].rvpKpa) - Math.log(A[i].rvpKpa));
+  const b = A[i].b + t * (A[i + 1].b - A[i].b);
+  const molarG = A[i].molarG + t * (A[i + 1].molarG - A[i].molarG);
+  const fuelMol = fuelMassG / molarG;
+  const airMol = Math.max(1e-12, airMassG) / COEFF.AIR_MOLAR_G;
+  const partialKpa = Math.max(1e-9, pressureKpa * fuelMol / (fuelMol + airMol));
+  return 1 / (1 / COEFF.FUEL_RVP_REF_K + (lnRvp - Math.log(partialKpa)) / b);
 }
 
 /**

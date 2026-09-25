@@ -13,13 +13,15 @@
 import { DRIVETRAIN_EFF, INJ_DEADTIME_MS, KELVIN_OFFSET } from './constants.js';
 import { COEFF } from './coefficients.js';
 import {
-  cycleInputsFor, knockLimitedSpark, mbtFromBurn, paToBar, runCycle, trappedAirGrams,
+  cycleInputsFor, cylinderVolumeM3, knockLimitedSpark, mbtFromBurn, paToBar, runCycle, trappedAirGrams,
 } from './cycle.js';
+import { ECU_COEFF } from './ecu/ecuCoefficients.js';
 import { exhaustManifoldKpa, rubbingFmepPa, pumpingFmepPa } from './friction.js';
 import { chargeIndexOf } from './knock.js';
 import { bestPowerAfr } from './manifold.js';
 import { clamp } from './math.js';
 import { OPEN_LOOP_KPA, effectiveMafFactor } from './tables.js';
+import { N2O, N2O_AIR_EQUIV, chargeWithNitrousK, perCylinderEvent } from './nitrous.js';
 import { chargeTempK, exhaustTempK } from './thermo.js';
 
 /**
@@ -53,6 +55,68 @@ import { chargeTempK, exhaustTempK } from './thermo.js';
  *   solved the induction system and knows it. Omitted, it is computed here from this
  *   point's own exhaust flow
  * @property {number} [wastegateRelief] how much backpressure the wastegate is bleeding
+ * @property {{n2oKgS: number, fuelKgS?: number, frac?: number, bottleK: number, bottlePsi?: number}} [nitrous]
+ *   nitrous flowing at this point (src/sim/nitrous.js): the jets' nitrous, a wet kit's fuel
+ *   beside it, and the bottle it came from, whose temperature sets how much it cools
+ * @property {ReturnType<typeof import('./blower.js').solveBlower>} [blower] a supercharger's
+ *   state at this point (src/sim/blower.js): its efficiency sets the charge heat and its
+ *   drive power is charged to the crank
+ * @property {EcuPointContext} [ecu] what the engine management is actually doing at this
+ *   point, resolved from its calibration by `src/sim/ecu/`. Absent, the ECU is the ideal
+ *   one this function always modelled — it reads the true manifold pressure and charge
+ *   temperature, knows the fuel, flows its injectors at their rating and finds the knock
+ *   limit exactly — and the result is identical to before the ECU layer existed.
+ */
+
+/**
+ * The engine management's side of one operating point: what it BELIEVES, and what it
+ * commands on top of the base tables. Every field is optional and each one defaults to
+ * the ideal ECU, so a context can describe one departure from ideal at a time.
+ *
+ * Nothing here is a power figure. Each field is something a real ECU reads, assumes or
+ * commands, and its consequence comes out of the same air, fuel and cycle physics as
+ * everything else.
+ *
+ * @typedef {object} EcuPointContext
+ * @property {{ambientK?: number, baroKpa?: number}} [env] the day's air
+ * @property {number} [extraFuelG] fuel the ECU adds per cylinder event on top of what it
+ *   meters for the air — a dry nitrous kit's fuel and a tuner's correction while spraying,
+ *   through the injectors; negative takes fuel out
+ * @property {number} [sensedMapKpa] manifold pressure as the ECU's MAP sensor reports it
+ * @property {number} [sensedIatK] charge temperature as the ECU's IAT sensor reports it
+ * @property {'blend'|'sd'|'maf'} [airModel] how the ECU works out air mass. `blend` is the
+ *   original model: speed-density from the VE table, with the MAF's error feeding the
+ *   trims. `sd` is pure speed-density. `maf` fuels from the MAF reading and ignores VE
+ * @property {number} [mafNetFactor] the MAF's total reading error after the ECU's own
+ *   transfer-function correction, as a multiplier on true airflow
+ * @property {number} [openLoopKpa] MAP above which the ECU stops trimming
+ * @property {number} [trimResidual] fraction of a steady fuelling error closed loop leaves
+ * @property {number} [trimLimitPct] the most the trims may correct, percent
+ * @property {{stoich: number, density: number}} [ecuFuel] the fuel the ECU believes is in
+ *   the tank. Fuel mass comes from its stoichiometric ratio, injector volume from its
+ *   density
+ * @property {number} [fuelMult] every commanded fuel correction multiplied together:
+ *   enrichments, trims, per-cylinder trim. Commanded, so it changes pulse width
+ * @property {number} [cylinderFuelFactor] fraction of the injected fuel that actually
+ *   reaches the cylinder this cycle — the port wall film on a transient. Physical, so the
+ *   ECU cannot see it
+ * @property {{actualFlowScale?: number, ecuFlowScale?: number, deadActualMs?: number,
+ *   deadEcuMs?: number, minPwMs?: number, maxDutyFrac?: number, railDeltaKpa?: number}} [inj]
+ *   injector reality versus belief: real flow from the pressure across it and the
+ *   pump's capacity, the flow the ECU assumes, true and assumed dead time, the shortest
+ *   pulse the ECU will command, and the duty ceiling
+ * @property {{retardDeg?: number, deadbandDeg?: number, falseRetardDeg?: number,
+ *   maxRetardDeg?: number, enabled?: boolean, stepDeg?: number}} [knock] knock control. `retardDeg` is a
+ *   live controller's current retard; without it the steady-state controller settles at
+ *   the knock limit, less whatever knock the sensor cannot hear (`deadbandDeg`), plus
+ *   whatever noise it mistakes for knock (`falseRetardDeg`)
+ * @property {{intakeAdvDeg?: number, exhaustRetDeg?: number}} [cam] cam phaser positions
+ * @property {number} [chamberOffsetK] extra chamber heat for this particular cylinder
+ * @property {number} [cutFrac] fraction of firing events the ECU is cutting
+ * @property {'fuel'|'spark'} [cutType] fuel cut leaves air in the exhaust; spark cut
+ *   leaves unburned fuel to light in the manifold
+ * @property {{kvAvailable?: number, gapMm?: number}} [spark] ignition energy available,
+ *   against which the breakdown voltage the cylinder needs is checked
  */
 
 /**
@@ -65,10 +129,13 @@ export function evaluatePoint({
   rpm, mapKpa, boostPsi, veVal, veActualVal, timingVal, afrCommanded,
   fuel, mods, mafScalar, mafErrorBase,
   injectorCc, ecuInjectorCc, derived, compressor, turbine = null,
-  empKpa: empOverride, wastegateRelief = 0,
+  empKpa: empOverride, wastegateRelief = 0, ecu: E = null, blower = null, nitrous = null,
 }) {
-  const compressorOver = boostPsi > compressor.boostCeiling;
-  const chargeK = chargeTempK(boostPsi, mods.intercooler);
+  // A supercharger brings its own compressor: its ceiling and its efficiency, which set
+  // how hot the charge arrives. Without one, the turbo's compressor as always.
+  const compressorOver = blower ? false : boostPsi > compressor.boostCeiling;
+  const isenEff = blower && blower.boostPsi > 0 ? blower.eta : undefined;
+  const chargeK = E ? chargeTempK(boostPsi, mods.intercooler, E.env, isenEff) : chargeTempK(boostPsi, mods.intercooler, undefined, isenEff);
   const chargeC = chargeK - KELVIN_OFFSET;
 
   // --- AIR CHARGE: ideal gas law. MAP already carries load, so VE is used purely as
@@ -83,37 +150,92 @@ export function evaluatePoint({
   // gap is identically zero, the histogram reads nothing, and no iteration can close it.
   const veActual = veActualVal ?? veVal;
   const vCylM3 = (derived.displacementL / derived.cyl) / 1000;
-  const airChargeG = trappedAirGrams({ veActual, mapKpa, chargeK, sweptM3: vCylM3 });
-  const airChargeBelievedG = trappedAirGrams({ veActual: veVal, mapKpa, chargeK, sweptM3: vCylM3 });
+  // NITROUS in the intake: liquid flashing to vapour takes its latent heat from the air,
+  // so the charge arrives colder and denser; the vapour then fills room the air would
+  // have had. Both happen before the cylinder closes, so they set how much air is trapped.
+  const n2o = nitrous && nitrous.n2oKgS > 0
+    ? perCylinderEvent({ n2oKgS: nitrous.n2oKgS, fuelKgS: nitrous.fuelKgS ?? 0, rpm, cyl: derived.cyl })
+    : null;
+  let cylChargeK = chargeK;
+  let airChargeG = trappedAirGrams({ veActual, mapKpa, chargeK, sweptM3: vCylM3 });
+  if (n2o) {
+    cylChargeK = chargeWithNitrousK({
+      airG: airChargeG, airK: chargeK, airCp: COEFF.CHARGE_CP,
+      n2oG: n2o.n2oG, bottleK: nitrous.bottleK, share: COEFF.N2O_CHARGE_COOLING_SHARE,
+    });
+    const cooledAirG = trappedAirGrams({ veActual, mapKpa, chargeK: cylChargeK, sweptM3: vCylM3 });
+    airChargeG = cooledAirG / (1 + (n2o.n2oG / N2O.molarG) / (cooledAirG / COEFF.AIR_MOLAR_G));
+  }
+  // The ECU's speed-density sum runs on what its SENSORS say, not on the truth. With an
+  // ideal ECU the two are the same thing.
+  const airModel = E?.airModel ?? 'blend';
+  const airChargeBelievedG = airModel === 'maf'
+    ? airChargeG
+    : trappedAirGrams({
+      veActual: veVal,
+      mapKpa: E?.sensedMapKpa ?? mapKpa,
+      chargeK: E?.sensedIatK ?? chargeK,
+      sweptM3: vCylM3,
+    });
   // The MAF reading reports real airflow — a sensor cannot read a table.
   const mafGps = (airChargeG * derived.cyl * (rpm / 2)) / 60;
 
   // --- MAF error / fuel trim. Open loop above OPEN_LOOP_KPA (near WOT).
-  const netFactor = mafErrorBase * mafScalar;
-  const openLoop = mapKpa >= OPEN_LOOP_KPA;
-  const effFactor = effectiveMafFactor(netFactor, mapKpa);
+  const netFactor = airModel === 'sd' ? 1 : (E?.mafNetFactor ?? mafErrorBase * mafScalar);
+  const ecuMapKpa = E?.sensedMapKpa ?? mapKpa;
+  const openLoop = ecuMapKpa >= (E?.openLoopKpa ?? OPEN_LOOP_KPA);
+  const effFactor = E ? ecuTrimmedFactor(netFactor, openLoop, E) : effectiveMafFactor(netFactor, mapKpa);
   const trimPct = (effFactor - 1) * 100;
 
   // --- FUEL MASS from lambda and the fuel's own stoichiometric ratio. Computed from
-  // the air the ECU BELIEVES it has, because that is all the ECU knows.
+  // the air the ECU BELIEVES it has, because that is all the ECU knows — and from the
+  // fuel it believes is in the tank.
   const lambdaCommanded = (afrCommanded / 14.7) / effFactor;
-  const fuelMassG = airChargeBelievedG / (lambdaCommanded * fuel.stoich);
+  const ecuFuel = E?.ecuFuel ?? fuel;
+  // Nitrous fuel the ECU adds or takes out on top (a dry kit's, a tuner's correction).
+  // Taking out can only go so far: the injectors still meter for the air.
+  const fuelMassG = E?.extraFuelG
+    ? Math.max(
+      0.2 * (airChargeBelievedG * (E?.fuelMult ?? 1)) / (lambdaCommanded * ecuFuel.stoich),
+      (airChargeBelievedG * (E?.fuelMult ?? 1)) / (lambdaCommanded * ecuFuel.stoich) + E.extraFuelG,
+    )
+    : (airChargeBelievedG * (E?.fuelMult ?? 1)) / (lambdaCommanded * ecuFuel.stoich);
 
   // --- INJECTOR: the ECU computes pulse width for the injector size it has been TOLD
   // it has. Fit bigger injectors without rescaling and every pulse delivers
   // proportionally more fuel than intended — the classic "went rich after upgrading
   // injectors" mistake real tuners fix with a scaling constant.
-  const ecuGramsPerMs = (ecuInjectorCc * fuel.density) / 60000;
-  const actualGramsPerMs = (injectorCc * fuel.density) / 60000;
+  //
+  // With an ECU context, flow is also a matter of PRESSURE: an injector is an orifice, so
+  // it passes fuel as the square root of the pressure across it. The ECU flows it at
+  // whatever pressure it assumes; the injector flows at whatever pressure is there.
+  const inj = E?.inj;
+  const ecuGramsPerMs = (ecuInjectorCc * ecuFuel.density) / 60000 * (inj?.ecuFlowScale ?? 1);
+  const actualGramsPerMs = (injectorCc * fuel.density) / 60000 * (inj?.actualFlowScale ?? 1);
+  const deadEcuMs = inj?.deadEcuMs ?? INJ_DEADTIME_MS;
+  const deadActualMs = inj?.deadActualMs ?? INJ_DEADTIME_MS;
   const cycleTimeMs = 120000 / rpm;
-  const pulseWidthMs = fuelMassG / ecuGramsPerMs + INJ_DEADTIME_MS;
-  const maxPulseMs = cycleTimeMs * 0.9;
+  // The shortest pulse the ECU will command: below it an injector is in its ballistic
+  // region, where the needle never reaches full lift and flow stops being proportional
+  // to time. Clamping trades a slightly rich idle for a repeatable one.
+  const pulseWidthMs = Math.max(fuelMassG / ecuGramsPerMs + deadEcuMs, inj?.minPwMs ?? 0);
+  const maxPulseMs = cycleTimeMs * (inj?.maxDutyFrac ?? 0.9);
   const dutyPct = clamp((pulseWidthMs / cycleTimeMs) * 100, 0, 220);
 
   const cappedPw = Math.min(pulseWidthMs, maxPulseMs);
   const fuelLimited = pulseWidthMs > maxPulseMs;
-  const deliveredFuelG = Math.max(1e-6, (cappedPw - INJ_DEADTIME_MS) * actualGramsPerMs);
-  const lambdaActual = airChargeG / (deliveredFuelG * fuel.stoich);
+  const openMs = cappedPw - deadActualMs;
+  const deliveredFuelG = Math.max(
+    1e-6,
+    (E ? ballisticOpenMs(openMs) : openMs) * actualGramsPerMs * (E?.cylinderFuelFactor ?? 1),
+  );
+  // A wet kit's fuel arrives through its own nozzle, beside the injectors. The nitrous
+  // brings oxygen worth 1.57 times its mass in air, so lambda counts it: this is what the
+  // flame and the wideband both see.
+  const injectedFuelG = deliveredFuelG;
+  const totalFuelG = n2o ? injectedFuelG + n2o.fuelG : injectedFuelG;
+  const oxygenAsAirG = n2o ? airChargeG + n2o.n2oG * N2O_AIR_EQUIV : airChargeG;
+  const lambdaActual = oxygenAsAirG / (totalFuelG * fuel.stoich);
   const actualAfr = lambdaActual * 14.7;
 
   // --- GAS EXCHANGE. What the piston pushes against on the exhaust stroke, and how
@@ -122,20 +244,28 @@ export function evaluatePoint({
   const chargeIndex = chargeIndexOf(veActual, mapKpa);
   // Mass actually leaving the cylinder each second — air plus the fuel that went in
   // with it — which is what the turbine has to pass.
-  const exhaustFlowKgS = ((airChargeG + deliveredFuelG) / 1000) * derived.cyl * (rpm / 2) / 60;
+  const exhaustFlowKgS = (n2o ? (airChargeG + totalFuelG + n2o.n2oG) : (airChargeG + deliveredFuelG)) / 1000
+    * derived.cyl * (rpm / 2) / 60;
   const turbineInletK = exhaustTempK({ chargeIndex, lambda: lambdaActual });
   const empKpa = empOverride ?? exhaustManifoldKpa({
     turboOn: !!mods.turboFitted, exhaustFlowKgS, exhaustK: turbineInletK,
-    turbine, wastegateRelief,
+    turbine, wastegateRelief, ...(E?.env?.baroKpa ? { baroKpa: E.env.baroKpa } : {}),
   });
 
   // --- THE CYCLE ITSELF. Everything from here is read off an integrated pressure
   // trace rather than estimated: the work done, the peak pressure, and whether the end
   // gas had time to light itself before the flame reached it.
-  const burnedFuelG = Math.min(deliveredFuelG, airChargeG / fuel.stoich);
+  const burnedFuelG = n2o
+    ? Math.min(totalFuelG, oxygenAsAirG / fuel.stoich)
+    : Math.min(deliveredFuelG, airChargeG / fuel.stoich);
+  const cycDerived = E?.chamberOffsetK
+    ? { ...derived, chamberOffsetK: (derived.chamberOffsetK || 0) + E.chamberOffsetK }
+    : derived;
   const cyc = cycleInputsFor({
-    rpm, mapKpa, empKpa, intakeK: chargeK,
-    airChargeG, burnedFuelG, fuelMassG: deliveredFuelG, lambda: lambdaActual, fuel, derived,
+    rpm, mapKpa, empKpa, intakeK: cylChargeK,
+    airChargeG, burnedFuelG, fuelMassG: totalFuelG, lambda: lambdaActual, fuel,
+    ...(n2o ? { n2oG: n2o.n2oG } : {}),
+    derived: cycDerived, ...(E?.cam ? { cam: E.cam } : {}),
   });
 
   // The knock limit is solved from the same cycle, so it responds to compression,
@@ -143,12 +273,17 @@ export function evaluatePoint({
   // any of them. This is what the ECU's knock control is protecting against.
   const threshold = knockLimitedSpark(cyc);
   const margin = threshold - timingVal;
-  const knockPull = margin < 0 ? Math.min(COEFF.MAX_KNOCK_RETARD, -margin) : 0;
+  const knockPull = E?.knock ? ecuKnockRetard(margin, E.knock) : (margin < 0 ? Math.min(COEFF.MAX_KNOCK_RETARD, -margin) : 0);
   const usedTiming = timingVal - knockPull;
 
   const cycle = runCycle({ ...cyc, sparkBtdc: usedTiming });
   const mbtIdeal = mbtFromBurn(cyc.burnDeg);
-  const imepPa = cycle.imepGrossPa;
+  // Events that did not burn: the ECU cutting them (limiter, protection, traction) and
+  // the cylinder failing to light (a spark too weak for the pressure, or a mixture
+  // outside what a flame will cross). Both cost the whole event's work.
+  const ign = E ? ignitionState({ cyc, usedTiming, lambda: lambdaActual, E }) : null;
+  const deadFrac = ign ? clamp((E.cutFrac ?? 0) + (1 - (E.cutFrac ?? 0)) * ign.misfireFrac, 0, 1) : 0;
+  const imepPa = cycle.imepGrossPa * (1 - deadFrac);
 
   // The engine must pay for its own rubbing friction, and for the gas-exchange loop.
   // Pumping is exhaust manifold pressure minus intake: a loss when throttled, and
@@ -157,7 +292,10 @@ export function evaluatePoint({
   const rubbingPa = rubbingFmepPa(rpm, derived.springPa || 0, {
     bearingFmepPa: derived.bearingFmepPa, balanceShaftFrac: derived.balanceShaftFrac,
   });
-  const fmepPa = rubbingPa + pmepPa;
+  // A supercharger is driven off the crank, so the power it takes to compress the air is
+  // a load on the engine like friction: FMEP = power ÷ (displacement × firing rate).
+  const blowerPa = blower ? blower.driveW / ((derived.displacementL / 1000) * (rpm / 120)) : 0;
+  const fmepPa = rubbingPa + pmepPa + blowerPa;
   const bmepPa = imepPa - fmepPa;
 
   // T = BMEP × Vd / (4π) for a four-stroke; power follows from torque.
@@ -170,7 +308,7 @@ export function evaluatePoint({
   // Null on overrun and in deep vacuum: there is no work out, so the quantity is
   // undefined. Zero would read as an engine making power from no fuel.
   const bsfc = powerW > 0
-    ? (deliveredFuelG * derived.cyl * (rpm / 2) * 60 / 453.6) / (powerW / 745.7) : null;
+    ? (totalFuelG * derived.cyl * (rpm / 2) * 60 / 453.6) / (powerW / 745.7) : null;
 
   // --- MECHANICAL LOAD. Torque is what the engine gives you; peak cylinder pressure is
   // what it costs the metal. Both come off the same trace, so they cannot disagree.
@@ -182,7 +320,15 @@ export function evaluatePoint({
   // coefficient: the burn finishes later into the expansion, so less work is extracted
   // and the gas leaves hotter. `exhaustTempK` survives only where an answer is needed
   // BEFORE the cycle can run — the turbine backpressure the cycle itself depends on.
-  const egtC = cycle.exhaustK - KELVIN_OFFSET;
+  let egtC = cycle.exhaustK - KELVIN_OFFSET;
+  if (ign && deadFrac > 0) {
+    // A fuel-cut event pumps cool air through; a spark-cut or misfired one dumps a full
+    // charge of fuel and air into a hot manifold, where it lights — the limiter's pops.
+    const unlitHot = (E.cutType === 'spark' ? (E.cutFrac ?? 0) : 0) + (1 - (E.cutFrac ?? 0)) * ign.misfireFrac;
+    const airOnly = deadFrac - unlitHot;
+    egtC = egtC * (1 - airOnly) + (chargeK - KELVIN_OFFSET + ECU_COEFF.CUT_AIR_RISE_C) * airOnly
+      + unlitHot * ECU_COEFF.AFTERBURN_RISE_C;
+  }
   const egtRisk = egtC > COEFF.EGT_LIMIT_C;
   const leanRisk = actualAfr > COEFF.LEAN_DAMAGE_AFR && mapKpa >= 85;
   // Excessively rich is its own failure mode, not just "safe": unburnt fuel washes the
@@ -191,6 +337,32 @@ export function evaluatePoint({
   const valveRisk = leanRisk && boostPsi > 3;
   const mafFlag = Math.abs(trimPct) > 8 && (mods.intake || mods.turboFitted);
   const injMismatch = Math.abs(injectorCc / ecuInjectorCc - 1) > 0.05;
+
+  // What only exists once the ECU is modelled. Kept out of the base record entirely when
+  // it is not, so an ECU-less evaluation is the same record it always was, field for field.
+  const ecuFields = E ? {
+    sensedMap: Number((E.sensedMapKpa ?? mapKpa).toFixed(0)),
+    sensedIat: Number(((E.sensedIatK ?? chargeK) - KELVIN_OFFSET).toFixed(0)),
+    fuelMass: Number((deliveredFuelG * 1000).toFixed(2)),
+    fuelCmd: Number((fuelMassG * 1000).toFixed(2)),
+    // Base fuel schedule: the pulse the ECU would need for lambda 1 on the air it
+    // believes, before targets, corrections and dead time. Nissan logs load as this.
+    bfs: Number(((airChargeBelievedG / ecuFuel.stoich) / ecuGramsPerMs).toFixed(2)),
+    deadTime: Number(deadEcuMs.toFixed(3)),
+    deadTimeActual: Number(deadActualMs.toFixed(3)),
+    railDp: Number((inj?.railDeltaKpa ?? 300).toFixed(0)),
+    // What a wideband in the collector sees: cut cylinders pass their air straight
+    // through, so a fuel cut reads lean even though every firing cylinder is on target.
+    lambdaExhaust: Number((E.cutType === 'fuel' && (E.cutFrac ?? 0) > 0
+      ? lambdaActual / Math.max(0.05, 1 - E.cutFrac) : lambdaActual).toFixed(3)),
+    knockUnheard: Number(Math.max(0, -(margin + knockPull)).toFixed(2)),
+    misfire: Number((ign.misfireFrac * 100).toFixed(1)),
+    cutPct: Number(((E.cutFrac ?? 0) * 100).toFixed(0)),
+    sparkKvNeed: Number(ign.kvNeeded.toFixed(1)),
+    sparkKvHave: Number(ign.kvAvailable.toFixed(1)),
+    camIn: Number((E.cam?.intakeAdvDeg ?? 0).toFixed(1)),
+    camEx: Number((E.cam?.exhaustRetDeg ?? 0).toFixed(1)),
+  } : null;
 
   return {
     rpm, hp: Math.round(hp), torque: Math.round(torque),
@@ -230,5 +402,142 @@ export function evaluatePoint({
     endGasK: Math.round(cycle.peakEndGasK),
     knock: knockPull > 0, knockPull, fuelLimited, leanRisk, richRisk, valveRisk,
     egtRisk, pressureRisk, mafFlag, compressorOver, injMismatch,
+    ...ecuFields,
+    // A supercharger's own readings, only when one is fitted so every other record is
+    // unchanged: rotor or impeller speed, the power the crank spends on it, and how
+    // efficiently it is compressing.
+    // Nitrous, only while it flows: what the jets are passing, what cooled the charge,
+    // and the bottle behind them.
+    ...(n2o ? {
+      nitrousLbMin: Number((nitrous.n2oKgS * 60 / 0.45359237).toFixed(2)),
+      nitrousFuelLbMin: Number(((nitrous.fuelKgS ?? 0) * 60 / 0.45359237).toFixed(2)),
+      nitrousCoolC: Number((chargeK - cylChargeK).toFixed(0)),
+      bottlePsi: Math.round(nitrous.bottlePsi ?? 0),
+      // Share of the shot the controller is passing (a progressive ramp's, or all of it).
+      nitrousPct: Math.round((nitrous.frac ?? 1) * 1000) / 10,
+    } : {}),
+    ...(blower ? {
+      blowerRpm: Math.round(blower.blowerRpm),
+      blowerHp: Number((blower.driveW / 745.7).toFixed(1)),
+      blowerEff: Number((blower.eta * 100).toFixed(0)),
+      blowerOverspeed: blower.overspeed,
+    } : {}),
+  };
+}
+
+/**
+ * Closed-loop trimming with an ECU that has its own trim authority.
+ *
+ * The original model left a flat quarter of any error behind in closed loop. The trims
+ * cannot correct more than their limit, though, so an error bigger than the limit is
+ * left at whatever the limit could not reach — that is when a trim "rails" and the
+ * mixture wanders off target.
+ *
+ * @param {number} netFactor total airflow reading error
+ * @param {boolean} openLoop whether the ECU is ignoring its oxygen sensor here
+ * @param {EcuPointContext} E
+ * @returns {number} factor the commanded lambda is divided by
+ */
+function ecuTrimmedFactor(netFactor, openLoop, E) {
+  const err = netFactor - 1;
+  if (openLoop) return 1 + err;
+  const residual = E.trimResidual ?? 0.25;
+  const limit = (E.trimLimitPct ?? COEFF.TRIM_LIMIT) / 100;
+  const leftAfterLimit = Math.sign(err) * Math.max(0, Math.abs(err) - limit);
+  const left = Math.abs(leftAfterLimit) > Math.abs(err * residual) ? leftAfterLimit : err * residual;
+  return 1 + left;
+}
+
+/**
+ * Injector opening time corrected for the ballistic region. Below about a third of a
+ * millisecond of open time the pintle is still accelerating and never reaches full
+ * lift, so the injector passes proportionally less than its rating says. Above it, flow
+ * is linear in time, which is the only region a flow rating describes.
+ *
+ * @param {number} openMs pulse width minus dead time
+ * @returns {number} equivalent full-flow opening time, ms
+ */
+export function ballisticOpenMs(openMs) {
+  const linearFrom = ECU_COEFF.BALLISTIC_OPEN_MS;
+  if (openMs >= linearFrom) return openMs;
+  if (openMs <= 0) return 0;
+  // Flow ramps up as the needle lifts: quadratic in time, meeting the linear region at
+  // its start. Always less than the rating predicts, which is why a tiny commanded pulse
+  // runs lean and erratic.
+  return (openMs * openMs) / linearFrom;
+}
+
+/**
+ * Where a knock controller settles at one steady operating point.
+ *
+ * An ideal one lands exactly on the knock limit. A real one can only act on knock its
+ * sensor can hear above the engine's mechanical noise — anything quieter than the
+ * threshold is left running (`deadbandDeg` past the limit) — and it retards for noise it
+ * mistakes for knock (`falseRetardDeg`), however far from the limit the engine is.
+ *
+ * @param {number} margin knock limit minus commanded timing, degrees
+ * @param {NonNullable<EcuPointContext['knock']>} K
+ * @returns {number} retard applied, degrees
+ */
+function ecuKnockRetard(margin, K) {
+  const max = K.maxRetardDeg ?? COEFF.MAX_KNOCK_RETARD;
+  if (K.enabled === false) return 0;
+  if (K.retardDeg != null) return clamp(K.retardDeg, 0, max);
+  // Once it hears knock the controller retards in whole steps and creeps back until it
+  // hears it again. So anything it hears costs at least one step — a knock log never
+  // shows a tenth of a degree, it shows the step — and a bigger deficit costs that much.
+  // A deadband narrower than half a step is covered by the step; a wider one leaves the
+  // engine running the difference into knock.
+  const deficit = Math.max(0, -margin);
+  const deadband = K.deadbandDeg ?? 0;
+  const step = K.stepDeg ?? 2;
+  const uncovered = Math.max(0, deadband - step / 2);
+  const heard = deficit > deadband ? Math.max(step, deficit - uncovered) : 0;
+  return clamp(Math.max(heard, K.falseRetardDeg ?? 0), 0, max);
+}
+
+/**
+ * Whether this event lights.
+ *
+ * Two independent ways for a cylinder not to fire. The SPARK: the gap has to break down
+ * before the coil can deliver anything, and the voltage that takes rises with the gas
+ * density at the plug (Paschen) — so boost and advance both ask more of the coil. The
+ * MIXTURE: a flame only crosses a charge within its flammability limits, which residual
+ * gas narrows.
+ *
+ * @param {object} input
+ * @param {ReturnType<typeof cycleInputsFor>} input.cyc
+ * @param {number} input.usedTiming spark advance, degrees BTDC
+ * @param {number} input.lambda delivered lambda
+ * @param {EcuPointContext} input.E
+ * @returns {{misfireFrac: number, kvNeeded: number, kvAvailable: number}}
+ */
+function ignitionState({ cyc, usedTiming, lambda, E }) {
+  const vIvc = cylinderVolumeM3(-180 + cyc.ivcAbdc, cyc.clearanceM3, cyc.sweptM3, cyc.rodRatio);
+  const vSpark = cylinderVolumeM3(-usedTiming, cyc.clearanceM3, cyc.sweptM3, cyc.rodRatio);
+  // Polytropic compression from IVC to the spark, on the charge's own pressure.
+  const pSparkBar = (cyc.trappedPa * Math.pow(vIvc / Math.max(vSpark, 1e-9), ECU_COEFF.SPARK_POLYTROPIC_N)) / 1e5;
+  // Paschen's law for a small gap at engine densities: breakdown voltage grows with
+  // pressure times gap, a little less than linearly. The density scales with charge
+  // temperature too, which is folded into pressure at the plug here.
+  const gap = E.spark?.gapMm ?? 1.0;
+  const kvNeeded = ECU_COEFF.SPARK_BASE_KV
+    + ECU_COEFF.SPARK_KV_PER_MM * gap * Math.pow(Math.max(pSparkBar, ECU_COEFF.SPARK_MIN_BAR), ECU_COEFF.SPARK_PRESSURE_EXP);
+  const kvAvailable = E.spark?.kvAvailable ?? ECU_COEFF.SPARK_DEFAULT_KV;
+  // Breakdown is statistical: within a couple of kV of the coil's ceiling some events
+  // make it across the gap and some do not.
+  const sparkMiss = clamp((kvNeeded - kvAvailable) / ECU_COEFF.SPARK_SPREAD_KV + 0.5, 0, 1);
+  // Flammability: a flame will not propagate through a mixture much leaner than about
+  // lambda 1.6 or richer than about 0.45, and residual gas narrows the band — mostly
+  // from the lean side, where there is already too little heat release to spare.
+  const r = cyc.residualFrac;
+  const leanLimit = ECU_COEFF.FLAME_LEAN_LIMIT - ECU_COEFF.FLAME_LEAN_PER_RESIDUAL * r;
+  const richLimit = ECU_COEFF.FLAME_RICH_LIMIT + ECU_COEFF.FLAME_RICH_PER_RESIDUAL * r;
+  const mixMiss = lambda > leanLimit ? clamp((lambda - leanLimit) / ECU_COEFF.FLAME_LEAN_SPREAD, 0, 1)
+    : lambda < richLimit ? clamp((richLimit - lambda) / ECU_COEFF.FLAME_RICH_SPREAD, 0, 1) : 0;
+  return {
+    misfireFrac: clamp(1 - (1 - sparkMiss) * (1 - mixMiss), 0, 1),
+    kvNeeded,
+    kvAvailable,
   };
 }

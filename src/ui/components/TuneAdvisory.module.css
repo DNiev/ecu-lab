@@ -115,3 +115,6 @@
   color: var(--ink3);
   text-align: center;
 }
+
+/* VE: one cell's correction, worked through. */
+.veMath { margin-top: 8px; }

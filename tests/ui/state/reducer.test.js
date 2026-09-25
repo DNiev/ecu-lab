@@ -510,7 +510,7 @@ describe('APPLY_PRESET — exact write surface (catches drift in both directions
   // contract this action documents: a stray write grows the changed set past 21, a
   // dropped write shrinks it below 21, and the failure message names the field either
   // way.
-  it('changes exactly the 21 documented fields, plus the two history fields', () => {
+  it('changes exactly the 25 documented fields, plus the two history fields', () => {
     const before = makeSentinelState();
     const after = reducer(before, { type: ACTIONS.APPLY_PRESET, preset: N54_PRESET });
     const changed = changedFieldKeys(before, after);
@@ -520,7 +520,11 @@ describe('APPLY_PRESET — exact write surface (catches drift in both directions
       'build.turbineIdx', 'build.turbineCount', 'build.compressorIdx', 'build.injIdx',
       'build.ecuInjectorCc', 'build.octaneIdx', 'build.exhaustDiaIdx', 'build.mafScalar',
       'build.presetId', 'build.presetPrompt',
+      // A factory car: no supercharger or nitrous carried over from the previous build.
+      'build.blowerId', 'build.nitrous',
       'tune.ve', 'tune.timing', 'tune.afr', 'tune.tablesDirty', 'tune.selection',
+      // A new engine's ROM: every map slot back to the factory calibration.
+      'tune.maps', 'tune.activeMap',
       'session.result', 'session.pullScores',
       // APPLY_PRESET is undoable, so it records a snapshot in the same pass. These two
       // belong in the exact-write-surface contract like any other field it touches.
@@ -1579,14 +1583,14 @@ describe('snapshot field coverage', () => {
   // module iterates over would let a key deleted from both the list AND this
   // expectation pass vacuously. That is exactly the vulnerability a reviewer found —
   // cutting BUILD_KEYS to 3 entries and TUNE_KEYS to 2 left all 871 tests green.
-  it('snapshots exactly the documented 13 build and 4 tune fields', () => {
+  it('snapshots exactly the documented 19 build and 7 tune fields', () => {
     const snap = snapshot(makeInitialState());
     expect(Object.keys(snap.build).sort()).toEqual([
-      'boostCurve', 'compressorIdx', 'ecuInjectorCc', 'engineConfig', 'exhaustDiaIdx',
-      'injIdx', 'mafScalar', 'mods', 'octaneIdx', 'presetId', 'turbineCount',
-      'turbineIdx', 'turboOn',
+      'boostCurve', 'coil', 'compressorIdx', 'ecuInjectorCc', 'engineConfig', 'ethanolPct',
+      'exhaustDiaIdx', 'fuelSystem', 'injIdx', 'mafScalar', 'mods', 'octaneIdx', 'plugGapMm',
+      'presetId', 'sensorHw', 'turbineCount', 'turbineIdx', 'turboOn', 'wastegate',
     ]);
-    expect(Object.keys(snap.tune).sort()).toEqual(['afr', 'tablesDirty', 'timing', 've']);
+    expect(Object.keys(snap.tune).sort()).toEqual(['activeMap', 'afr', 'ecu', 'maps', 'tablesDirty', 'timing', 've']);
   });
 
   // Every field below is seeded to a value that differs from BOTH its

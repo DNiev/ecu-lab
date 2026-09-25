@@ -122,6 +122,7 @@ function compressionDeduction(compression, headroom) {
  * @param {object} input
  * @param {import('./engine.js').EngineConfig} input.engineConfig
  * @param {boolean} input.turboOn
+ * @param {boolean} [input.supercharged] a supercharger makes the boost instead of a turbo
  * @param {number} input.peakBoostPsi peak boost across the curve, psi. Gates the
  *   static-compression-under-boost rule so it never fires on a boosted build making no
  *   boost — see COEFF.COMPRESSION_BOOST_BASE for why the headroom itself does not also
@@ -137,11 +138,14 @@ function compressionDeduction(compression, headroom) {
  */
 export function computeEngineerScore({
   engineConfig, turboOn, peakBoostPsi, turbine, compressor, exhaustDiaError, dutyPreview,
-  displacementL, fuel, mods,
+  displacementL, fuel, mods, supercharged = false,
 }) {
   let score = 100;
   const deductions = [];
-  if (turboOn && peakBoostPsi > 0) {
+  // Compression against boost is the same question whatever makes the boost: a
+  // supercharged engine is judged by the boosted rule, and only the turbo-sizing rules
+  // below stay the turbo's.
+  if ((turboOn || supercharged) && peakBoostPsi > 0) {
     // Gated on actually making boost, not just having the hardware fitted: a turbo kit
     // with the boost curve zeroed out (reachable from the UI's "ZERO" button) has no
     // boosted cylinder pressure for static compression to fight, and `chargeTempK`
@@ -198,7 +202,7 @@ export function computeEngineerScore({
         + `on ${fuel.label} with ${cooling} — ${levers.join(', ')} would buy it back`);
     }
   }
-  if (!turboOn) {
+  if (!turboOn && !supercharged) {
     // The naturally-aspirated branch used to fire only BELOW 9.0:1, so a turbo build at
     // 10.9:1 on 91 was charged a point while an NA build at 13.0:1 on the same fuel —
     // reachable on the same slider — was charged nothing (issue #27). Both ends of the
