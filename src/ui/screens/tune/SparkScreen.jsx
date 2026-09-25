@@ -42,17 +42,19 @@ import styles from './SparkScreen.module.css';
  */
 export function SparkScreen({ calAdvice }) {
   const [tune, dispatch] = useTune();
-  const { timing, selection, rangeMode } = tune;
+  const { timing, selection, rangeMode, baseline, diffView } = tune;
   /** @param {Selection|null} value */
   const setSelection = (value) => dispatch({ type: ACTIONS.SET_TUNE_FIELD, field: 'selection', value });
-  /** @param {boolean} value */
   /**
    * One table write, one undo step — shared by the grid's +/- keys and the dock.
    * @param {number[][]} value
    * @param {string} [label]
    */
   const setTable = (value, label) => dispatch({ type: ACTIONS.SET_TABLE, table: 'timing', value, label });
+  /** @param {boolean} value */
   const setRangeMode = (value) => dispatch({ type: ACTIONS.SET_TUNE_FIELD, field: 'rangeMode', value });
+  /** @param {boolean} value */
+  const setDiffView = (value) => dispatch({ type: ACTIONS.SET_TUNE_FIELD, field: 'diffView', value });
   // A handful of `.some()` scans over at most 96 cells, no allocation in the
   // hot path — plainly on every render, not memoised.
   const report = sparkReport(calAdvice, selection);
@@ -66,8 +68,8 @@ export function SparkScreen({ calAdvice }) {
             <UndoControls />
           </div>
           <div className={styles.intro}>Degrees of spark advance before top dead center (° BTDC).</div>
-          <SelectModeBar rangeMode={rangeMode} setRangeMode={setRangeMode} setSelection={setSelection} />
-          <TuningGrid data={timing} min={SPARK_MIN_DEG} max={SPARK_MAX_DEG} decimals={0} selection={selection} setSelection={setSelection} rangeMode={rangeMode} setData={setTable} />
+          <SelectModeBar rangeMode={rangeMode} setRangeMode={setRangeMode} setSelection={setSelection} diffView={diffView} setDiffView={setDiffView} />
+          <TuningGrid data={timing} min={SPARK_MIN_DEG} max={SPARK_MAX_DEG} decimals={0} selection={selection} setSelection={setSelection} rangeMode={rangeMode} setData={setTable} baseline={baseline.timing} diffView={diffView} diffScale={6} />
 
           <ExpandableInfo title="Why the app never rewrites your spark or fuel tables">
             The VE table auto-syncs because volumetric efficiency is a <b className={styles.emInk}>measurement of the hardware</b> — swap a cam and a tuner simply re-logs airflow, and the numbers are what they are.

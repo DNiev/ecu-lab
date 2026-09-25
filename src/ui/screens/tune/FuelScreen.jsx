@@ -33,17 +33,19 @@ import styles from './FuelScreen.module.css';
  */
 export function FuelScreen({ calAdvice }) {
   const [tune, dispatch] = useTune();
-  const { afr, selection, rangeMode } = tune;
+  const { afr, selection, rangeMode, baseline, diffView } = tune;
   /** @param {Selection|null} value */
   const setSelection = (value) => dispatch({ type: ACTIONS.SET_TUNE_FIELD, field: 'selection', value });
-  /** @param {boolean} value */
   /**
    * One table write, one undo step — shared by the grid's +/- keys and the dock.
    * @param {number[][]} value
    * @param {string} [label]
    */
   const setTable = (value, label) => dispatch({ type: ACTIONS.SET_TABLE, table: 'afr', value, label });
+  /** @param {boolean} value */
   const setRangeMode = (value) => dispatch({ type: ACTIONS.SET_TUNE_FIELD, field: 'rangeMode', value });
+  /** @param {boolean} value */
+  const setDiffView = (value) => dispatch({ type: ACTIONS.SET_TUNE_FIELD, field: 'diffView', value });
   // A handful of `.some()` scans over at most 96 cells, no allocation in the
   // hot path — plainly on every render, not memoised.
   const report = fuelReport(calAdvice, selection);
@@ -57,8 +59,8 @@ export function FuelScreen({ calAdvice }) {
             <UndoControls />
           </div>
           <div className={styles.intro}>Target air:fuel ratio the ECU aims for. Divide by 14.7 to read it as lambda.</div>
-          <SelectModeBar rangeMode={rangeMode} setRangeMode={setRangeMode} setSelection={setSelection} />
-          <TuningGrid data={afr} min={10} max={18} decimals={1} selection={selection} setSelection={setSelection} rangeMode={rangeMode} setData={setTable} />
+          <SelectModeBar rangeMode={rangeMode} setRangeMode={setRangeMode} setSelection={setSelection} diffView={diffView} setDiffView={setDiffView} />
+          <TuningGrid data={afr} min={10} max={18} decimals={1} selection={selection} setSelection={setSelection} rangeMode={rangeMode} setData={setTable} baseline={baseline.afr} diffView={diffView} diffScale={1} />
 
           <ExpandableInfo title="Why AFR trades power for safety">
             14.7:1 is stoichiometric — burns all the fuel and oxygen with nothing left over, great for emissions and cruise. Peak power sits richer, because the extra fuel absorbs heat as it vaporizes, cooling combustion enough to make more power before knock becomes the limit. Go leaner than that under load and you lose power and raise both knock risk and exhaust gas temperature at once — which is why lean-under-boost is especially dangerous to valves and pistons.
