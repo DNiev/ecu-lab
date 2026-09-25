@@ -91,7 +91,7 @@ export function AirflowScreen({ veAdvice, veTruth }) {
         </AdvisorPanel>
       </div>
       <div className={styles.spacer} />
-      <SelectionDock data={ve} setData={setTable} selection={selection} min={10} max={130} decimals={0} unit="%" onClose={() => setSelection(null)} kind="ve" />
+      <SelectionDock data={ve} setData={setTable} selection={selection} min={10} max={130} decimals={0} unit="%" onClose={() => setSelection(null)} kind="ve" baseline={baseline.ve} />
     </>
   );
 }

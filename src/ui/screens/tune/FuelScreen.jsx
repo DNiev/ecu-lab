@@ -74,7 +74,7 @@ export function FuelScreen({ calAdvice }) {
         </AdvisorPanel>
       </div>
       <div className={styles.spacer} />
-      <SelectionDock data={afr} setData={setTable} selection={selection} min={10} max={18} decimals={1} unit=":1" onClose={() => setSelection(null)} kind="afr" />
+      <SelectionDock data={afr} setData={setTable} selection={selection} min={10} max={18} decimals={1} unit=":1" onClose={() => setSelection(null)} kind="afr" baseline={baseline.afr} />
     </>
   );
 }

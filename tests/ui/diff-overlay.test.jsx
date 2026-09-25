@@ -99,3 +99,53 @@ describe('the CHANGES view', () => {
     expect(store.tune.selection).toEqual({ type: 'cell', row: 1, col: 1 });
   });
 });
+
+const dock = () => screen.getByTestId('selection-dock');
+const revertButton = () => within(dock()).queryByRole('button', { name: 'REVERT' });
+
+describe('REVERT and the changed count', () => {
+  it('is hidden, and the title unchanged, when nothing differs', () => {
+    mountAir();
+    select({ type: 'range', r1: 0, c1: 0, r2: 1, c2: 1 });
+    expect(revertButton()).toBeNull();
+    expect(within(dock()).getByText('Range · 800–1500 RPM × 150–200 kPa · 4 cells')).toBeTruthy();
+  });
+
+  it('titles a changed cell with what it was', () => {
+    mountAir();
+    const v0 = store.tune.ve[1][1];
+    writeVe((v, ri, ci) => (ri === 1 && ci === 1 ? v - 5 : v));
+    select({ type: 'cell', row: 1, col: 1 });
+    expect(within(dock()).getByText(`1500 RPM · 150 kPa MAP · was ${Math.round(v0)}`)).toBeTruthy();
+    expect(revertButton()).toBeTruthy();
+  });
+
+  it('counts the changed cells in a range', () => {
+    mountAir();
+    writeVe((v, ri, ci) => (ri === 0 && ci <= 1 ? v - 5 : v));
+    select({ type: 'range', r1: 0, c1: 0, r2: 1, c2: 1 });
+    expect(within(dock()).getByText('Range · 800–1500 RPM × 150–200 kPa · 4 cells · 2 changed')).toBeTruthy();
+  });
+
+  it('puts the changed cells back in one undo step, counting only those', () => {
+    mountAir();
+    const before = store.tune.ve.map((r) => [...r]);
+    writeVe((v, ri, ci) => (ri === 0 && ci <= 1 ? v - 5 : v));
+    select({ type: 'range', r1: 0, c1: 0, r2: 1, c2: 1 });
+    fireEvent.click(revertButton());
+    expect(store.tune.ve).toEqual(before);
+    expect(store.history.past).toHaveLength(2);
+    expect(store.history.past.at(-1).label).toBe('VE edit · revert · 2 cells');
+    expect(revertButton()).toBeNull();
+  });
+
+  it('reverts a single cell', () => {
+    mountAir();
+    const v0 = store.tune.ve[1][1];
+    writeVe((v, ri, ci) => (ri === 1 && ci === 1 ? v - 5 : v));
+    select({ type: 'cell', row: 1, col: 1 });
+    fireEvent.click(revertButton());
+    expect(store.tune.ve[1][1]).toBe(v0);
+    expect(store.history.past.at(-1).label).toBe('VE edit · revert · 1 cell');
+  });
+});

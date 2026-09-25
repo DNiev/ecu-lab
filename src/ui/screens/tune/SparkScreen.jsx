@@ -87,7 +87,7 @@ export function SparkScreen({ calAdvice }) {
         </AdvisorPanel>
       </div>
       <div className={styles.spacer} />
-      <SelectionDock data={timing} setData={setTable} selection={selection} min={SPARK_MIN_DEG} max={SPARK_MAX_DEG} decimals={0} unit="°" onClose={() => setSelection(null)} kind="timing" />
+      <SelectionDock data={timing} setData={setTable} selection={selection} min={SPARK_MIN_DEG} max={SPARK_MAX_DEG} decimals={0} unit="°" onClose={() => setSelection(null)} kind="timing" baseline={baseline.timing} />
     </>
   );
 }
