@@ -2,7 +2,8 @@
  * The sticky editor for whatever `TuningGrid` selection is active: a cell, a row,
  * a column or a range. Shows the current value (the mean, for more than one cell), a
  * reference blurb for a single selected cell, a slider, and ADD / SCALE / SET steppers,
- * plus INTERPOLATE and SMOOTH once the selection covers more than one cell.
+ * plus INTERPOLATE and SMOOTH once the selection covers more than one cell, and REVERT
+ * once any of it differs from the calibration as loaded (issue 106).
  *
  * Every edit is one call to `setData(next, label)`: one table write, one undo step, and
  * a label saying what it did. The maths is `src/sim/tables.js`'s; this only picks the
@@ -17,13 +18,15 @@
 
 import React from 'react';
 
-import { LOAD, RPM, addRect, interpolateRect, scaleRect, setRect, smoothRect } from '../../sim/index.js';
+import {
+  LOAD, RPM, addRect, changedIn, interpolateRect, revertRect, scaleRect, setRect, smoothRect,
+} from '../../sim/index.js';
 import { Button } from '../primitives/Button.jsx';
 import { Panel } from '../primitives/Panel.jsx';
 import { Seg } from '../primitives/Seg.jsx';
 import { T, shadowAlpha } from '../theme.js';
 
-import { cellCount, opLabel, rectOf, selectionKey, signed, stepsFor } from './selection.js';
+import { cellCount, countLabel, opLabel, rectOf, selectionKey, signed, stepsFor } from './selection.js';
 
 /** @typedef {import('./selection.js').Selection} Selection */
 
@@ -94,9 +97,11 @@ const COMMIT_KEYS = new Set([
  * @param {string} props.unit
  * @param {() => void} props.onClose
  * @param {'ve'|'timing'|'afr'} props.kind
+ * @param {number[][]} [props.baseline] the table as loaded — what REVERT puts back and
+ *   the title's "was"/"changed" compare against. Without it, neither appears
  * @returns {React.ReactElement|null}
  */
-export function SelectionDock({ data, setData, selection, min, max, decimals, unit, onClose, kind }) {
+export function SelectionDock({ data, setData, selection, min, max, decimals, unit, onClose, kind, baseline }) {
   // The slider's in-flight value. React maps onChange on a range input to the `input`
   // event, so a drag fires it continuously; committing each one would turn a single
   // drag into eighteen undo steps. The draft holds the value while the finger is down
@@ -144,6 +149,7 @@ export function SelectionDock({ data, setData, selection, min, max, decimals, un
   let sum = 0;
   for (let r = rect.r1; r <= rect.r2; r++) for (let c = rect.c1; c <= rect.c2; c++) sum += data[r][c];
   const current = sum / count;
+  const changed = baseline ? changedIn(data, baseline, rect) : 0;
 
   /**
    * Every edit the dock makes goes through here: one table write, one undo step.
@@ -166,6 +172,12 @@ export function SelectionDock({ data, setData, selection, min, max, decimals, un
     if (setText.trim() === '' || !Number.isFinite(v)) return;
     setAbs(v);
     setSetText('');
+  };
+  // Its own label rather than `write`'s: the count is the cells that moved back, not the
+  // selection's size — reverting a 12-cell range with 3 edits in it is "3 cells".
+  const revert = () => {
+    setDraft(null);
+    setData(revertRect(data, rect, baseline), countLabel('revert', changed));
   };
   // What the slider and the big readout show: the finger's position while dragging,
   // the table's committed value otherwise.
@@ -203,6 +215,10 @@ export function SelectionDock({ data, setData, selection, min, max, decimals, un
   else if (selection.type === 'range') {
     sel = `Range · ${span(RPM[rect.c1], RPM[rect.c2])} RPM × ${span(LOAD[rect.r2], LOAD[rect.r1])} kPa · ${count} ${count === 1 ? 'cell' : 'cells'}`;
   } else sel = `${RPM[selection.col]} RPM · ${LOAD[selection.row]} kPa MAP`;
+  if (changed && count === 1) {
+    const was = baseline[rect.r1][rect.c1];
+    sel += ` · was ${decimals ? was.toFixed(decimals) : Math.round(was)}`;
+  } else if (changed) sel += ` · ${changed} changed`;
 
   return (
     <div data-testid="selection-dock" style={{ position: 'sticky', bottom: 0, background: T.panel, borderTop: `1px solid ${T.line}`, padding: '11px 14px 13px', boxShadow: `0 -8px 20px ${shadowAlpha(0.45)}` }}>
@@ -268,10 +284,11 @@ export function SelectionDock({ data, setData, selection, min, max, decimals, un
           ))}
         </div>
       )}
-      {count > 1 && (
+      {(count > 1 || changed > 0) && (
         <div style={{ display: 'flex', gap: 7, marginTop: 9 }}>
-          <Button variant="ghost" size="sm" onClick={() => write(interpolateRect(data, rect, bounds), 'interpolate')}>INTERPOLATE</Button>
-          <Button variant="ghost" size="sm" onClick={() => write(smoothRect(data, rect, bounds), 'smooth')}>SMOOTH</Button>
+          {count > 1 && <Button variant="ghost" size="sm" onClick={() => write(interpolateRect(data, rect, bounds), 'interpolate')}>INTERPOLATE</Button>}
+          {count > 1 && <Button variant="ghost" size="sm" onClick={() => write(smoothRect(data, rect, bounds), 'smooth')}>SMOOTH</Button>}
+          {changed > 0 && <Button variant="ghost" size="sm" onClick={revert}>REVERT</Button>}
         </div>
       )}
     </div>

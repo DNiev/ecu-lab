@@ -12,7 +12,7 @@ import { URL as NodeURL } from 'node:url';
 import { describe, expect, it } from 'vitest';
 
 import { tokens } from '../src/ui/tokens.js';
-import { T, heat, statusColor, statusTone, utilisationColor, utilisationTone } from '../src/ui/theme.js';
+import { T, diffTint, heat, statusColor, statusTone, utilisationColor, utilisationTone } from '../src/ui/theme.js';
 
 describe('T', () => {
   it('exposes every key the existing screens read', () => {
@@ -196,5 +196,39 @@ describe('utilisationTone', () => {
 
   it('returns exactly the three utilisation names', () => {
     expect(new Set([50, 80, 95].map(utilisationTone))).toEqual(new Set(['ok', 'warn', 'danger']));
+  });
+});
+
+describe('diffTint', () => {
+  const hueOf = (s) => Number(/^hsl\((\d+)/.exec(s)[1]);
+  const lightOf = (s) => Number(/(\d+)%\)$/.exec(s)[1]);
+  /** Hue in degrees of a #rrggbb token. */
+  function hexHue(hex) {
+    const [r, g, b] = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255);
+    const max = Math.max(r, g, b), d = max - Math.min(r, g, b);
+    if (d === 0) return 0;
+    const h = max === r ? ((g - b) / d) % 6 : max === g ? (b - r) / d + 2 : (r - g) / d + 4;
+    return (h * 60 + 360) % 360;
+  }
+  const hueGap = (a, b) => Math.min(Math.abs(a - b), 360 - Math.abs(a - b));
+
+  it('is violet for an increase and cyan for a decrease', () => {
+    expect(hueGap(hueOf(diffTint(2, 10)), hexHue(tokens.violet))).toBeLessThan(3);
+    expect(hueGap(hueOf(diffTint(-2, 10)), hexHue(tokens.cyan))).toBeLessThan(3);
+  });
+  it('brightens with magnitude and stops at full scale', () => {
+    expect(lightOf(diffTint(1, 10))).toBeLessThan(lightOf(diffTint(5, 10)));
+    expect(diffTint(10, 10)).toBe(diffTint(40, 10));
+    expect(diffTint(-6, 6)).toBe(diffTint(-60, 6));
+  });
+  it('gives the smallest change a visible floor', () => {
+    expect(lightOf(diffTint(0.01, 10))).toBeGreaterThanOrEqual(20);
+  });
+  it('is never a status colour or the accent', () => {
+    for (const d of [2, -2]) {
+      for (const key of ['ok', 'warn', 'danger', 'acc']) {
+        expect(hueGap(hueOf(diffTint(d, 10)), hexHue(tokens[key])), `${d} vs ${key}`).toBeGreaterThanOrEqual(20);
+      }
+    }
   });
 });

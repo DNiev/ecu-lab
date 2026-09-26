@@ -10,6 +10,10 @@
  * Focused, it also takes the keyboard: arrows move, Shift+arrows grow a range from the
  * anchor, `+`/`-` nudge the selection (Shift for the coarse step), Esc clears.
  *
+ * In the CHANGES view (`SelectModeBar`) each cell shows its change from `baseline` —
+ * the calibration as it was loaded — tinted violet up and cyan down. Only the drawing
+ * changes: selection, keys and the dock still work on the real values.
+ *
  * Shared by TUNE's AIR, SPARK and FUEL screens — the ECU screen uses neither this
  * nor `SelectionDock`, which is why both live here rather than beside any one
  * screen. See this folder's README for what that distinction means.
@@ -20,10 +24,10 @@
 
 import React from 'react';
 
-import { LOAD, RPM, addRect } from '../../sim/index.js';
-import { T, heat, shadowAlpha } from '../theme.js';
+import { LOAD, RPM, addRect, diffTable } from '../../sim/index.js';
+import { T, diffTint, heat, shadowAlpha } from '../theme.js';
 
-import { anchorOf, inRect, opLabel, rectOf, signed, spanSelection, stepsFor } from './selection.js';
+import { anchorOf, formatDelta, inRect, opLabel, rectOf, signed, spanSelection, stepsFor } from './selection.js';
 
 /** @typedef {import('./selection.js').Selection} Selection */
 
@@ -55,10 +59,16 @@ const clampC = (c) => Math.min(Math.max(c, 0), RPM.length - 1);
  *   touch path) rather than selecting one cell
  * @param {(next: number[][], label: string) => void} [props.setData] one table write,
  *   one undo step — what `+`/`-` call. Without it the keys only move the selection.
+ * @param {number[][]} [props.baseline] the table as loaded; without it there is no
+ *   CHANGES view to draw
+ * @param {boolean} [props.diffView] draw each cell's change from `baseline`
+ * @param {number} [props.diffScale] the change at which the tint stops brightening
  * @returns {React.ReactElement}
  */
-export function TuningGrid({ data, min, max, decimals, selection, setSelection, rangeMode = false, setData }) {
+export function TuningGrid({ data, min, max, decimals, selection, setSelection, rangeMode = false, setData, baseline, diffView = false, diffScale = 1 }) {
   const fmt = (v) => (decimals ? v.toFixed(decimals) : Math.round(v));
+  // 96 subtractions, on renders that already walk every cell — not memoised.
+  const diff = diffView && baseline ? diffTable(data, baseline) : null;
   const rect = selection ? rectOf(selection) : null;
   const anchor = selection ? anchorOf(selection) : null;
   // The anchor of a mouse drag in progress, or null. A ref, not state: it changes on
@@ -199,12 +209,13 @@ export function TuningGrid({ data, min, max, decimals, selection, setSelection, 
                 style={{
                   width: 51, height: 37, flexShrink: 0,
                   border: isAnchor(ri, ci) ? `2px solid ${T.acc}` : isSelected(ri, ci) ? `2px solid ${T.ink}` : `1px solid ${shadowAlpha(0.35)}`,
-                  background: heat(val, min, max), color: T.ink,
+                  background: !diff ? heat(val, min, max) : diff[ri][ci] === 0 ? T.panel2 : diffTint(diff[ri][ci], diffScale),
+                  color: diff && diff[ri][ci] === 0 ? T.ink3 : T.ink,
                   fontFamily: T.mono, fontSize: 12, fontWeight: 700,
                   // A mouse drag across cells must not start a text selection.
                   userSelect: 'none',
                 }}
-              >{fmt(val)}</button>
+              >{diff ? formatDelta(diff[ri][ci], decimals) : fmt(val)}</button>
             ))}
           </div>
         ))}

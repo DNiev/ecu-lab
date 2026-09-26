@@ -68,8 +68,12 @@ const BUILD_KEYS = [
  * cursors" reason `presetPrompt` is absent from BUILD_KEYS above: it is a cursor, not
  * calibration. Restoring it would make undo move the player's highlight around, and the
  * grid's dimensions never change, so a selection is always still valid after a restore.
+ *
+ * `baseline` IS here, though no edit writes it: APPLY_PRESET and RESET_TO_STOCK do, and
+ * undoing either must put back the baseline that went with the tables it restores, or
+ * the CHANGES view would compare the old tables against the new calibration.
  */
-const TUNE_KEYS = ['ve', 'timing', 'afr', 'tablesDirty'];
+const TUNE_KEYS = ['ve', 'timing', 'afr', 'tablesDirty', 'baseline'];
 
 /**
  * Does a write to `tune.<field>` touch something a snapshot carries?
@@ -103,7 +107,7 @@ export function snapshot(state) {
 }
 
 /**
- * Puts back EVERY snapshotted field — all thirteen build fields and all four tune
+ * Puts back EVERY snapshotted field — all thirteen build fields and all five tune
  * fields. The scope for an action that replaces the whole calibration and the
  * hardware under it: APPLY_PRESET and RESET_TO_STOCK. Undoing a preset load
  * genuinely means "return to the state before it", so anything the player changed
@@ -112,7 +116,7 @@ export function snapshot(state) {
 export const RESTORE_ALL = 'all';
 
 /**
- * Puts back the four tune fields and `build.presetId` ONLY, leaving the other twelve
+ * Puts back the five tune fields and `build.presetId` ONLY, leaving the other twelve
  * build fields exactly as they are. The scope for SET_TABLE, whose entire build-side
  * write IS `presetId` (a hand edit disowns the preset). Restoring more than that is
  * how a VE edit's undo used to remove a turbo fitted after it.
@@ -136,7 +140,7 @@ export const RESTORE_CALIBRATION = 'calibration';
  */
 export function restore(state, before, scope) {
   // The tune side is the same under both scopes: SET_TABLE writes a table and
-  // `tablesDirty`, APPLY_PRESET/RESET_TO_STOCK write all four, and putting back a
+  // `tablesDirty`, APPLY_PRESET/RESET_TO_STOCK write all five, and putting back a
   // table the action never touched is a no-op because the snapshot holds the value
   // that is already there.
   const tune = { ...state.tune, ...before.tune };

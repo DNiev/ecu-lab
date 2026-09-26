@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import {
-  addRect, interpolateRect, orderRect, scaleRect, setRect, smoothRect,
+  addRect, changedIn, diffTable, interpolateRect, orderRect, revertRect, scaleRect, setRect, smoothRect,
 } from '../src/sim/tables.js';
 
 const B = { min: 0, max: 100 };
@@ -112,5 +112,43 @@ describe('smoothRect', () => {
     const t = [[0, 0, 0], [0, 90, 0], [0, 0, 0]];
     const out = smoothRect(t, { r1: 1, c1: 1, r2: 1, c2: 1 }, B);
     expect(out[0]).toEqual([0, 0, 0]);
+  });
+});
+
+describe('diffTable', () => {
+  it('is the signed per-cell change, rounded to 2 dp', () => {
+    expect(diffTable([[10.1, 20], [30, 40]], [[10, 20.5], [30, 40]])).toEqual([[0.1, -0.5], [0, 0]]);
+  });
+  it('reads a difference below storage precision as no change, and never as -0', () => {
+    expect(diffTable([[10.001]], [[10]])).toEqual([[0]]);
+    expect(Object.is(diffTable([[9.999]], [[10]])[0][0], 0)).toBe(true);
+  });
+});
+
+describe('revertRect', () => {
+  it('copies only the cells inside the rectangle back from the baseline', () => {
+    const edited = addRect(grid(), all, -5, B);
+    expect(revertRect(edited, { r1: 1, c1: 2, r2: 0, c2: 1 }, grid())).toEqual([
+      [5, 20, 30, 35],
+      [45, 60, 70, 75],
+      [85, 90, 94, 95],
+    ]);
+  });
+  it('does not mutate its input', () => {
+    const edited = addRect(grid(), all, -5, B);
+    const copy = edited.map((r) => [...r]);
+    revertRect(edited, all, grid());
+    expect(edited).toEqual(copy);
+  });
+});
+
+describe('changedIn', () => {
+  const edited = addRect(grid(), { r1: 0, c1: 0, r2: 0, c2: 1 }, 5, B);
+  it('counts the cells in the rectangle that differ from the baseline', () => {
+    expect(changedIn(edited, grid(), all)).toBe(2);
+    expect(changedIn(edited, grid(), { r1: 2, c1: 3, r2: 0, c2: 1 })).toBe(1);
+  });
+  it('is 0 where nothing moved', () => {
+    expect(changedIn(edited, grid(), { r1: 1, c1: 1, r2: 1, c2: 1 })).toBe(0);
   });
 });
