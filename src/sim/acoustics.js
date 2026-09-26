@@ -18,18 +18,24 @@
  * before the piston starts pushing, and that pulse runs down a system of pipes that
  * reflect, delay and filter it. The note is what comes out of the tailpipe.
  *
- * So this module describes the engine and the pipes, and `src/ui/audio/exhaustProcessor.js`
- * runs a one-dimensional wave model of them at audio rate:
+ * So this module describes the engine and the pipes, and `src/ui/audio/pulseExhaust.js`
+ * turns that description into sound — every firing event computed here, at the crank
+ * angles below, played through the exhaust system computed here:
  *
  *   RHYTHM       which crank angle each cylinder fires at and which collector it fires
  *                into — the whole of the cross-plane V8 rumble: `firingEvents`.
  *   EXCITATION   the cylinder pressure at the moment the valve opens, from the cycle's
  *                own peak pressure: `evoPressureKpa`, via `acousticDrive`.
+ *   EACH EVENT   the gas leaving through the valve, sample by sample — blowdown, then the
+ *                piston's push: `exhaustEvent` — and how it steepens on its way down the
+ *                primary: `steepenPulse`.
  *   THE PIPES    every length, area and gas temperature the wave model is built from:
- *                `exhaustGeometry`. The speed of sound in them follows EGT, so the whole
- *                system retunes as the engine heats.
- *   UNEVENNESS   cycle-to-cycle combustion variation, which is what a lopey idle is:
- *                `cyclicVariation`.
+ *                `exhaustGeometry`, each cylinder's own run to its collector,
+ *                `primaryLengthsM`, and what the whole system does to a pulse,
+ *                `exhaustImpulseResponse`. The speed of sound in them follows EGT, so the
+ *                whole system retunes as the engine heats.
+ *   UNEVENNESS   cycle-to-cycle combustion variation, which every engine has a little of
+ *                (`combustionScatter`) and a lopey idle has a lot of (`cyclicVariation`).
  *
  * The turbocharger is treated the same way: shaft speed comes from the compressor work
  * needed for the boost being made, and the whistle is that shaft speed — not a number
@@ -75,7 +81,7 @@ export const ACOUSTIC = {
   // measures, because the gas just outside the mouth moves with the column.
   PIPE_END_CORRECTION: 0.6,
 
-  // --- Waveguide geometry ---
+  // --- Exhaust system geometry, for `exhaustImpulseResponse` ---
   // The exhaust is modelled as what it is: tubes carrying pressure waves that reflect off
   // every area change. These are the dimensions that model needs, and each one is a real
   // measurable part rather than a filter setting.
@@ -160,12 +166,13 @@ export const ACOUSTIC = {
   // 0.36 of the bore and its curtain area at full lift is roughly 0.8 of its own disc,
   // which lands here.
   EXHAUST_FLOW_AREA_FRAC: 0.13,
-  // Cylinder pressure at exhaust valve opening with no combustion at all: the floor the
-  // waveguide's valve sees on a closed throttle. A motored cylinder starting from about
-  // 20 kPa at intake valve close comes back down to roughly half an atmosphere by the time
-  // the crank is 130 degrees past top dead centre, so the exhaust pipe is HIGHER than the
-  // cylinder and the first thing that happens when the valve opens is that gas goes the
-  // wrong way. That is what an overrun is, and it is why it is quiet.
+  // Cylinder pressure at exhaust valve opening with no combustion at all: the floor each
+  // exhaust event (`exhaustEvent`) opens its valve from on a closed throttle. A motored
+  // cylinder starting from about 20 kPa at intake valve close comes back down to roughly
+  // half an atmosphere by the time the crank is 130 degrees past top dead centre, so the
+  // exhaust pipe is HIGHER than the cylinder and the first thing that happens when the
+  // valve opens is that gas goes the wrong way. That is what an overrun is, and it is why
+  // it is quiet.
   MOTORED_EVO_KPA: 48,
 
   // --- Cycle-to-cycle variation ("lope") ---
@@ -188,6 +195,102 @@ export const ACOUSTIC = {
   // 0.3-0.6. The renderer needs this, not the sim: the same amount of variation without
   // memory produces a fizz.
   COV_PERSISTENCE: 0.55,
+  // How much the cylinder pressure at valve opening scatters from one cycle to the next on
+  // an engine that idles smoothly, as a coefficient of variation: a floor that is there at
+  // any load, plus what light load adds. Combustion is never identical twice — the
+  // turbulence the charge is burning in is different every cycle. Published CoV of IMEP
+  // runs 1-2% at wide-open throttle and 4-8% at a light idle, and the pressure late in
+  // the stroke scatters two to three times as much as the work does, because a burn that
+  // runs slow leaves its heat in the gas rather than on the piston. This scatter is most of
+  // why a real engine never repeats itself, and a synthesiser without it does.
+  COV_FLOOR: 0.05,
+  COV_LIGHT_LOAD: 0.125,
+  // Cylinder-to-cylinder spread in charge, as a fraction. Runners are different lengths,
+  // injectors flow a percent or two apart, and the cylinder at the end of the plenum
+  // breathes differently from the one in the middle. It is fixed for an engine, so it
+  // repeats every cycle — which is what puts the half-order lines between the firing
+  // harmonics, the "character" two engines of the same layout do not share.
+  CYLINDER_SPREAD: 0.035,
+
+  // --- Exhaust event ---
+  // Where the exhaust valve closes, crank degrees after TDC firing: past exhaust TDC (360)
+  // by half the overlap and a little more, because the lobe is centred there.
+  EVC_ATDC_BASE: 368,
+  // Mean pressure in the exhaust port above the barometer, kPa: what the cylinder blows
+  // down against. It rises with how hard the system is being driven — a stock system at
+  // full power carries tens of kPa of back pressure.
+  PORT_BACK_KPA: 4,
+  PORT_BACK_PER_DRIVE_KPA: 30,
+
+  // --- The exhaust as a system of tubes, for its impulse response ---
+  // How much of an arriving wave the valve end sends back. A shut valve is a rigid wall
+  // (+1); the cylinder behind an open one, and the other primaries meeting at the
+  // collector, let some of it go. Between the two.
+  VALVE_END_REFLECTION: 0.6,
+  // A catalytic converter's shell is wider than the pipe either side of it, by about this
+  // much in area — which is itself a reflection at each end.
+  CAT_AREA_RATIO: 2.4,
+  // How the run between the converter and the tailpipe splits either side of the muffler.
+  MID_PIPE_FRAC: 0.45,
+  // An open pipe end reflects low frequencies almost completely and inverted, and lets
+  // high ones out: the change-over is where the wavelength reaches the pipe's
+  // circumference, ka = 1. As a one-pole corner, this fraction of c / (2 pi a).
+  OPEN_END_CORNER_FRAC: 0.6,
+  // A straight-through cat-back's muffler: a perforated tube in packing, with far less
+  // expansion and absorption than a stock reactive box.
+  CATBACK_MUFFLER_AREA_RATIO: 1.3,
+  // A STOCK MUFFLER as the tube model sees it: two chambers in a shell many times the
+  // pipe's area — an oval box round a 2.5" pipe is 4 to 5 — joined by a short neck. Each area step
+  // sends back most of what reaches it, and the packing in each chamber absorbs the rest
+  // of the treble. That is what a real muffler's 20-40 dB of loss above a few hundred
+  // hertz comes from; one shallow chamber lets the edge of every pulse straight through,
+  // which is heard as ticking.
+  STOCK_MUFFLER_AREA_RATIO: 4.5,
+  // The two chambers are never the same length: each cancels a band a quarter-wave above
+  // its own length, and two equal ones stack their cancellations on one band — which would
+  // take the bark out of every engine at once.
+  STOCK_MUFFLER_SPLIT: 0.7,
+  // How much faster a stock muffler's packing absorbs than MUFFLER_ABSORB_HZ alone, per
+  // chamber: a road muffler's packing is a thin blanket round a perforated tube, not a
+  // chamber stuffed full, and with two chambers and the reflections between them it still
+  // takes 15-20 dB off by 2 kHz.
+  STOCK_ABSORB_MULT: 2.5,
+  // The steepest a steepened pulse's front may get, as the least spacing between
+  // successive samples once each has moved by its own travel time. A fifth of a sample
+  // lets a front sharpen fivefold, which is a shock in all but name.
+  SHOCK_MIN_STEP: 0.2,
+  STOCK_MUFFLER_NECK_M: 0.09,
+  CATBACK_ABSORB_MULT: 3.5,
+  // A V's two banks never have identical pipework: the crossover, the routing past the
+  // gearbox and the tailpipe placement leave one side a little longer.
+  BANK_LENGTH_SPLIT: 0.07,
+  // A cast manifold runs the outer cylinders further to the collector than the inner
+  // ones: this much extra length per cylinder of distance from the middle, as a fraction
+  // of the mean primary. Tuned headers are equal length to within a few percent.
+  MANIFOLD_LENGTH_SPREAD: 0.22,
+  HEADER_LENGTH_SPREAD: 0.03,
+  // FLOW DAMPS THE PIPES. Everything above is for still gas, which is close to true at
+  // idle, where the exhaust's mean flow barely reaches Mach 0.01. At full power it runs at
+  // Mach 0.2 down the tailpipe, and a pipe carrying turbulent flow damps a wave far
+  // harder than a still one:
+  //   - the turbulent wall layer takes energy out of every pass at a rate that scales
+  //     with the flow's Mach number and the tube's length over its diameter, the way the
+  //     pressure drop does (FRICTION is that scale, near a steel pipe's friction factor);
+  //   - the flow grazing a muffler's perforated core and a converter's channels raises
+  //     their resistance in proportion to its speed, so they absorb further down the
+  //     band (CORNER is how fast each section's lowpass corner falls per unit of Mach).
+  // So an idling engine rings in its pipes, and one at full noise does not. Its note is
+  // then carried by the firing pulses themselves rather than by the pipes' own
+  // resonances, which is why a revving engine sounds like a rising note and not a
+  // buzzing box.
+  FLOW_FRICTION: 0.03,
+  FLOW_CORNER: 2.5,
+  // How finely the renderer steps the mean flow's Mach number when it recomputes the
+  // response. Fine enough that a step is inaudible under the crossfade.
+  FLOW_MACH_STEP: 0.02,
+  // Where the response stops being worth computing: this far below its peak, or this long.
+  IR_FLOOR_DB: -60,
+  IR_MAX_SECONDS: 0.45,
 
   // --- Turbocharger ---
   // Radial compressor slip factor: the fraction of tip speed the gas actually leaves
@@ -414,6 +517,197 @@ export function cyclicVariation({ rpm, overlapDeg = 0 }) {
 }
 
 /**
+ * How much the cylinder pressure at valve opening scatters from cycle to cycle, as a
+ * coefficient of variation.
+ *
+ * Every engine has some — combustion never runs the same twice — and a light load has more
+ * than a heavy one, because a thin, slow-burning charge is at the mercy of the turbulence
+ * it lights in. A lumpy cam's dilution sits on top (`cyclicVariation`), and there the
+ * scatter is the whole character of the idle.
+ *
+ * @param {number} load 0 (closed throttle) to 1 (wide open)
+ * @param {number} severity from `cyclicVariation`
+ * @returns {number} coefficient of variation, 0..1
+ */
+export function combustionScatter(load, severity = 0) {
+  return clamp(ACOUSTIC.COV_FLOOR + ACOUSTIC.COV_LIGHT_LOAD * (1 - clamp(load, 0, 1))
+    + Math.max(0, severity), 0, 1);
+}
+
+/**
+ * One cylinder's exhaust event: the mass flow out through its valve, sample by sample,
+ * from the valve cracking open to it closing.
+ *
+ * This is the SOURCE of the exhaust note, computed rather than drawn. A tailpipe radiates
+ * the rate of change of the flow leaving it, so what a listener hears from each event is
+ * the shape of this curve — and every part of that shape is the build:
+ *
+ *   - The valve opens along the cam's flank (`camRampDeg`, `camShape`), so how fast the
+ *     flow can rise is fixed in CRANK DEGREES. At idle that takes 13 ms and the event is a
+ *     soft, low thud; at 6000 rpm it takes under 2 and the same cylinder cracks.
+ *   - The cylinder starts at the pressure the combustion left it at (`evoKpa`, from the
+ *     tune: timing, boost, load, fuelling) and blows down through a real orifice — choked
+ *     while the pressure ratio is high, subsonic after — so a loaded engine barks and a
+ *     closed throttle, which leaves the cylinder BELOW the port, pulls gas back in first.
+ *   - Then the piston pushes out what is left (slider-crank, `rodRatio`), a slower and
+ *     bigger swell of flow that is most of what an idle is made of.
+ *   - Bore sets the valve area, displacement per cylinder and compression set the volume
+ *     being emptied, and the gas temperature sets how fast it leaves.
+ *
+ * The charge expands isentropically as it leaves. Each step's flow is limited to what
+ * would bring the cylinder level with the port and no further: without that, the flow
+ * chatters either side of equilibrium once the piston is doing the pushing, and that
+ * chatter is a whine at half the sample rate.
+ *
+ * @param {object} args
+ * @param {object} args.geometry an {@link exhaustGeometry}
+ * @param {number} args.evoKpa absolute cylinder pressure when the valve opens, kPa
+ * @param {number} args.rpm engine speed
+ * @param {number} args.sampleRate samples per second
+ * @param {number} [args.backKpa] absolute pressure in the port, kPa
+ * @param {number} [args.closeDeg] exhaust valve closing, degrees after TDC firing
+ * @returns {{flow: Float32Array, jet: Float32Array}} mass flow out of the port, kg/s
+ *   (negative is backflow), and the Mach number of the jet through the valve seat
+ */
+export function exhaustEvent({
+  geometry, evoKpa, rpm, sampleRate,
+  backKpa = BARO_KPA + ACOUSTIC.PORT_BACK_KPA, closeDeg = ACOUSTIC.EVC_ATDC_BASE,
+}) {
+  const g = geometry.gamma;
+  const openDeg = geometry.evoDeg;
+  const span = Math.max(1, closeDeg - openDeg);
+  const degPerSample = (6 * clamp(rpm, 60, 20000)) / sampleRate;
+  const n = Math.max(2, Math.ceil(span / degPerSample));
+  const flow = new Float32Array(n);
+  const jet = new Float32Array(n);
+
+  const vc = geometry.clearanceM3;
+  const vs = geometry.sweptM3;
+  const rod = geometry.rodRatio;
+  const pb = Math.max(1, backKpa) * 1000;
+  const tb = Math.max(300, geometry.portK);
+  let theta = openDeg;
+  const v0 = cylinderVolumeM3(theta, vc, vs, rod);
+  const p0 = Math.max(1, evoKpa) * 1000;
+  let m = (p0 * v0) / (R_AIR * Math.max(300, geometry.cylinderK));
+  // The charge's isentrope, p = k rho^gamma, fixed at valve opening.
+  const isentrope = p0 / Math.pow(m / v0, g);
+
+  const critical = Math.pow(2 / (g + 1), g / (g - 1));
+  const choked = Math.sqrt(g) * Math.pow(2 / (g + 1), (g + 1) / (2 * (g - 1)));
+  // Subsonic orifice flow and the jet's Mach number both come from r^(1/gamma): with
+  // b = r^(1/gamma), r^(2/gamma) is b^2, r^((gamma+1)/gamma) is b r and (1/r)^((gamma-1)/
+  // gamma) is b / r. One power per sample instead of four, the same numbers.
+  const flowCoeff = (2 * g) / (g - 1);
+  const machCoeff = 2 / (g - 1);
+  const subsonic = (r, b) => Math.sqrt(Math.max(0, flowCoeff * (b * b - b * r)));
+  const invG = 1 / g;
+  const dt = 1 / sampleRate;
+  // How dense the charge is once it is down to the port's pressure, which sets the most
+  // that can leave by each step.
+  const levelDensity = Math.pow(pb / isentrope, invG);
+
+  for (let i = 0; i < n; i++) {
+    const into = theta - openDeg;
+    // A cam's flank is acceleration-limited: the valve eases off its seat, speeds up, and
+    // eases into full lift — a harmonic rise, not a corner. Opening it along a curve with
+    // a vertical start would put a click on the front of every event that no valve makes.
+    const ramp = clamp(Math.min(into, span - into) / geometry.camRampDeg, 0, 1);
+    const lift = ramp >= 1 ? 1 : Math.pow((1 - Math.cos(Math.PI * ramp)) / 2, geometry.camShape);
+    const area = geometry.valveArea * geometry.valveCd * lift;
+    // Move the piston first and read the pressure it leaves the trapped gas at. Driving the
+    // orifice from that, rather than from the pressure before the step, is what lets the
+    // piston's push come out as a smooth flow instead of a step-by-step on-off.
+    const vNext = cylinderVolumeM3(theta + degPerSample, vc, vs, rod);
+    const p1 = isentrope * Math.pow(m / vNext, g);
+    const t1 = (p1 * vNext) / (m * R_AIR);
+    // Isentropic orifice flow, whichever way the pressure difference points.
+    let mdot;
+    let mach = 0;
+    if (p1 >= pb) {
+      const r = pb / p1;
+      if (r <= critical) {
+        mdot = (area * p1 * choked) / Math.sqrt(R_AIR * t1);
+        mach = 1;
+      } else {
+        const b = Math.pow(r, invG);
+        mdot = (area * p1 * subsonic(r, b)) / Math.sqrt(R_AIR * t1);
+        mach = Math.sqrt(machCoeff * Math.max(0, b / r - 1));
+      }
+    } else {
+      const r = p1 / pb;
+      const through = r <= critical ? choked : subsonic(r, Math.pow(r, invG));
+      mdot = -(area * pb * through) / Math.sqrt(R_AIR * tb);
+    }
+    // The mass that would leave the cylinder level with the port. The flow may not carry
+    // it past that point.
+    const mLevel = vNext * levelDensity;
+    const most = (m - mLevel) / dt;
+    mdot = mdot >= 0 ? Math.min(mdot, Math.max(0, most)) : Math.max(mdot, Math.min(0, most));
+    flow[i] = mdot;
+    jet[i] = mdot > 0 ? mach : 0;
+    m = Math.max(1e-9, m - mdot * dt);
+    theta += degPerSample;
+  }
+  return { flow, jet };
+}
+
+/**
+ * An exhaust pulse after it has run down the primary and collector: STEEPENED.
+ *
+ * At full load a blowdown pulse is not a small acoustic wave. The gas in it moves at a
+ * good fraction of the speed of sound, and a wave's crest travels at c + (gamma + 1)/2 u
+ * while its base travels at c — so over a metre or two of pipe the crest catches the front
+ * and the pulse sharpens towards a shock. That is the physics of an exhaust's bark: a hard
+ * edge full of harmonics that a small, slow pulse at idle never grows. (It is the same
+ * finite-amplitude steepening that makes a trombone played loud sound brassy.)
+ *
+ * Each sample of the flow is moved earlier by how much sooner its own particle velocity
+ * gets it to the end of the run, then the pulse is read back onto the sample grid. Where
+ * the crest would overtake the front — a true shock — the front is held at a finite
+ * steepness rather than a vertical step, which a sampled signal cannot carry cleanly.
+ *
+ * @param {Float32Array} flow mass flow out of the port, kg/s, from `exhaustEvent`
+ * @param {object} geometry an {@link exhaustGeometry}
+ * @param {number} sampleRate samples per second
+ * @param {number} [portKpa] absolute port pressure, kPa, which sets the gas density
+ * @returns {Float32Array} the flow as it reaches the end of the collector
+ */
+export function steepenPulse(flow, geometry, sampleRate, portKpa = BARO_KPA + ACOUSTIC.PORT_BACK_KPA) {
+  const n = flow.length;
+  const out = new Float32Array(n);
+  const rho = (Math.max(1, portKpa) * 1000) / (R_AIR * Math.max(300, geometry.portK));
+  const c = geometry.cPrimary;
+  const beta = (geometry.gamma + 1) / 2;
+  // The run in its two sections. The same flow through the collector's larger area moves
+  // slower, so the collector sharpens the pulse much less than the primary does.
+  const sections = [[geometry.primaryLength, geometry.primaryArea],
+    [geometry.collectorLength, geometry.collectorArea]];
+  // Where each input sample arrives, in output samples.
+  const at = new Float64Array(n);
+  let last = -Infinity;
+  for (let i = 0; i < n; i++) {
+    let early = 0;
+    for (const [length, area] of sections) {
+      const u = flow[i] / (rho * area);
+      early += length / c - length / Math.max(c * 0.2, c + beta * u);
+    }
+    const pos = i - early * sampleRate;
+    at[i] = Math.max(pos, last + ACOUSTIC.SHOCK_MIN_STEP);
+    last = at[i];
+  }
+  // Read back onto the grid: each output sample from the pair of inputs that straddle it.
+  let k = 0;
+  for (let j = 0; j < n; j++) {
+    while (k < n - 2 && at[k + 1] < j) k++;
+    const span = at[k + 1] - at[k];
+    const f = span > 0 ? clamp((j - at[k]) / span, 0, 1) : 0;
+    out[j] = j < at[0] ? 0 : flow[k] + f * (flow[k + 1] - flow[k]);
+  }
+  return out;
+}
+
+/**
  * Effective exhaust flow area for one cylinder, m^2.
  *
  * @param {number} boreMm cylinder bore
@@ -502,15 +796,18 @@ export function turboAcoustics({ compressor, boostPsi, inletK }) {
 /**
  * @typedef {object} AcousticDrive
  * @property {number} evoKpa absolute cylinder pressure at exhaust valve opening, kPa —
- *   the excitation the waveguide's valve opens against
+ *   what each exhaust event (`exhaustEvent`) blows down from
  * @property {number} gasTempK exhaust gas temperature at the port, K
  * @property {number} lopeSeverity 0..1, how hard the idle loafs — 0 on a stock cam
  * @property {number} covPersistence how much of one cycle's variation carries to the next
+ * @property {number} portKpa absolute mean pressure in the exhaust port, kPa — what each
+ *   cylinder blows down against
  * @property {number} exhaustDrive exhaust enthalpy flux against a reference, 0..1 — how
  *   hard the exhaust system is being driven acoustically
  * @property {number} inductionLevel intake noise, 0..1 against a reference airflow
  * @property {number} knockLevel 0..1, how hard the engine is detonating
  * @property {number} retardDeg degrees the ECU pulled out of the commanded spark
+ * @property {number} lambda measured lambda at the operating point, 1 when not running
  * @property {number} displacementL total displacement, litres
  * @property {number} overlapDeg valve overlap, crank degrees
  * @property {number} shaftRpm turbo shaft speed, RPM (0 when not boosted)
@@ -545,7 +842,7 @@ export function circleAreaM2(d) {
 }
 
 /**
- * The exhaust system as a set of tubes, for the waveguide renderer.
+ * The exhaust system as a set of tubes, for the exhaust events and the system's response.
  *
  * WHY THIS EXISTS AS GEOMETRY RATHER THAN AS FREQUENCIES. A pipe's fundamentals — c/2L
  * for the whole run, c/4L for a primary — are easy to compute and a renderer can tune a
@@ -557,12 +854,12 @@ export function circleAreaM2(d) {
  *   - The reflection off an area change comes back INVERTED. A wave leaving into a bigger
  *     space returns as a rarefaction, which is what scavenges the cylinder during overlap
  *     and what makes a header "come on" at its tuned speed.
- *   - Cylinders TALK TO EACH OTHER through the collector. Cylinder 1's pulse runs back up
- *     cylinder 3's primary. That crosstalk is a large part of why an engine sounds like one
- *     object rather than like several separate pops.
+ *   - Every section has its own length, area and temperature, so the system rings at many
+ *     frequencies at once, each fading at its own rate, rather than at the one or two a
+ *     filter would be tuned to.
  *   - Everything retunes together with gas temperature, because everything moves with c.
  *
- * So this returns lengths and areas, and the renderer builds delay lines out of them.
+ * So this returns lengths and areas, and `exhaustImpulseResponse` runs a wave down them.
  *
  * @param {object} sys
  * @param {number} sys.displacementL total displacement, litres
@@ -628,7 +925,7 @@ export function exhaustGeometry({
     cPrimary: soundSpeedMs(portK, COEFF.GAMMA_BURNED),
     cTail: soundSpeedMs(portK * ACOUSTIC.TAIL_TEMP_FRAC, COEFF.GAMMA_BURNED),
     gamma: COEFF.GAMMA_BURNED,
-    // The cylinder the valve opens out of. The waveguide runs its own piston, because
+    // The cylinder the valve opens out of. `exhaustEvent` runs its own piston, because
     // the exhaust STROKE is half of what a listener hears at low speed and it is a
     // volume-driven flow rather than a pressure-driven one.
     sweptM3: (displacementL / Math.max(1, cyl)) / 1000,
@@ -643,6 +940,210 @@ export function exhaustGeometry({
     camRampDeg: ACOUSTIC.CAM_RAMP_DEG,
     camShape: ACOUSTIC.CAM_RAMP_SHAPE,
   };
+}
+
+/** Position along the head of each successive firing on one bank, by cylinders per bank. */
+const POSITION_ALONG_BANK = { 2: [0, 1], 3: [0, 2, 1], 4: [0, 2, 3, 1], 6: [0, 4, 2, 5, 1, 3] };
+
+/**
+ * How far each cylinder's exhaust travels to its collector, m, in firing-event order.
+ *
+ * A cast manifold is a log: the cylinder at the end of the head runs the length of it,
+ * the one beside the outlet barely any. Those differences put a few milliseconds between
+ * when each cylinder's pulse reaches the pipe, which is a large part of why a stock
+ * engine sounds lumpier than the same engine on tuned headers — and the whole of the
+ * Subaru boxer's burble. Headers are built to equal lengths, so the pulses arrive on
+ * their firing intervals.
+ *
+ * @param {object} geometry an {@link exhaustGeometry}
+ * @returns {number[]} one length per firing event
+ */
+export function primaryLengthsM(geometry) {
+  const spread = geometry.headers ? ACOUSTIC.HEADER_LENGTH_SPREAD : ACOUSTIC.MANIFOLD_LENGTH_SPREAD;
+  const perBank = Math.max(1, geometry.perBank);
+  const middle = (perBank - 1) / 2;
+  const seen = [0, 0];
+  return geometry.events.map((e) => {
+    const bank = e.bank === 1 ? 1 : 0;
+    // Where along the head each firing lands, from the conventional firing orders: a four
+    // fires 1-3-4-2, a six 1-5-3-6-2-4, a V6 bank 1-3-5 (positions 0, 2, 1 once the
+    // crankshaft's throws are unfolded), a V8 bank like a four.
+    const order = POSITION_ALONG_BANK[perBank] ?? [...Array(perBank).keys()];
+    const slot = order[seen[bank]++ % perBank];
+    const fromMiddle = perBank > 1 ? Math.abs(slot - middle) / Math.max(1, middle) : 0;
+    return geometry.primaryLength * (1 + spread * (fromMiddle - 0.5));
+  });
+}
+
+/**
+ * The Mach number of the mean flow down one bank's tailpipe.
+ *
+ * @param {object} geometry an {@link exhaustGeometry}
+ * @param {number} massFlowKgS mean mass flow through that bank, kg/s
+ * @param {number} [portKpa] absolute pressure in the pipe, kPa
+ * @returns {number} Mach number, 0 and up
+ */
+export function tailpipeMach(geometry, massFlowKgS, portKpa = BARO_KPA) {
+  const rho = (Math.max(1, portKpa) * 1000) / (R_AIR * Math.max(250, geometry.tailK));
+  const u = Math.max(0, massFlowKgS) / (rho * geometry.tailArea);
+  return u / Math.max(1, geometry.cTail);
+}
+
+/**
+ * The exhaust system's impulse response: the sound at the tailpipe, per unit of flow
+ * pulse entering one bank's primaries.
+ *
+ * This is what turns a cylinder's gas pulse into an exhaust NOTE, and it is computed from
+ * the pipes rather than recorded or voiced. The system is a chain of tubes — primary,
+ * collector, converter, mid pipe, muffler chamber, tailpipe — each with its own length,
+ * area and gas temperature. A pressure wave runs down each at the local speed of sound;
+ * at every change of area part of it reflects (inverted where the pipe widens, which is
+ * what a muffler's chambers and a header's collector are for) and part carries on; the
+ * walls, the converter's honeycomb and the muffler's packing take energy out, the high
+ * frequencies fastest; and at the open end the lows reflect back up the pipe while the
+ * highs escape. What escapes is radiated as the rate of change of the flow leaving the
+ * pipe, which is what a listener hears.
+ *
+ * Every number comes from the build: displacement sets the primaries and the run,
+ * the tailpipe menu sets the pipe, headers lengthen and widen the primaries, a turbine
+ * swaps the converter's loss for its own, and the gas temperature sets every speed of
+ * sound. A cat-back swaps the reactive muffler for a straight-through one.
+ *
+ * @param {object} geometry an {@link exhaustGeometry}
+ * @param {number} sampleRate samples per second
+ * @param {{bank?: number, catBack?: boolean, flowMach?: number}} [opts] which bank's
+ *   pipework, whether a straight-through cat-back is fitted, and the Mach number of the
+ *   mean flow down the tailpipe ({@link tailpipeMach}), which damps every section
+ * @returns {Float32Array} the response, peak-normalised so the loudest sample is 1 in size
+ */
+export function exhaustImpulseResponse(geometry, sampleRate, {
+  bank = 0, catBack = false, flowMach = 0,
+} = {}) {
+  const g = geometry.gamma;
+  const cOf = (k) => Math.sqrt(g * R_AIR * Math.max(250, k));
+  const stretch = bank === 1 ? 1 + ACOUSTIC.BANK_LENGTH_SPLIT : 1;
+  const midLength = geometry.tailLength * ACOUSTIC.MID_PIPE_FRAC * stretch;
+  const tailLength = geometry.tailLength * (1 - ACOUSTIC.MID_PIPE_FRAC) * stretch;
+  const tailRadius = Math.sqrt(geometry.tailArea / Math.PI);
+  const mufflerArea = geometry.tailArea * ACOUSTIC.CATBACK_MUFFLER_AREA_RATIO;
+  const absorbHz = geometry.mufflerAbsorbHz * (catBack ? ACOUSTIC.CATBACK_ABSORB_MULT : 1);
+  // [length m, area m^2, gas K, extra keep per pass, extra lowpass corner Hz per pass,
+  //  how many such tubes side by side share the bank's flow]
+  const tubes = [
+    [geometry.primaryLength, geometry.primaryArea, geometry.portK, 1, Infinity,
+      Math.max(1, geometry.perBank)],
+    [geometry.collectorLength, geometry.collectorArea, geometry.portK, 1, Infinity],
+    [geometry.catLength, geometry.collectorArea * ACOUSTIC.CAT_AREA_RATIO, geometry.portK,
+      geometry.catKeep, geometry.catHzM / geometry.catLength],
+    [midLength, geometry.tailArea, geometry.tailK, 1, Infinity],
+    ...(catBack
+      ? [[geometry.mufflerLength, mufflerArea, geometry.tailK, 1, absorbHz]]
+      : [
+        [geometry.mufflerLength * ACOUSTIC.STOCK_MUFFLER_SPLIT,
+          geometry.tailArea * ACOUSTIC.STOCK_MUFFLER_AREA_RATIO,
+          geometry.tailK, 1, absorbHz * ACOUSTIC.STOCK_ABSORB_MULT],
+        [ACOUSTIC.STOCK_MUFFLER_NECK_M, geometry.tailArea, geometry.tailK, 1, Infinity],
+        [geometry.mufflerLength * (1 - ACOUSTIC.STOCK_MUFFLER_SPLIT),
+          geometry.tailArea * ACOUSTIC.STOCK_MUFFLER_AREA_RATIO,
+          geometry.tailK, 1, absorbHz * ACOUSTIC.STOCK_ABSORB_MULT],
+      ]),
+    // The open end behaves as if the pipe were a little longer than it measures.
+    [tailLength + ACOUSTIC.PIPE_END_CORRECTION * tailRadius, geometry.tailArea, geometry.tailK,
+      1, Infinity],
+  ].map(([length, area, k, keep, extraHz, share = 1]) => {
+    const c = cOf(k);
+    const delay = Math.max(1, Math.round((length / c) * sampleRate));
+    // The mean flow's Mach number in this section. The same mass flow moves faster through
+    // a narrower pipe and through hotter gas, and a primary carries its share of one bank.
+    const mach = flowMach * (geometry.tailArea / (area * share))
+      * Math.sqrt(Math.max(250, k) / Math.max(250, geometry.tailK));
+    const diameter = Math.sqrt((4 * area) / Math.PI);
+    // Wall loss over the length travelled, and the boundary-layer corner for it, combined
+    // with whatever the section itself absorbs, all damped further by the flow through it.
+    // A muffler's packing sees the flow grazing its core at the pipe's own speed.
+    const grazing = Number.isFinite(extraHz) ? Math.max(mach, flowMach) : mach;
+    const cornerHz = Math.min(geometry.wallLossHzM / Math.max(0.05, length), extraHz)
+      / (1 + ACOUSTIC.FLOW_CORNER * grazing);
+    return {
+      delay,
+      keep: keep * Math.pow(1 - geometry.wallLossPerM, length)
+        * Math.exp(-ACOUSTIC.FLOW_FRICTION * mach * (length / diameter)),
+      pole: Math.exp((-2 * Math.PI * Math.min(cornerHz, sampleRate * 0.45)) / sampleRate),
+      // Characteristic impedance, rho c / A: rho c goes as 1 / sqrt(T) at fixed pressure.
+      z: 1 / (area * Math.sqrt(Math.max(250, k))),
+      right: new Float64Array(delay), left: new Float64Array(delay),
+      lpRight: 0, lpLeft: 0,
+    };
+  });
+  const n = tubes.length;
+  const last = tubes[n - 1];
+  const openPole = Math.exp(-2 * Math.PI * Math.min(sampleRate * 0.45,
+    ACOUSTIC.OPEN_END_CORNER_FRAC * cOf(geometry.tailK) / (2 * Math.PI * tailRadius)) / sampleRate);
+
+  const maxLength = Math.round(ACOUSTIC.IR_MAX_SECONDS * sampleRate);
+  const out = new Float32Array(maxLength);
+  const arriveRight = new Float64Array(n);
+  const arriveLeft = new Float64Array(n);
+  let openLp = 0;
+  let lastFlow = 0;
+  let step = 0;
+  // Once nothing left in any tube could put a sample above the trim floor, the rest would
+  // be trimmed off anyway; stop there rather than running out the full window.
+  const floorOf = Math.pow(10, ACOUSTIC.IR_FLOOR_DB / 20);
+  let peakSoFar = 0;
+  let length = maxLength;
+  for (let t = 0; t < maxLength; t++) {
+    if (t > 0 && (t & 127) === 0 && peakSoFar > 0) {
+      let left = Math.abs(openLp) + Math.abs(lastFlow);
+      for (const tube of tubes) {
+        left = Math.max(left, Math.abs(tube.lpRight), Math.abs(tube.lpLeft));
+        for (let j = 0; j < tube.delay; j++) {
+          left = Math.max(left, Math.abs(tube.right[j]), Math.abs(tube.left[j]));
+        }
+      }
+      // A radiated sample is a difference of two flows, each at most twice what is left.
+      if (4 * left < peakSoFar * floorOf) { length = t; break; }
+    }
+    // What reaches each end of each tube this sample, after the losses along it.
+    for (let i = 0; i < n; i++) {
+      const tube = tubes[i];
+      const j = step % tube.delay;
+      tube.lpRight = tube.right[j] + tube.pole * (tube.lpRight - tube.right[j]);
+      tube.lpLeft = tube.left[j] + tube.pole * (tube.lpLeft - tube.left[j]);
+      arriveRight[i] = tube.lpRight * tube.keep;
+      arriveLeft[i] = tube.lpLeft * tube.keep;
+    }
+    // The valve end, where the pulse enters.
+    tubes[0].right[step % tubes[0].delay] = (t === 0 ? 1 : 0)
+      + ACOUSTIC.VALVE_END_REFLECTION * arriveLeft[0];
+    // Every junction: reflect by the impedance step, transmit the rest.
+    for (let i = 0; i < n - 1; i++) {
+      const a = tubes[i];
+      const b = tubes[i + 1];
+      const r = (b.z - a.z) / (b.z + a.z);
+      b.right[step % b.delay] = (1 + r) * arriveRight[i] - r * arriveLeft[i + 1];
+      a.left[step % a.delay] = r * arriveRight[i] + (1 - r) * arriveLeft[i + 1];
+    }
+    // The open end: the lows come back inverted, the highs get out.
+    const incident = arriveRight[n - 1];
+    openLp = incident + openPole * (openLp - incident);
+    last.left[step % last.delay] = -openLp;
+    const flow = incident + openLp;
+    out[t] = flow - lastFlow;
+    peakSoFar = Math.max(peakSoFar, Math.abs(out[t]));
+    lastFlow = flow;
+    step++;
+  }
+
+  // Trim to where it has died away, and normalise.
+  let peak = 0;
+  for (let t = 0; t < length; t++) peak = Math.max(peak, Math.abs(out[t]));
+  const floor = peak * Math.pow(10, ACOUSTIC.IR_FLOOR_DB / 20);
+  let end = length;
+  while (end > 1 && Math.abs(out[end - 1]) < floor) end--;
+  const ir = out.slice(0, Math.max(2, end));
+  if (peak > 0) for (let i = 0; i < ir.length; i++) ir[i] /= peak;
+  return ir;
 }
 
 /**
@@ -676,7 +1177,7 @@ export function acousticDrive({
   const { cyl, displacementL, compression } = derived;
   const gasTempK = (point ? point.egt : 0) + KELVIN_OFFSET;
 
-  // THE REAL CYLINDER PRESSURE AT VALVE OPENING, absolute. The waveguide runs its own
+  // THE REAL CYLINDER PRESSURE AT VALVE OPENING, absolute. `exhaustEvent` runs its own
   // piston through its own valve, so the exhaust stroke is already in there: handing it
   // manifold pressure plus an allowance for the stroke double-counted it, and put the
   // cylinder ABOVE the manifold at every operating point in the map.
@@ -717,11 +1218,15 @@ export function acousticDrive({
     gasTempK,
     lopeSeverity: variation.severity,
     covPersistence: ACOUSTIC.COV_PERSISTENCE,
+    portKpa: BARO_KPA + ACOUSTIC.PORT_BACK_KPA
+      + ACOUSTIC.PORT_BACK_PER_DRIVE_KPA * clamp(powerW / ACOUSTIC.EXHAUST_POWER_REF_W, 0, 1),
     exhaustDrive: clamp(powerW / ACOUSTIC.EXHAUST_POWER_REF_W, 0, 1),
     inductionLevel: clamp((point ? point.maf : 0) / ACOUSTIC.INDUCTION_REF_GPS, 0, 1.5),
     knockLevel: point && point.knock ? clamp(point.knockPull / COEFF.MAX_KNOCK_RETARD, 0, 1) : 0,
     // Reported, not derived: how a retarded burn shapes the note is a rendering decision.
     retardDeg: point ? Math.max(0, point.commandedTiming - point.timing) : 0,
+    // Reported for the same reason: a rich burn is slower and softer, a lean one sharper.
+    lambda: point && Number.isFinite(point.lambda) ? point.lambda : 1,
     displacementL,
     overlapDeg: derived.overlapDeg || 0,
     ...turbo,

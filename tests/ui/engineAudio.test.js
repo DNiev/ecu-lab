@@ -2,7 +2,7 @@
  * Engine audio graph tests, against a stub AudioContext.
  *
  * The point is not to check that it sounds good — nothing automated can, and the exhaust
- * model's own acoustics are measured in tests/exhaustWaveguide.test.js. It is to check
+ * model's own acoustics are measured in tests/pulseExhaust.test.js. It is to check
  * that the graph stays HONEST to what it is handed: that the tube network is rebuilt when
  * and only when the build changes, that it adds no level curve of its own, and that
  * "stop" really does stop.
@@ -74,14 +74,43 @@ describe('the engine synthesiser', () => {
     expect(graph.master.gain.value).toBe(0);
   });
 
-  it('applies no level curve of its own, because how loud an engine is is physics', () => {
-    // The waveguide is driven by the pressure the cylinder actually reached, so idle comes
-    // out quiet and wide-open throttle loud without anything here scaling it. A gain curve
-    // on top would be asserting a second, different answer.
-    push(frameFor({ rpm: 4500 }));
+  it('follows the throttle, not the revs, the way the reference build did', () => {
+    // Open the throttle and the engine gets louder; rev it with the throttle where it is
+    // and the level does not move — the pulses and the pipe carry that.
+    push(frameFor({ rpm: 4500, load: 1 }));
     const wot = graph.master.gain.value;
-    push(frameFor({ rpm: 800 }));
+    push(frameFor({ rpm: 800, load: 1 }));
     expect(graph.master.gain.value).toBe(wot);
+    push(frameFor({ rpm: 800, load: 0.1 }));
+    expect(graph.master.gain.value).toBeLessThan(wot);
+  });
+
+  it('opens far enough from idle to full throttle to survive the limiter', () => {
+    // The limiter takes 12 dB for every 1 over its threshold, so a small spread in front
+    // of it is no spread at all out of it: at 5 dB, measured in the app, idle and wide open
+    // came out of the speaker 1.5 dB apart. Idle has to sit under the threshold.
+    push(frameFor({ rpm: 850, load: 0.12 }));
+    const idle = graph.master.gain.value;
+    push(frameFor({ rpm: 850, load: 1 }));
+    expect(20 * Math.log10(graph.master.gain.value / idle)).toBeGreaterThan(12);
+  });
+
+  it('holds its level on the rev limiter, where the throttle is still wide open', () => {
+    // The cut already reaches the note through the pulses: `acousticDrive` hands over a
+    // motored cylinder. Turning the whole engine down on top of that put the limiter
+    // below idle.
+    push(frameFor({ load: 1 }));
+    const firing = graph.master.gain.value;
+    push(frameFor({ load: 1, cut: true }));
+    expect(graph.master.gain.value).toBe(firing);
+  });
+
+  it('puts an overrun cut at the closed-throttle level, not under it', () => {
+    push(frameFor({ load: 0.05 }));
+    const closed = graph.master.gain.value;
+    push(frameFor({ load: 0.05, cut: true }));
+    expect(graph.master.gain.value).toBe(closed);
+    expect(graph.master.gain.value).toBeGreaterThan(0);
   });
 
   it('rebuilds the tube network only when the build changes', () => {
@@ -113,27 +142,21 @@ describe('stopping', () => {
 
 /** What the output stage must not do to the model's own dynamics. */
 describe('what makes it sound real', () => {
-  it('compresses the envelope without catching individual firing events', () => {
-    // AN ENGINE IS A TRANSIENT TRAIN AND ITS CREST FACTOR IS THE SOUND. If the renderer's
-    // own maximum static gain is above unity, every pulse is flattened into the ceiling
-    // and the peak-to-average ratio collapses to a couple of decibels — measured, that is
-    // exactly what a listener calls "digital", and no work on the pulse survives it.
-    // So the chain must be able to reach full scale only on peaks, never on the bed.
+  it('limits the way the reference build did, then saturates instead of clipping', () => {
+    // The reference's limiter — low threshold, hard ratio, fast attack — is part of its
+    // sound: dense and loud like a recorded engine. What it must never do is let a pulse
+    // reach the output hard-clipped, which is heard as a tearing edge. The stage after
+    // the make-up gain is a tanh curve scaled below full scale, so no input can reach it.
     const ctx = stubContext();
     const a = createEngineAudio(ctx);
     ctx.currentTime += 0.1;
     updateEngineAudio(a, frameFor({ rpm: 6000, load: 1 }));
-    // THE ATTACK IS THE WHOLE SAFETY PROPERTY. The model's own range from idle to redline
-    // is about 20 dB, which is real, and compressing it is the only way idle is audible on
-    // a phone without the loud end clipping. That is safe if and only if the compressor
-    // works on the RUNNING LEVEL and not on the pulses: a V8 at 3000 rpm fires every five
-    // milliseconds, so anything faster than that flattens the engine into a slab, which is
-    // exactly what "digital" means. Measured through a full dyno pull with this attack,
-    // peak 0.935, zero clipped samples, and 10.5 dB of crest still there.
-    expect(a.limiter.attack.value).toBeGreaterThan(0.03);
-    // And there is still a brickwall after the make-up gain to catch what the slow attack
-    // lets through.
-    expect(a.softClip.curve).not.toBeNull();
+    expect(a.limiter.threshold.value).toBe(-14);
+    expect(a.limiter.ratio.value).toBe(12);
+    expect(a.limiter.attack.value).toBeLessThan(0.01);
+    const curve = a.softClip.curve;
+    expect(Math.max(...curve.map(Math.abs))).toBeLessThanOrEqual(1);
+    expect(a.satOut.gain.value).toBeLessThan(1);
   });
 });
 
@@ -203,6 +226,19 @@ describe('sleeping', () => {
     setEngineAudioActive(graph, true);
     vi.advanceTimersByTime(1000);
     expect(ctx.suspends).toBe(0);
+  });
+
+  it('brings the exhaust back when an engine starts again after a stop', () => {
+    // Stopping pins the exhaust's bus to zero. Switching engines always stops the one
+    // running, and without lifting the bus on the way back every engine after the first
+    // came back near-silent — the V6 included.
+    const ctx = stubContext();
+    const graph = createEngineAudio(ctx);
+    setEngineAudioActive(graph, true);
+    setEngineAudioActive(graph, false);
+    expect(graph.exhaust.bus.gain.value).toBe(0);
+    setEngineAudioActive(graph, true);
+    expect(graph.exhaust.bus.gain.value).toBeGreaterThan(0);
   });
 
   it('wakes for a one-off sound and goes back to sleep after it', async () => {
