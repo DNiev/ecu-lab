@@ -987,27 +987,32 @@ describe('keyboard shortcuts', () => {
   it('removes the keydown listener on unmount', () => {
     // Coverage for the effect's cleanup, not a defect: `return () =>
     // window.removeEventListener('keydown', onKey)` is already correct today (the
-    // review instrumented it: exactly one add, one matching remove). But replacing
+    // review instrumented it: every add has a matching remove). But replacing
     // that cleanup with `() => {}` still leaves a fully green suite — every other
     // test here unmounts via afterEach(cleanup) with nothing left in the DOM to
     // observe a leaked listener against. Spying on add/removeEventListener directly
-    // is what actually catches it: after unmount, the SAME function reference handed
+    // is what actually catches it: after unmount, the SAME function references handed
     // to addEventListener must come back out of removeEventListener.
+    //
+    // Two global `keydown` listeners live in EcuLab once the app view is entered: this
+    // file's undo/redo handler, and the command palette's Cmd/Ctrl-K handler (issue 63,
+    // see EcuLab.jsx). The count below is 2 for that reason, not 1 — what this test
+    // actually holds is that every add is matched by exactly one remove of the same
+    // function, regardless of how many there are.
     const addSpy = vi.spyOn(window, 'addEventListener');
     const removeSpy = vi.spyOn(window, 'removeEventListener');
 
     const { unmount } = render(<EcuLab />);
     fireEvent.click(screen.getByRole('button', { name: 'SANDBOX' }));
 
-    const keydownAdds = addSpy.mock.calls.filter((call) => call[0] === 'keydown');
-    expect(keydownAdds.length).toBe(1);
-    const handler = keydownAdds[0][1];
+    const keydownAdds = addSpy.mock.calls.filter((call) => call[0] === 'keydown').map((call) => call[1]);
+    expect(keydownAdds.length).toBe(2);
 
     unmount();
 
-    const keydownRemoves = removeSpy.mock.calls.filter((call) => call[0] === 'keydown');
-    expect(keydownRemoves.length).toBe(1);
-    expect(keydownRemoves[0][1]).toBe(handler);
+    const keydownRemoves = removeSpy.mock.calls.filter((call) => call[0] === 'keydown').map((call) => call[1]);
+    expect(keydownRemoves.length).toBe(2);
+    expect(new Set(keydownRemoves)).toEqual(new Set(keydownAdds));
 
     addSpy.mockRestore();
     removeSpy.mockRestore();

@@ -20,7 +20,7 @@
  * else under `npm run typecheck`.
  */
 
-import React, { useMemo, useEffect, useRef, useCallback } from 'react';
+import React, { useMemo, useEffect, useRef, useCallback, useState } from 'react';
 import {
   Grid3x3, Zap, Droplets, Activity, Play,
   Settings, TrendingUp, Fuel,
@@ -47,7 +47,7 @@ import { loadCareer, saveCareer } from '../storage.js';
 import { AppShell } from './AppShell.jsx';
 import { StartScreen } from './screens/StartScreen.jsx';
 import { TutorialScreen } from './screens/TutorialScreen.jsx';
-import { StoreProvider, useBuild, useSession, useTune } from './state/StoreProvider.jsx';
+import { StoreProvider, useBuild, useHistory, useSession, useTune } from './state/StoreProvider.jsx';
 import { ROUTES } from './routing.js';
 import { useRoute } from './useRoute.js';
 import { ACTIONS } from './state/reducer.js';
@@ -60,6 +60,8 @@ import { StatTile } from './primitives/StatTile.jsx';
 import { Seg } from './primitives/Seg.jsx';
 import { DialMark } from './components/DialMark.jsx';
 import { eventBands } from './components/eventBands.js';
+import { pageCommands } from './commands.js';
+import { CommandPalette } from './components/CommandPalette.jsx';
 import { EngineScreen } from './screens/build/EngineScreen.jsx';
 import { ExhaustScreen } from './screens/build/ExhaustScreen.jsx';
 import { FuelSystemScreen } from './screens/build/FuelSystemScreen.jsx';
@@ -337,7 +339,8 @@ export function EcuLabApp() {
   // cursor on tab/view navigation, which is nav-adjacent and stays here.
   // The SESSION slice — everything about the current run and career progress that is
   // neither hardware nor calibration. Same destructuring shape again, same `dispatch`.
-  // There is no local `useState` left in this file: `appView`, `tab`, `buildSection`,
+  // The only local `useState` in this file is the command palette's open flag, further
+  // down; `appView`, `tab`, `buildSection`,
   // `tuneView`, `dynoView` and `dashSection` were VIEW state (which screen and which
   // accordion panel is open) and have all moved into the URL — see `useRoute()` above
   // and `route.section`, narrowed per tab, just below.
@@ -978,6 +981,28 @@ export function EcuLabApp() {
     return () => window.removeEventListener('keydown', onKey);
   }, [dispatch]);
 
+  // The command palette (issue 63). Whether it is open is VIEW state like the route,
+  // but nothing links to an open palette, so it is local rather than in the hash.
+  const [paletteOpen, setPaletteOpen] = useState(false);
+  const openPalette = useCallback(() => setPaletteOpen(true), []);
+  const closePalette = useCallback(() => setPaletteOpen(false), []);
+  const [history] = useHistory();
+
+  // Cmd/Ctrl-K toggles it, in the app view only. Unlike undo it is not held back from
+  // text fields: Cmd-K means nothing to an input, and the palette's own field is one.
+  useEffect(() => {
+    if (appView !== 'app') return undefined;
+    /** @param {KeyboardEvent} e */
+    const onKey = (e) => {
+      // Alt excluded for the same AltGr reason as the undo handler above.
+      if (!(e.metaKey || e.ctrlKey) || e.altKey || e.key.toLowerCase() !== 'k') return;
+      e.preventDefault();
+      setPaletteOpen((o) => !o);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [appView]);
+
   const ghost = ghostRun(runs, pinnedRunId);
 
   const chartData = useMemo(() => {
@@ -1199,6 +1224,47 @@ export function EcuLabApp() {
     { id: 'sensors', label: 'SENSORS', icon: Activity },
   ];
 
+  // Built only while the palette is open: its labels read the undo stack and the
+  // engine state, and nothing needs them otherwise. Only what can be taken back is
+  // here — no preset load, no reset to stock (see the spec).
+  /** @type {import('./commands.js').Command[]} */
+  const paletteCommands = [];
+  if (paletteOpen) {
+    const engineOn = live.running || live.cranking;
+    /** @type {(Omit<import('./commands.js').Command, 'kind'>|false)[]} */
+    const actions = [
+      engineOn
+        ? { id: 'act:stop', label: 'Stop engine', keywords: ['engine', 'off'], run: stopEngine }
+        : { id: 'act:start', label: 'Start engine', keywords: ['engine', 'crank'], run: startEngine },
+      !running && {
+        id: 'act:pull', label: 'Run dyno pull', keywords: ['dyno', 'sweep', 'power'],
+        run: () => { goSection('dyno', 'result'); doRun(); },
+      },
+      history.past.length > 0 && {
+        id: 'act:undo', label: `Undo ${history.past[history.past.length - 1].label}`, keywords: [],
+        run: () => dispatch({ type: ACTIONS.UNDO }),
+      },
+      history.future.length > 0 && {
+        id: 'act:redo', label: `Redo ${history.future[0].label}`, keywords: [],
+        run: () => dispatch({ type: ACTIONS.REDO }),
+      },
+      { id: 'act:sound', label: soundOn ? 'Sound off' : 'Sound on', keywords: ['audio', 'mute'], run: toggleSound },
+    ];
+    for (const a of actions) if (a) paletteCommands.push({ ...a, kind: 'action' });
+    /** A page command's target: a tab exactly as the nav opens it, or one section. */
+    const go = (t, sec) => {
+      if (sec === null) { changeTab(t); return; }
+      goSection(t, sec);
+      setSelection(null);
+    };
+    paletteCommands.push(...pageCommands({
+      showJobs: mode === 'career' || activeJob != null,
+      hasResult: result != null,
+      hasHistory: runs.length > 0,
+      go,
+    }));
+  }
+
   if (appView === 'start') {
     return (
       <StartScreen
@@ -1234,7 +1300,7 @@ export function EcuLabApp() {
           now — see AppShell.jsx for what each owns and why. This outer div stays: it
           is the 100dvh/overflow:hidden frame the shell's own `flex: 1` needs to fill,
           not chrome AppShell has any opinion about. */}
-      <AppShell route={route} onNavigate={changeTab} onTutorial={goTutorial} onRepair={repairEngine}>
+      <AppShell route={route} onNavigate={changeTab} onTutorial={goTutorial} onRepair={repairEngine} onSearch={openPalette}>
         {/* ---------- HOME: customer jobs, career stats, health, learning ---------- */}
         {/* One component per section, each reading the store for itself. `live` is read
             ONLY inside LiveScreen: the 20 Hz LIVE_STEP re-render stops there rather than
@@ -1535,6 +1601,9 @@ export function EcuLabApp() {
             />
           </div>
         )}
+
+        {/* In the top layer when open, so where it sits in the tree does not matter. */}
+        <CommandPalette open={paletteOpen} onClose={closePalette} commands={paletteCommands} />
       </AppShell>
     </div>
   );

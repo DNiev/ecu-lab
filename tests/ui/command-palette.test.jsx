@@ -6,11 +6,12 @@
  * commands EcuLab builds.
  */
 
-import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import React from 'react';
 import { afterAll, afterEach, describe, expect, it, vi } from 'vitest';
 
 import { CommandPalette } from '../../src/ui/components/CommandPalette.jsx';
+import EcuLab from '../../src/ui/EcuLab.jsx';
 
 class ResizeObserverStub { observe() {} unobserve() {} disconnect() {} }
 const hadResizeObserver = 'ResizeObserver' in window;
@@ -146,5 +147,110 @@ describe('the palette', () => {
     // The parent's flag went false, so opening again is a real open, not a no-op.
     fireEvent.click(screen.getByRole('button', { name: 'OPEN', hidden: true }));
     expect(dialog().open).toBe(true);
+  });
+});
+
+describe('the palette in the app', () => {
+  const launch = () => {
+    render(<EcuLab />);
+    fireEvent.click(screen.getByRole('button', { name: 'SANDBOX' }));
+  };
+  const cmdK = (init = {}) => fireEvent.keyDown(window, { key: 'k', code: 'KeyK', metaKey: true, ...init });
+  const isOpen = () => Boolean(dialog()?.open);
+  const run = (text) => { type(text); key('Enter'); };
+
+  it('opens on Cmd-K and Ctrl-K, and Cmd-K again closes it', () => {
+    launch();
+    cmdK();
+    expect(isOpen()).toBe(true);
+    cmdK();
+    expect(isOpen()).toBe(false);
+    cmdK({ metaKey: false, ctrlKey: true });
+    expect(isOpen()).toBe(true);
+  });
+
+  it('closes on Cmd-K from inside its own field', () => {
+    launch();
+    cmdK();
+    fireEvent.keyDown(input(), { key: 'k', code: 'KeyK', metaKey: true });
+    expect(isOpen()).toBe(false);
+  });
+
+  it('ignores Cmd-Alt-K, and Cmd-K on the start screen', () => {
+    render(<EcuLab />);
+    cmdK();
+    expect(isOpen()).toBe(false);
+    fireEvent.click(screen.getByRole('button', { name: 'SANDBOX' }));
+    cmdK({ altKey: true });
+    expect(isOpen()).toBe(false);
+  });
+
+  it('opens from the status strip button', () => {
+    launch();
+    fireEvent.click(screen.getByRole('button', { name: 'Search pages and actions' }));
+    expect(isOpen()).toBe(true);
+    expect(document.activeElement).toBe(input());
+  });
+
+  it('goes to a section', () => {
+    launch();
+    cmdK();
+    run('spark');
+    expect(window.location.hash).toBe('#/tune/spark');
+    expect(isOpen()).toBe(false);
+  });
+
+  it('goes to a tab the way the nav does', () => {
+    launch();
+    cmdK();
+    run('drag');
+    expect(window.location.hash).toBe('#/drag/body');
+  });
+
+  it('offers no DYNO result pages and no History before the first pull', () => {
+    launch();
+    cmdK();
+    type('curves');
+    expect(screen.getByText('No matches')).toBeTruthy();
+    type('history');
+    expect(screen.getByText('No matches')).toBeTruthy();
+  });
+
+  it('offers Start engine, and Sound on or off', () => {
+    launch();
+    cmdK();
+    const labels = options().map((o) => o.textContent);
+    expect(labels).toContain('Start engineAction');
+    expect(labels.some((l) => /^Sound (on|off)Action$/.test(l))).toBe(true);
+  });
+
+  it('offers Undo only when there is something to undo, and runs it', () => {
+    launch();
+    cmdK();
+    type('undo');
+    expect(screen.getByText('No matches')).toBeTruthy();
+    key('Escape');
+
+    fireEvent.click(screen.getByRole('button', { name: /TUNE/ }));
+    const cell = within(screen.getByTestId('tuning-grid')).getByRole('button', { name: '3500 RPM, 100 kPa' });
+    fireEvent.click(cell);
+    const before = cell.textContent;
+    fireEvent.click(within(screen.getByTestId('selection-dock')).getByRole('button', { name: '+1' }));
+    expect(cell.textContent).not.toBe(before);
+
+    cmdK();
+    type('undo');
+    expect(options()[0].textContent).toMatch(/^Undo .+Action$/);
+    key('Enter');
+    expect(cell.textContent).toBe(before);
+  });
+
+  it('runs a dyno pull on DYNO', () => {
+    launch();
+    cmdK();
+    run('run dyno');
+    expect(window.location.hash).toBe('#/dyno/result');
+    // jsdom has no Web Audio, so the pull goes straight to the sweep.
+    expect(screen.getByRole('button', { name: 'SWEEPING…' })).toBeTruthy();
   });
 });
