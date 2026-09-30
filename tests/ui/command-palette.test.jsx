@@ -6,7 +6,7 @@
  * commands EcuLab builds.
  */
 
-import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import React from 'react';
 import { afterAll, afterEach, describe, expect, it, vi } from 'vitest';
 
@@ -148,6 +148,59 @@ describe('the palette', () => {
     fireEvent.click(screen.getByRole('button', { name: 'OPEN', hidden: true }));
     expect(dialog().open).toBe(true);
   });
+
+  it('scrolls the active option into view only on open and on a real selection change, not on every render', () => {
+    const hadScrollIntoView = 'scrollIntoView' in window.Element.prototype;
+    if (!hadScrollIntoView) window.Element.prototype.scrollIntoView = () => {};
+    const spy = vi.spyOn(window.Element.prototype, 'scrollIntoView').mockImplementation(() => {});
+    try {
+      /** @type {import('../../src/ui/commands.js').Command[]} */
+      const commands = [
+        { id: 'act:start', label: 'Start engine', kind: 'action', keywords: [], run: () => {} },
+        { id: 'page:tune/spark', label: 'Spark', context: 'TUNE', kind: 'page', keywords: [], run: () => {} },
+      ];
+      const { rerender } = render(<Harness commands={commands} />);
+      fireEvent.click(screen.getByRole('button', { name: 'OPEN' }));
+      const afterOpen = spy.mock.calls.length;
+      expect(afterOpen).toBeGreaterThan(0);
+
+      // A fresh commands array each time, as EcuLab rebuilds `paletteCommands` on every
+      // render — the active option never changes, so this must not call scrollIntoView.
+      rerender(<Harness commands={[...commands]} />);
+      rerender(<Harness commands={[...commands]} />);
+      rerender(<Harness commands={[...commands]} />);
+      expect(spy.mock.calls.length).toBe(afterOpen);
+
+      key('ArrowDown');
+      expect(spy.mock.calls.length).toBe(afterOpen + 1);
+    } finally {
+      spy.mockRestore();
+      if (!hadScrollIntoView) delete window.Element.prototype.scrollIntoView;
+    }
+  });
+
+  it('tracks the active command by id, not by position, when commands change under it', () => {
+    const ran = vi.fn();
+    /** @type {import('../../src/ui/commands.js').Command[]} */
+    const commands = [
+      { id: 'a', label: 'Alpha', kind: 'action', keywords: [], run: () => ran('a') },
+      { id: 'b', label: 'Beta', kind: 'action', keywords: [], run: () => ran('b') },
+    ];
+    const { rerender } = render(<Harness commands={commands} />);
+    fireEvent.click(screen.getByRole('button', { name: 'OPEN' }));
+    key('ArrowDown');
+    expect(options()[1].textContent).toBe('BetaAction');
+    expect(options()[1].getAttribute('aria-selected')).toBe('true');
+
+    // Insert a new command at the front. If the active option is tracked by index, the
+    // highlight silently slides onto whatever is now at index 1 (Alpha) instead of
+    // following Beta.
+    /** @type {import('../../src/ui/commands.js').Command} */
+    const charlie = { id: 'c', label: 'Charlie', kind: 'action', keywords: [], run: () => ran('c') };
+    rerender(<Harness commands={[charlie, ...commands]} />);
+    const selected = options().find((o) => o.getAttribute('aria-selected') === 'true');
+    expect(selected.textContent).toBe('BetaAction');
+  });
 });
 
 describe('the palette in the app', () => {
@@ -182,6 +235,21 @@ describe('the palette in the app', () => {
     expect(isOpen()).toBe(false);
     fireEvent.click(screen.getByRole('button', { name: 'SANDBOX' }));
     cmdK({ altKey: true });
+    expect(isOpen()).toBe(false);
+  });
+
+  it('does not reopen on its own after the app view leaves and comes back', async () => {
+    launch();
+    cmdK();
+    expect(isOpen()).toBe(true);
+
+    // Browser back to the start screen the palette was opened from. CommandPalette
+    // unmounts with the view, but `paletteOpen` must not survive the round trip, or
+    // re-entering the app reopens it at once.
+    window.history.back();
+    await waitFor(() => expect(screen.getByRole('button', { name: 'SANDBOX' })).toBeTruthy());
+
+    fireEvent.click(screen.getByRole('button', { name: 'SANDBOX' }));
     expect(isOpen()).toBe(false);
   });
 
@@ -252,5 +320,61 @@ describe('the palette in the app', () => {
     expect(window.location.hash).toBe('#/dyno/result');
     // jsdom has no Web Audio, so the pull goes straight to the sweep.
     expect(screen.getByRole('button', { name: 'SWEEPING…' })).toBeTruthy();
+  });
+
+  it('does nothing on Cmd-K from the tutorial view', () => {
+    render(<EcuLab />);
+    fireEvent.click(screen.getByRole('button', { name: 'TUTORIAL' }));
+    cmdK();
+    expect(isOpen()).toBe(false);
+  });
+
+  it('offers Stop engine once the engine is started, and running it stops it', () => {
+    launch();
+    fireEvent.click(screen.getByRole('button', { name: 'LIVE' }));
+    fireEvent.click(screen.getByRole('button', { name: 'START ENGINE' }));
+
+    cmdK();
+    const labels = options().map((o) => o.textContent);
+    expect(labels).toContain('Stop engineAction');
+    run('stop engine');
+    expect(screen.getByRole('button', { name: 'START ENGINE' })).toBeTruthy();
+  });
+
+  it('offers Redo after an undo, and running it redoes the edit', () => {
+    launch();
+    fireEvent.click(screen.getByRole('button', { name: /TUNE/ }));
+    const cell = within(screen.getByTestId('tuning-grid')).getByRole('button', { name: '3500 RPM, 100 kPa' });
+    fireEvent.click(cell);
+    const before = cell.textContent;
+    fireEvent.click(within(screen.getByTestId('selection-dock')).getByRole('button', { name: '+1' }));
+    const after = cell.textContent;
+    expect(after).not.toBe(before);
+
+    cmdK();
+    run('undo');
+    expect(cell.textContent).toBe(before);
+
+    cmdK();
+    const labels = options().map((o) => o.textContent);
+    expect(labels.some((l) => /^Redo .+Action$/.test(l))).toBe(true);
+    run('redo');
+    expect(cell.textContent).toBe(after);
+  });
+
+  it('toggles the Sound action label when run', () => {
+    // BUILD's preset picker is a real <select> full of <option>s, which `options()`
+    // (a plain byRole('option') over the whole document) would pick up alongside the
+    // palette's own listbox — so this reaches into the listbox by name instead.
+    const soundOption = () => within(screen.getByRole('listbox', { name: 'Results' })).getAllByRole('option')[0];
+    launch();
+    cmdK();
+    type('sound');
+    expect(soundOption().textContent).toBe('Sound offAction');
+    key('Enter');
+
+    cmdK();
+    type('sound');
+    expect(soundOption().textContent).toBe('Sound onAction');
   });
 });

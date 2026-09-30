@@ -51,6 +51,7 @@ import { StoreProvider, useBuild, useHistory, useSession, useTune } from './stat
 import { ROUTES } from './routing.js';
 import { useRoute } from './useRoute.js';
 import { ACTIONS } from './state/reducer.js';
+import { redoLabel, undoLabel } from './state/history.js';
 import { pullSignature, measuredInputs } from './state/pullSignature.js';
 import { ghostLabel, ghostRun, makeRunRecord } from './state/runLog.js';
 import { Button } from './primitives/Button.jsx';
@@ -988,6 +989,15 @@ export function EcuLabApp() {
   const closePalette = useCallback(() => setPaletteOpen(false), []);
   const [history] = useHistory();
 
+  // Leaving the app view (browser back to the start screen, or into the tutorial)
+  // unmounts `CommandPalette` below, but `paletteOpen` is this component's own state
+  // and survives that unmount same as `tab` or `mode` does. Left alone, re-entering the
+  // app would remount the palette already open, popping it back up unasked. It is VIEW
+  // state scoped to the app view, so leaving that view resets it.
+  useEffect(() => {
+    if (appView !== 'app') setPaletteOpen(false);
+  }, [appView]);
+
   // Cmd/Ctrl-K toggles it, in the app view only. Unlike undo it is not held back from
   // text fields: Cmd-K means nothing to an input, and the palette's own field is one.
   useEffect(() => {
@@ -1241,11 +1251,11 @@ export function EcuLabApp() {
         run: () => { goSection('dyno', 'result'); doRun(); },
       },
       history.past.length > 0 && {
-        id: 'act:undo', label: `Undo ${history.past[history.past.length - 1].label}`, keywords: [],
+        id: 'act:undo', label: /** @type {string} */ (undoLabel(history)), keywords: [],
         run: () => dispatch({ type: ACTIONS.UNDO }),
       },
       history.future.length > 0 && {
-        id: 'act:redo', label: `Redo ${history.future[0].label}`, keywords: [],
+        id: 'act:redo', label: /** @type {string} */ (redoLabel(history)), keywords: [],
         run: () => dispatch({ type: ACTIONS.REDO }),
       },
       { id: 'act:sound', label: soundOn ? 'Sound off' : 'Sound on', keywords: ['audio', 'mute'], run: toggleSound },

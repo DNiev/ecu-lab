@@ -33,11 +33,19 @@ export function CommandPalette({ open, onClose, commands }) {
   const dialogRef = React.useRef(/** @type {HTMLDialogElement|null} */ (null));
   const inputRef = React.useRef(/** @type {HTMLInputElement|null} */ (null));
   const [query, setQuery] = React.useState('');
-  const [active, setActive] = React.useState(0);
+  // The active command's id, not its position: `commands` can change under an open
+  // palette (the undo/redo entries come and go, a page becomes available), and an
+  // index would then silently point at whatever is now in that slot. `null` means "no
+  // explicit choice yet" — the first result — and covers both the initial mount and
+  // every reset below.
+  const [activeId, setActiveId] = React.useState(/** @type {string|null} */ (null));
   const listId = React.useId();
 
   const results = matchCommands(query, commands);
-  const current = Math.min(active, results.length - 1);
+  const activeIndex = results.findIndex((c) => c.id === activeId);
+  // Falls back to the first result both when nothing is chosen yet and when the chosen
+  // id scrolled out of the results entirely (a rerank, or the command disappearing).
+  const current = results.length === 0 ? -1 : (activeIndex >= 0 ? activeIndex : 0);
   const optionId = (i) => `${listId}-${i}`;
 
   React.useEffect(() => {
@@ -45,8 +53,10 @@ export function CommandPalette({ open, onClose, commands }) {
     if (!d) return;
     if (open && !d.open) {
       setQuery('');
-      setActive(0);
+      setActiveId(null);
       d.showModal();
+      // showModal() would focus the field on its own in a real browser; the explicit
+      // call is for environments whose <dialog> does not do that (the test stub).
       inputRef.current?.focus();
     } else if (!open && d.open) {
       d.close();
@@ -61,11 +71,17 @@ export function CommandPalette({ open, onClose, commands }) {
     return () => d.removeEventListener('close', onClose);
   }, [onClose]);
 
+  // Deps matter here: with none, this ran after every render, and EcuLab rebuilds
+  // `commands` (and so `results`) on every one of its own renders — at 20 Hz while the
+  // engine is running. That scrolled the list back to the active option every 50 ms,
+  // fighting anyone trying to scroll it by hand. `current >= 0 ? optionId(current) :
+  // null` changes only on open and on a real change of which option is active.
+  const activeOptionId = current >= 0 ? optionId(current) : null;
   React.useEffect(() => {
-    if (!open || current < 0) return;
+    if (!open || !activeOptionId) return;
     // Optional call: jsdom has no scrollIntoView.
-    document.getElementById(optionId(current))?.scrollIntoView?.({ block: 'nearest' });
-  });
+    document.getElementById(activeOptionId)?.scrollIntoView?.({ block: 'nearest' });
+  }, [open, activeOptionId]);
 
   /** @param {number} i */
   const runAt = (i) => {
@@ -81,8 +97,12 @@ export function CommandPalette({ open, onClose, commands }) {
       e.preventDefault();
       if (!results.length) return;
       const step = e.key === 'ArrowDown' ? 1 : -1;
-      setActive((current + step + results.length) % results.length);
+      setActiveId(results[(current + step + results.length) % results.length].id);
     } else if (e.key === 'Enter') {
+      // An IME (composing Japanese, Chinese, Korean…) uses Enter to confirm the
+      // candidate it is composing, not to submit. Without this guard that Enter both
+      // confirms the candidate and runs whatever the palette currently has active.
+      if (e.nativeEvent.isComposing) return;
       e.preventDefault();
       runAt(current);
     } else if (e.key === 'Escape') {
@@ -110,7 +130,7 @@ export function CommandPalette({ open, onClose, commands }) {
           aria-activedescendant={results.length ? optionId(current) : undefined}
           placeholder="Go to a page or run an action…"
           value={query}
-          onChange={(e) => { setQuery(e.target.value); setActive(0); }}
+          onChange={(e) => { setQuery(e.target.value); setActiveId(null); }}
           onKeyDown={onKeyDown}
         />
         <ul id={listId} role="listbox" aria-label="Results" className={styles.list}>
@@ -122,7 +142,7 @@ export function CommandPalette({ open, onClose, commands }) {
               role="option"
               aria-selected={i === current}
               className={styles.option}
-              onMouseMove={() => { if (i !== current) setActive(i); }}
+              onMouseMove={() => { if (i !== current) setActiveId(c.id); }}
               onClick={() => runAt(i)}
             >
               <span className={styles.label}>

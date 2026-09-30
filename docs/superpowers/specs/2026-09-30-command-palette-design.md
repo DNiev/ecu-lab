@@ -95,7 +95,9 @@ Labels read like the undo button's: *Undo Spark edit · +5 · 12 cells*.
 
 ### 5. Opening it
 
-- **Cmd/Ctrl-K** in EcuLab's global handler, beside undo: app view only (not start or
+- **Cmd/Ctrl-K** in its own effect in EcuLab, not folded into the undo handler beside
+  it: the undo handler deliberately skips text fields and Cmd-K must work from them,
+  and Cmd-K is gated on the app view where undo is not. App view only (not start or
   tutorial), toggles, works from inside a field (Cmd-K means nothing to an input),
   `altKey` excluded like undo's.
 - **Strip button:** a `Search` icon button first in StatusStrip's actions group,
