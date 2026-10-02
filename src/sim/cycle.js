@@ -50,7 +50,8 @@
 import { COEFF } from './coefficients.js';
 import { BARO_KPA, KPA_PER_BAR, R_AIR } from './constants.js';
 import { clamp } from './math.js';
-import { evaporativeCoolingK, residualFraction, trappedChargeK } from './thermo.js';
+import { N2O } from './nitrous.js';
+import { evaporativeCoolingK, fuelDewPointK, residualFraction, trappedChargeK } from './thermo.js';
 
 /**
  * Crank angle at which the exhaust valve opens, degrees after TDC firing.
@@ -154,6 +155,11 @@ export function burnDurationDeg({ rpm, lambda, residualFrac, boreFlameFactor = 1
  * @property {number} octaneNumber fuel antiknock index
  * @property {number} [lambda] delivered lambda; sets how hot the flame behind the
  *   front runs, which heats the end gas on top of compression
+ * @property {number} [evoAtdc] exhaust valve open, degrees after TDC firing. A retarded
+ *   exhaust cam opens it later, so the gas does more work on the piston before it
+ *   leaves. Defaults to {@link EVO_ATDC}
+ * @property {number} [exhaustManifoldPa] pressure the exhaust blows down into. Defaults
+ *   to atmospheric, which is right for an open pipe and wrong ahead of a turbine
  */
 
 /**
@@ -178,7 +184,7 @@ export function burnDurationDeg({ rpm, lambda, residualFrac, boreFlameFactor = 1
 export function runCycle({
   rpm, sparkBtdc, trappedPa, trappedK, heatJ,
   clearanceM3, sweptM3, rodRatio, ivcAbdc, burnDeg, octaneNumber,
-  boreM, strokeM, trappedMassKg,
+  boreM, strokeM, trappedMassKg, evoAtdc = EVO_ATDC, exhaustManifoldPa = BARO_KPA * 1000,
 }) {
   const step = COEFF.CYCLE_STEP_DEG;
   const thetaStart = -180 + ivcAbdc;
@@ -243,7 +249,7 @@ export function runCycle({
     return 1 - Math.exp(-COEFF.WIEBE_A * Math.pow(x, COEFF.WIEBE_M + 1));
   };
 
-  for (let theta = thetaStart; theta < EVO_ATDC; theta += step) {
+  for (let theta = thetaStart; theta < evoAtdc; theta += step) {
     const thetaNext = theta + step;
     const vNext = cylinderVolumeM3(thetaNext, clearanceM3, sweptM3, rodRatio);
     const burned = burnedFraction(thetaNext);
@@ -370,7 +376,15 @@ export function runCycle({
   // the exhaust: a 20 kPa cruise point came out at 2.25x and left the port ~250 K hotter
   // than the burned gas that fed it, so the datalog read EGT climbing as the driver
   // lifted. There is no expansion to have in that case; the charge is simply pushed out.
-  const blowdownRatio = Math.min(1, BARO_KPA * 1000 / Math.max(p, 1));
+  //
+  // And it blows down INTO THE EXHAUST MANIFOLD, not into the atmosphere. On a naturally
+  // aspirated engine the two are within a few kPa of each other. Ahead of a turbine they
+  // are not: the manifold sits at two to two-and-a-half bar, so the gas expands through
+  // less than half the pressure ratio and arrives far hotter. Expanding it to 1 bar
+  // instead read a boosted engine 150-200 °C cooler than the same engine unboosted,
+  // which is backwards, and left the gauge ~200 °C under the turbine-inlet temperature
+  // `exhaustTempK` gives the turbine for the same point.
+  const blowdownRatio = Math.min(1, exhaustManifoldPa / Math.max(p, 1));
   const blowdownK = tB * Math.pow(
     Math.max(0.05, blowdownRatio),
     (COEFF.GAMMA_BURNED - 1) / COEFF.GAMMA_BURNED,
@@ -505,23 +519,49 @@ export function trappedAirGrams({ veActual, mapKpa, chargeK, sweptM3 }) {
  * @param {number} input.lambda delivered lambda
  * @param {{lhv: number, octane: number, stoich: number}} input.fuel
  * @param {import('./engine.js').DerivedEngine} input.derived
+ * @param {{intakeAdvDeg?: number, exhaustRetDeg?: number}} [input.cam] where the cam
+ *   phasers have put the camshafts, crank degrees from their parked position. Advancing
+ *   the intake closes the intake valve earlier (more effective compression, more
+ *   trapped charge at low speed) and opens it earlier into the exhaust stroke (more
+ *   overlap). Retarding the exhaust holds it open later into the intake stroke (more
+ *   overlap) and opens it later on the power stroke (more expansion). Absent, the cams
+ *   sit where the grind put them, which is every engine without phasers
+ * @param {number} [input.n2oG] nitrous oxide in the cylinder, grams. Its oxygen is already
+ *   in `burnedFuelG` (the fuel it lets burn) and `lambda`; here it adds its own gas to the
+ *   trapped pressure and the mass to heat, and the heat of its breakdown to the burn
  * @returns {CycleInput & {residualFrac: number, trappedK: number, effectiveCr: number}}
  */
 export function cycleInputsFor({
-  rpm, mapKpa, empKpa, intakeK, airChargeG, burnedFuelG, fuelMassG, lambda, fuel, derived,
+  rpm, mapKpa, empKpa, intakeK, airChargeG, burnedFuelG, fuelMassG, lambda, fuel, derived, cam, n2oG = 0,
 }) {
   const fuelIn = fuelMassG ?? burnedFuelG;
   const sweptM3 = (derived.displacementL / derived.cyl) / 1000;
   const clearanceM3 = sweptM3 / (derived.compression - 1);
-  const ivcAbdc = ivcAfterBdcDeg(derived.camDuration);
+  const intakeAdv = cam?.intakeAdvDeg ?? 0;
+  const exhaustRet = cam?.exhaustRetDeg ?? 0;
+  const ivcAbdc = ivcAfterBdcDeg(derived.camDuration) - intakeAdv;
   const vIvc = cylinderVolumeM3(-180 + ivcAbdc, clearanceM3, sweptM3, COEFF.ROD_RATIO);
+  const overlapDeg = Math.max(0, (derived.overlapDeg || 0) + intakeAdv + exhaustRet);
 
   const residualFrac = residualFraction({
-    mapKpa, empKpa, overlapDeg: derived.overlapDeg || 0, compression: derived.compression,
+    mapKpa, empKpa, overlapDeg, compression: derived.compression,
   });
   // Fuel evaporating into the charge cools it before anything else happens to it, so a
   // richer mixture starts compression colder and a leaner one starts hotter.
-  const cooledK = intakeK - evaporativeCoolingK(fuelIn, airChargeG, fuel);
+  //
+  // That cooling stands for evaporation over intake AND compression — the charge takes
+  // up more vapour as it is squeezed and heats — so the limit on it is whether the fuel
+  // can be vapour by the spark. If even at the top of compression the charge would sit
+  // below the vapour's dew point, the fuel never evaporated and cooled nothing: it is
+  // liquid on the walls and the plug, which is what a flooded engine is. The bound is
+  // that dew point carried back down the compression stroke. Without it a flooded
+  // charge was cooled below absolute zero and the cycle returned NaN; a running engine
+  // never comes near it.
+  const crEff = vIvc / clearanceM3;
+  const nComp = COEFF.GAMMA_UNBURNED;
+  const floorK = fuelDewPointK(fuelIn, airChargeG, mapKpa * Math.pow(crEff, nComp), fuel)
+    / Math.pow(crEff, nComp - 1);
+  const cooledK = Math.max(intakeK - evaporativeCoolingK(fuelIn, airChargeG, fuel), Math.min(intakeK, floorK));
   const trappedK = trappedChargeK(cooledK, residualFrac) + (derived.chamberOffsetK || 0);
 
   // Pressure at intake valve close, from the ideal gas law on the fresh charge at the
@@ -536,14 +576,17 @@ export function cycleInputsFor({
   // ignition delay goes as pressure to the -1.7 power, that alone made boosted engines
   // far more knock-prone than they are. Pressure comes from the fresh charge; the mixed
   // temperature below is what the thermal history and the end gas run on.
-  const trappedPa = ((airChargeG / 1000) * R_AIR * cooledK) / vIvc;
+  // Nitrous vapour is gas in the cylinder too, at its own gas constant (R / 44 g/mol).
+  const trappedPa = n2oG > 0
+    ? (((airChargeG / 1000) * R_AIR + (n2oG / 1000) * N2O.gasConstant) * cooledK) / vIvc
+    : ((airChargeG / 1000) * R_AIR * cooledK) / vIvc;
 
   // Everything in the cylinder that has heat capacity: fresh air, the residual it mixed
   // with, AND the fuel vapour. Counting the fuel matters — it is why a rich mixture burns
   // cooler even though it releases the same heat. Past stoichiometric the extra fuel
   // finds no oxygen, so it adds mass to warm without adding energy, and flame temperature
   // falls. Leave it out and over-fuelling looks thermally free.
-  const totalMassKg = ((airChargeG + fuelIn) / 1000) / Math.max(0.05, 1 - residualFrac);
+  const totalMassKg = ((airChargeG + fuelIn + n2oG) / 1000) / Math.max(0.05, 1 - residualFrac);
 
   return {
     rpm,
@@ -553,7 +596,11 @@ export function cycleInputsFor({
     strokeM: derived.stroke / 1000,
     trappedMassKg: totalMassKg,
     trappedK,
-    heatJ: (burnedFuelG / 1000) * fuel.lhv * COEFF.COMBUSTION_COMPLETENESS,
+    // Nitrous coming apart (2 N₂O → 2 N₂ + O₂) releases heat of its own on top of the
+    // fuel its oxygen burns.
+    heatJ: n2oG > 0
+      ? ((burnedFuelG / 1000) * fuel.lhv + (n2oG / 1000) * N2O.decompJPerKg) * COEFF.COMBUSTION_COMPLETENESS
+      : (burnedFuelG / 1000) * fuel.lhv * COEFF.COMBUSTION_COMPLETENESS,
     clearanceM3,
     sweptM3,
     rodRatio: COEFF.ROD_RATIO,
@@ -565,6 +612,10 @@ export function cycleInputsFor({
     lambda,
     residualFrac,
     effectiveCr: vIvc / clearanceM3,
+    // Only carried when a phaser has moved the exhaust cam, so a fixed-cam engine's
+    // cycle inputs are exactly what they always were.
+    ...(exhaustRet ? { evoAtdc: EVO_ATDC + exhaustRet } : {}),
+    ...(empKpa ? { exhaustManifoldPa: empKpa * 1000 } : {}),
   };
 }
 

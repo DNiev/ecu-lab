@@ -21,8 +21,9 @@ import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import React from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { DEFAULT_CAR } from '../../src/sim/index.js';
+import { DEFAULT_CAR, setCal } from '../../src/sim/index.js';
 import { DragScreen, dragSignature } from '../../src/ui/screens/drag/DragScreen.jsx';
+import { makeInitialState } from '../../src/ui/state/initialState.js';
 import { ACTIONS } from '../../src/ui/state/reducer.js';
 import { StoreProvider, useSession } from '../../src/ui/state/StoreProvider.jsx';
 
@@ -33,6 +34,9 @@ const DERIVED = { redline: 7200 };
 
 /** A dyno result with just the fields DRAG reads off it. */
 const RESULT = { points: [], events: [], peakHp: 320, peakTq: 300 };
+
+/** The calibration a fresh store starts with, which the mounted screen reads. */
+const ECU = makeInitialState().tune.ecu;
 
 /**
  * Mounts DRAG with a real store, handing the test the store's dispatch so a finished
@@ -106,7 +110,7 @@ describe('the time slip', () => {
   it('reports the run the car actually made', () => {
     const { seed } = mountDrag();
     seed('dragResult', FINISHED_RUN);
-    seed('dragSetup', dragSignature(DEFAULT_CAR, RESULT));
+    seed('dragSetup', dragSignature(DEFAULT_CAR, RESULT, ECU));
     expect(screen.getByText('11.82')).toBeTruthy();
     expect(screen.getByText('121.4')).toBeTruthy();
     expect(screen.getByText('1.71')).toBeTruthy();
@@ -118,7 +122,7 @@ describe('the time slip', () => {
     // a 60-foot time on screen that this car cannot run, presented as if it could.
     const { seed } = mountDrag();
     seed('dragResult', FINISHED_RUN);
-    seed('dragSetup', dragSignature(DEFAULT_CAR, RESULT));
+    seed('dragSetup', dragSignature(DEFAULT_CAR, RESULT, ECU));
     seed('car', { ...DEFAULT_CAR, gripIdx: 3 });
     expect(screen.getByText(/before your latest change/i)).toBeTruthy();
     // And the numbers stay: labelled evidence, not deleted evidence.
@@ -181,6 +185,20 @@ describe('dragSignature', () => {
     // A new pull is the only thing that changes the torque curve the run was driven
     // with, so the engine side of the signature is the pull's own output.
     expect(dragSignature(DEFAULT_CAR, { ...RESULT, peakHp: 400 })).not.toBe(base);
+  });
+
+  it('changes with the launch strategy the calibration gives the strip', () => {
+    const base = dragSignature(DEFAULT_CAR, RESULT, ECU);
+    /** @type {[string, boolean|number][]} */
+    const moves = [
+      ['arc.launchEnabled', true], ['arc.ffsEnabled', true], ['torque.tcEnabled', true],
+      ['limiter.speedLimitKph', 180],
+    ];
+    for (const [path, value] of moves) {
+      expect(dragSignature(DEFAULT_CAR, RESULT, setCal(ECU, path, value)), path).not.toBe(base);
+    }
+    // A calibration setting the strip never reads leaves the run current.
+    expect(dragSignature(DEFAULT_CAR, RESULT, setCal(ECU, 'idle.gainUp', 0.05))).toBe(base);
   });
 
   it('is stable when nothing that matters has moved', () => {

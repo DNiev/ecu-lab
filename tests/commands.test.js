@@ -7,7 +7,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { SECTION_LABELS, TAB_LABELS, matchCommands, pageCommands } from '../src/ui/commands.js';
 import { ROUTES } from '../src/ui/routing.js';
 
-const ALL = { showJobs: true, hasResult: true, hasHistory: true };
+const ALL = { showJobs: true, hasResult: true, hasHistory: true, hasNitrous: true };
 const pages = (flags = ALL, go = () => {}) => pageCommands({ ...flags, go });
 const ids = (cmds) => cmds.map((c) => c.id);
 
@@ -37,7 +37,7 @@ describe('pageCommands', () => {
     ]);
     expect(list).toContain('page:live');
     expect(list.some((id) => id.startsWith('page:live/'))).toBe(false);
-    expect(list).toHaveLength(6 + 22);
+    expect(list).toHaveLength(6 + 28);
   });
 
   it('prints the tab before a section, and not before a tab', () => {
@@ -55,14 +55,19 @@ describe('pageCommands', () => {
     expect(ids(pages({ ...ALL, showJobs: false }))).not.toContain('page:dash/jobs');
   });
 
+  it("drops Nitrous Control without a kit, as TUNE's switcher does", () => {
+    expect(ids(pages({ ...ALL, hasNitrous: false }))).not.toContain('page:tune/nitrous');
+    expect(ids(pages())).toContain('page:tune/nitrous');
+  });
+
   it('drops the four result sections before the first pull, and History with no pulls banked', () => {
-    const list = ids(pages({ showJobs: true, hasResult: false, hasHistory: false }));
+    const list = ids(pages({ ...ALL, hasResult: false, hasHistory: false }));
     for (const s of ['result', 'log', 'data', 'score', 'history']) expect(list).not.toContain(`page:dyno/${s}`);
     expect(list).toContain('page:dyno');
   });
 
   it('keeps History when pulls are banked but none is showing', () => {
-    const list = ids(pages({ showJobs: true, hasResult: false, hasHistory: true }));
+    const list = ids(pages({ ...ALL, hasResult: false, hasHistory: true }));
     expect(list).toContain('page:dyno/history');
     expect(list).not.toContain('page:dyno/result');
   });

@@ -157,6 +157,8 @@ export function charMultiplier(rpm, ratio) {
  * @property {number} [camDuration] crank degrees
  * @property {number} [springRate] valve spring rate
  * @property {number} [redline] rev limit, RPM
+ * @property {string} [vvt] cam phasers fitted: 'none', 'intake' or 'dual'. Hardware, like
+ *   the cam itself; absent means fixed cams
  */
 
 /**

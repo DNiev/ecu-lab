@@ -38,7 +38,7 @@ import { Panel } from '../../primitives/Panel.jsx';
 import { Seg } from '../../primitives/Seg.jsx';
 import { StatTile } from '../../primitives/StatTile.jsx';
 import { ACTIONS } from '../../state/reducer.js';
-import { useSession } from '../../state/StoreProvider.jsx';
+import { useSession, useTune } from '../../state/StoreProvider.jsx';
 
 import { DragStrip } from './DragStrip.jsx';
 
@@ -52,17 +52,23 @@ import styles from './DragScreen.module.css';
  * street tyres and the slip still reads 10.2 at 140 — a time this car cannot run. The
  * fix here is the same one the score panels use: keep the evidence, label it, and let
  * the player decide when to re-run. `peakHp` stands in for the engine, because a new
- * pull is the only thing that changes the torque curve this run was driven with.
+ * pull is the only thing that changes the torque curve this run was driven with. The
+ * engine management's launch strategy acts on the strip itself, so it is here too.
  *
  * @param {import('../../../sim/index.js').DragCar} car
  * @param {{peakHp: number}|null} result the dyno pull the run was driven from
+ * @param {{arc?: object, torque?: object, boost?: {gearLimit?: object}, limiter?: {speedLimitKph?: number}}|null} [ecu]
+ *   the calibration the run was driven with
  * @returns {string}
  */
-export function dragSignature(car, result) {
+export function dragSignature(car, result, ecu = null) {
   return [
     car.bodyIdx, car.gripIdx, car.driveIdx, car.boxIdx,
     car.gearCount, car.finalDrive, car.gears[0], car.tireDiameterIn,
     result ? result.peakHp : 'none',
+    // Two-step, flat-foot shifting, traction control, torque and boost limits by gear
+    // and the road-speed limiter: everything `simulateDragRun` reads off the calibration.
+    ecu ? JSON.stringify([ecu.arc, ecu.torque, ecu.boost?.gearLimit, ecu.limiter?.speedLimitKph]) : 'no-ecu',
   ].join('|');
 }
 
@@ -79,6 +85,7 @@ export function dragSignature(car, result) {
  */
 export function DragScreen({ section, onToggle, result, engineDerived, onRun }) {
   const [session, dispatch] = useSession();
+  const [tune] = useTune();
   const { car, dragResult, dragRunning, dragT, treePhase, dragSetup } = session;
 
   /** @param {Partial<import('../../../sim/index.js').DragCar>} patch */
@@ -92,7 +99,7 @@ export function DragScreen({ section, onToggle, result, engineDerived, onRun }) 
   const box = GEARBOX_OPTS[car.boxIdx];
   const topGear = car.gears[car.gearCount - 1];
   const firstMult = car.gears[0] * car.finalDrive;
-  const stale = !!dragResult && dragSetup !== dragSignature(car, result);
+  const stale = !!dragResult && dragSetup !== dragSignature(car, result, tune.ecu);
 
   return (
     <>
@@ -197,7 +204,7 @@ export function DragScreen({ section, onToggle, result, engineDerived, onRun }) 
 
             <ExpandableInfo title="Why the same engine is not the same car">
               Nothing here is a handicap number — every figure is a term in an equation that is already running.
-              <br /><br /><b className={styles.em}>Mass</b> divides straight into acceleration (a = F ÷ m), and it also has to be spun up through the gearing, so it costs twice.
+              <br /><br /><b className={styles.em}>Mass</b> divides straight into acceleration (a = F ÷ m). On top of the car's own mass, the engine and gearbox have to be spun up through the gearing, which acts like extra weight — most of all in first, where the ratio is highest.
               <br /><br /><b className={styles.em}>Cd × frontal area</b> is drag, and it grows with the square of speed. Almost nothing at the line, everything at the trap — which is why a van gives up far more trap speed than ET against a coupe.
               <br /><br /><b className={styles.em}>Centre of gravity height and wheelbase</b> set weight transfer, ΔN = m·a·h ÷ L. A tall van transfers more load rearward than a low supercar, which genuinely helps it hook up — one of the few things working in its favour.
               <br /><br /><b className={styles.em}>Static rear weight</b> is how much grip you start with before any transfer at all. A mid-engined supercar begins with 57% over the driven axle; a pickup has 38%.
@@ -295,7 +302,7 @@ export function DragScreen({ section, onToggle, result, engineDerived, onRun }) 
             <ExpandableInfo title="Why grip is a hard ceiling on acceleration">
               However much torque you make, the tyre can only transmit what friction allows:
               <br /><br /><span className={styles.formula}>F_max = μ × N</span>
-              <br /><br />μ is the coefficient of friction, N the load pressing the driven tyres onto the road. Measured values: street tyres 0.8–0.9, good summer tyres about 1.0, racing slicks 1.7–1.9, prepared drag surfaces higher again.
+              <br /><br />μ is the coefficient of friction, N the load pressing the driven tyres onto the road. Typical values: street tyres 0.8–0.9, good summer tyres about 1.0, racing slicks 1.7–1.9, prepared drag surfaces higher again.
               <br /><br />Divide by mass and μ is directly a ceiling on acceleration in g. At μ = 0.85 the very best possible is 0.85 g <i>if every kilogram sat on the driven wheels</i> — and on a rear-drive car only about 47% does at rest. Past that point, more power simply makes smoke.
               <br /><br /><b className={styles.em}>Weight transfer is what rescues it.</b> Accelerating shifts load rearward by <span className={styles.formula}>ΔN = m × a × h ÷ L</span>, so grip grows with the very acceleration it enables. That is why a rear-drive car out-launches its static weight distribution, and why all-wheel drive wins anyway: it starts with all of it.
               <br /><br />There is one more consequence worth noticing, because it surprises people. When the tyre is the limit, a = μ·g·f ÷ (1 − μ·h/L) — the mass cancels out entirely. Adding weight to a car that is already spinning its tyres does not slow the launch at all. It slows everything after it.

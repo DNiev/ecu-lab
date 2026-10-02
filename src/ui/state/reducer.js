@@ -25,11 +25,12 @@
  * resolves them against the `live` it already holds.
  */
 
-import { clamp, clone2D, DEFAULT_AFR, DEFAULT_MODS, DEFAULT_TIMING, liveStep, presetById } from '../../sim/index.js';
+import { clamp, clone2D, DEFAULT_AFR, DEFAULT_MODS, DEFAULT_TIMING, ECU_META, liveStep, presetById, setCal } from '../../sim/index.js';
 
 import {
   HISTORY_LIMIT, RESTORE_ALL, RESTORE_CALIBRATION, restore, snapshot, snapshotsTuneField,
 } from './history.js';
+import { stockEcuParts } from './initialState.js';
 import { pushRun, RUN_LIMIT } from './runLog.js';
 
 /** @typedef {import('./initialState.js').StoreState} StoreState */
@@ -59,6 +60,10 @@ export const ACTIONS = Object.freeze({
   RESTORE_CAREER: 'RESTORE_CAREER',
   PIN_RUN: 'PIN_RUN',
   UNPIN_RUN: 'UNPIN_RUN',
+  SET_ECU: 'SET_ECU',
+  SWITCH_MAP: 'SWITCH_MAP',
+  COPY_MAP: 'COPY_MAP',
+  SWAP_MAPS: 'SWAP_MAPS',
   LIVE_STEP: 'LIVE_STEP',
   LIVE_PATCH: 'LIVE_PATCH',
   UNDO: 'UNDO',
@@ -102,6 +107,23 @@ export const ACTIONS = Object.freeze({
  * atomically, which is the whole reason this is one reducer and not two.
  * `label` is the undo entry's detail, e.g. "scale +5% · 12 cells" — see `labelFor`.
  * @typedef {{type: 'SET_TABLE', table: 've'|'timing'|'afr', value: number[][], label?: string}} SetTableAction
+ */
+
+/**
+ * Writes the engine management calibration: one field by dotted `path`
+ * (`'boost.kp'`, `'fuel.warmup'`), or the whole of it when `path` is absent — a reset
+ * to the factory calibration, or a saved one loaded. Undoable, like a table edit, and
+ * for the same reason: it is calibration the player cannot otherwise get back.
+ * @typedef {{type: 'SET_ECU', path?: string, value: any, label?: string}} SetEcuAction
+ */
+
+/**
+ * Map switching, as UpRev's map slots and HP Tuners' Switch on the Fly do it: store the
+ * running calibration in its slot and run another (SWITCH_MAP); copy the running
+ * calibration into another slot (COPY_MAP); exchange two slots (SWAP_MAPS).
+ * @typedef {{type: 'SWITCH_MAP', index: number}} SwitchMapAction
+ * @typedef {{type: 'COPY_MAP', to: number}} CopyMapAction
+ * @typedef {{type: 'SWAP_MAPS', a: number, b: number}} SwapMapsAction
  */
 
 /**
@@ -163,6 +185,7 @@ export const ACTIONS = Object.freeze({
  *   turbineIdx: number, turbineCount: number, compressorIdx: number, injIdx: number,
  *   ecuInjectorCc: number, octaneIdx: number, exhaustDiaIdx: number,
  *   ve: number[][], timing: number[][], afr: number[][],
+ *   ecu?: object,
  * }}} ApplyPresetAction
  */
 
@@ -179,7 +202,7 @@ export const ACTIONS = Object.freeze({
  * — three of the five earlier calls set it true via `withTableEdit`/`withPresetField`,
  * so the LAST write had to win. One action has no "last write" to get right: it is
  * simply false in the object literal below.
- * @typedef {{type: 'RESET_TO_STOCK', ve: number[][]}} ResetToStockAction
+ * @typedef {{type: 'RESET_TO_STOCK', ve: number[][], ecu?: object}} ResetToStockAction
  */
 
 /**
@@ -205,7 +228,7 @@ export const ACTIONS = Object.freeze({
  * it sets itself.
  *
  * It also empties the undo stack: see the case below.
- * @typedef {{type: 'TAKE_JOB', index: number, build: BuildState, ve: number[][]}} TakeJobAction
+ * @typedef {{type: 'TAKE_JOB', index: number, build: BuildState, ve: number[][], ecu?: object}} TakeJobAction
  */
 
 /**
@@ -368,7 +391,8 @@ export const ACTIONS = Object.freeze({
  * shape is assignable to `StoreAction` and the twenty specific typedefs above become
  * decorative — a typo'd payload key (`presset` instead of `preset`) would typecheck
  * clean. Without the catch-all, `tsc` must reject it.
- * @typedef {SetBuildFieldAction | ClearPresetIdAction | SetTurbineAction | SetTableAction |
+ * @typedef {SetBuildFieldAction | ClearPresetIdAction | SetTurbineAction | SetTableAction | SetEcuAction |
+ *   SwitchMapAction | CopyMapAction | SwapMapsAction |
  *   SetSessionFieldAction | SetTuneFieldAction | SetBoostSelAction |
  *   SetPresetPromptAction | SetEngineConfigPatchAction | ApplyPresetAction |
  *   ResetToStockAction | RepairEngineAction | BankPullAction | RestoreCareerAction |
@@ -383,6 +407,15 @@ export const ACTIONS = Object.freeze({
  * unaffected — it is simply an alias for {@link KnownStoreAction}, not a looser type.
  * @typedef {KnownStoreAction} StoreAction
  */
+
+/**
+ * The running calibration as a map-slot entry.
+ * @param {TuneState} t
+ * @returns {import('./initialState.js').MapSlot}
+ */
+function mapOf(t) {
+  return { ve: t.ve, timing: t.timing, afr: t.afr, ecu: t.ecu };
+}
 
 /**
  * Every case except UNDO/REDO. Wrapped by `reducer` below, which adds the undo stack
@@ -454,6 +487,57 @@ function baseReducer(state, action) {
         tune: { ...state.tune, [action.table]: action.value, tablesDirty: true },
       };
 
+    case ACTIONS.SET_ECU:
+      // One calibration field by dotted path, or the whole calibration when `path` is
+      // absent (a reset or a loaded calibration). Calibration work, so it disowns a
+      // preset and marks the tables dirty exactly as a base-table edit does.
+      return {
+        ...state,
+        build: { ...state.build, presetId: null },
+        tune: {
+          ...state.tune,
+          ecu: action.path ? setCal(state.tune.ecu, action.path, action.value) : action.value,
+          tablesDirty: true,
+        },
+      };
+
+    case ACTIONS.SWITCH_MAP: {
+      // Map switching: the running calibration is stored in its slot and the chosen
+      // slot's becomes the running one. A slot never written takes a copy of the running
+      // calibration, as every map in a freshly flashed ROM starts identical.
+      const t = state.tune;
+      const to = action.index;
+      if (to === t.activeMap) return state;
+      const maps = [...t.maps];
+      maps[t.activeMap] = mapOf(t);
+      const next = maps[to] ?? mapOf(t);
+      maps[to] = null;
+      return { ...state, tune: { ...t, ...next, maps, activeMap: to } };
+    }
+
+    case ACTIONS.COPY_MAP: {
+      const t = state.tune;
+      if (action.to === t.activeMap) return state;
+      const maps = [...t.maps];
+      maps[action.to] = mapOf(t);
+      return { ...state, tune: { ...t, maps } };
+    }
+
+    case ACTIONS.SWAP_MAPS: {
+      const t = state.tune;
+      const { a, b } = action;
+      if (a === b) return state;
+      const maps = [...t.maps];
+      const read = (i) => (i === t.activeMap ? mapOf(t) : maps[i] ?? mapOf(t));
+      const va = read(a);
+      const vb = read(b);
+      let tune = { ...t };
+      const write = (i, v) => { if (i === t.activeMap) tune = { ...tune, ...v }; else maps[i] = v; };
+      write(a, vb);
+      write(b, va);
+      return { ...state, tune: { ...tune, maps, tablesDirty: true } };
+    }
+
     case ACTIONS.SET_SESSION_FIELD:
       return {
         ...state,
@@ -505,10 +589,16 @@ function baseReducer(state, action) {
           ecuInjectorCc: p.ecuInjectorCc,
           octaneIdx: p.octaneIdx,
           exhaustDiaIdx: p.exhaustDiaIdx,
+          // A preset is a factory car: no supercharger or nitrous carried over from the last build.
+          blowerId: null,
+          nitrous: null,
           // A preset's AFR table already bakes in a correction for the MAF error its
           // mod set implies (factoryCalibration, src/sim/presets.js) — valid only at
           // the neutral scalar, so loading a preset must pin this back to 1.0.
           mafScalar: 1.0,
+          // The factory car's fuel system, sensors, wastegate and coil: its calibration
+          // (`p.ecu`) is set up for those parts, not for whatever the last car had.
+          ...stockEcuParts(),
           presetId: p.presetId,
           presetPrompt: null,
         },
@@ -517,6 +607,10 @@ function baseReducer(state, action) {
           ve: p.ve,
           timing: p.timing,
           afr: p.afr,
+          ...(p.ecu ? { ecu: p.ecu } : {}),
+          // A new engine's ROM: every map slot starts as the factory calibration.
+          maps: [null, null, null, null],
+          activeMap: 0,
           // What the CHANGES view compares against from here on (issue 106).
           baseline: { ve: p.ve, timing: p.timing, afr: p.afr },
           // Fresh factory calibration is not unsaved player work.
@@ -551,6 +645,7 @@ function baseReducer(state, action) {
           ve: action.ve,
           timing,
           afr,
+          ...(action.ecu ? { ecu: action.ecu } : {}),
           baseline: { ve: action.ve, timing, afr },
           // A reset baseline is not unsaved player work — no "last call" needed to
           // pin this false, it is simply false in this same pass.
@@ -575,6 +670,9 @@ function baseReducer(state, action) {
           ve: action.ve,
           timing: clone2D(DEFAULT_TIMING),
           afr: clone2D(DEFAULT_AFR),
+          ...(action.ecu ? { ecu: action.ecu } : {}),
+          maps: [null, null, null, null],
+          activeMap: 0,
           // A car handed over for diagnosis carries no unsaved work of the player's.
           tablesDirty: false,
           selection: null,
@@ -714,25 +812,30 @@ function baseReducer(state, action) {
 }
 
 /**
- * The three actions that destroy calibration the player cannot otherwise get back,
- * each mapped to HOW MUCH of its snapshot an undo puts back (history.js).
+ * The actions that destroy calibration the player cannot otherwise get back, each
+ * mapped to HOW MUCH of its snapshot an undo puts back (history.js).
  *
  * Hardware writes are deliberately absent: every hardware control already displays its
  * own current value, so it is self-reversing, and undo must not become a time machine
  * over banked career progress.
  *
  * The scope is per-action because the snapshot is not: `snapshot()` captures the union
- * of every field ANY of these three can write, so replaying an entry in full would put
- * back fields the recorded action never touched. `SET_TABLE`'s entire build-side write
- * is `presetId`, so RESTORE_CALIBRATION is exactly its write surface; the other two
+ * of every field ANY of these can write, so replaying an entry in full would put back
+ * fields the recorded action never touched. `SET_TABLE`'s and `SET_ECU`'s entire
+ * build-side write is `presetId`, and the map-slot actions write none, so
+ * RESTORE_CALIBRATION is exactly their write surface; APPLY_PRESET and RESET_TO_STOCK
  * replace the whole build, so RESTORE_ALL is exactly theirs.
  *
  * A map rather than a Set plus a lookup elsewhere: `UNDOABLE` is derived from its keys
- * below, so a fourth undoable action cannot be added to the membership list without
+ * below, so another undoable action cannot be added to the membership list without
  * also declaring what its undo restores.
  */
 const UNDO_SCOPE = Object.freeze({
   [ACTIONS.SET_TABLE]: RESTORE_CALIBRATION,
+  [ACTIONS.SET_ECU]: RESTORE_CALIBRATION,
+  [ACTIONS.SWITCH_MAP]: RESTORE_CALIBRATION,
+  [ACTIONS.COPY_MAP]: RESTORE_CALIBRATION,
+  [ACTIONS.SWAP_MAPS]: RESTORE_CALIBRATION,
   [ACTIONS.APPLY_PRESET]: RESTORE_ALL,
   [ACTIONS.RESET_TO_STOCK]: RESTORE_ALL,
 });
@@ -769,7 +872,7 @@ const UNDOABLE = new Set(Object.keys(UNDO_SCOPE));
  *    different car makes every entry meaningless). Listing it here would be worse than
  *    redundant: the branch below rebuilds `history` from the pre-action `past`.
  *
- * The three UNDOABLE actions are listed here too, for one list that answers "is this
+ * The UNDOABLE actions are listed here too, for one list that answers "is this
  * new work?" — they reach `future: []` through the recording branch below rather than
  * through this Set, and listing them keeps the two from disagreeing on paper.
  */
@@ -797,7 +900,7 @@ function clearsRedo(action) {
 const CLEARS_REDO = new Set([
   ACTIONS.SET_BUILD_FIELD, ACTIONS.CLEAR_PRESET_ID, ACTIONS.SET_TURBINE,
   ACTIONS.SET_ENGINE_CONFIG_PATCH, ACTIONS.SET_TABLE, ACTIONS.APPLY_PRESET,
-  ACTIONS.RESET_TO_STOCK,
+  ACTIONS.RESET_TO_STOCK, ACTIONS.SET_ECU, ACTIONS.SWITCH_MAP, ACTIONS.COPY_MAP, ACTIONS.SWAP_MAPS,
 ]);
 
 /**
@@ -819,7 +922,7 @@ function labelFor(action) {
       // the table. Throwing here names both.
       if (!label) throw new Error(`labelFor: no label defined for table "${action.table}"`);
       // A bulk edit names itself ("VE edit · smooth · 20 cells"); an edit that doesn't
-      // — ACCEPT RE-LOGGED VALUES, a test's bare dispatch — keeps the table's name.
+      // — a test's bare dispatch — keeps the table's name.
       return action.label ? `${label} · ${action.label}` : label;
     }
     case ACTIONS.APPLY_PRESET: {
@@ -828,11 +931,22 @@ function labelFor(action) {
     }
     case ACTIONS.RESET_TO_STOCK:
       return 'Reset to stock';
+    case ACTIONS.SWITCH_MAP:
+      return `Switch to Map ${action.index + 1}`;
+    case ACTIONS.COPY_MAP:
+      return `Copy to Map ${action.to + 1}`;
+    case ACTIONS.SWAP_MAPS:
+      return `Swap Maps ${action.a + 1} and ${action.b + 1}`;
+    case ACTIONS.SET_ECU: {
+      if (!action.path) return action.label ?? 'ECU calibration';
+      const meta = ECU_META.find((m) => m.path === action.path);
+      return `ECU · ${meta ? meta.label : action.path}`;
+    }
     default:
-      // UNDOABLE lists exactly three action types, and `reducer` below only ever
+      // Every UNDOABLE action type has a case above, and `reducer` below only ever
       // calls `labelFor` for an action already confirmed to be in that set — so this
       // branch is unreachable BY CONSTRUCTION today. It throws instead of quietly
-      // returning 'Reset to stock' so that if a fourth action is ever added to
+      // returning 'Reset to stock' so that if another action is ever added to
       // UNDOABLE without a matching case here, it fails loudly at the call site
       // instead of mislabelling every undo button for that action "Reset to stock".
       throw new Error(`labelFor: no label defined for undoable action type "${action.type}"`);
@@ -842,9 +956,9 @@ function labelFor(action) {
 /**
  * The store's reducer: `baseReducer` plus the undo stack.
  *
- * Recording is a WRAPPER rather than a line inside each undoable case, so the three
- * existing cases stay exactly as they were and a fourth undoable action is one entry in
- * `UNDOABLE` rather than a fourth place to remember. It stays a pure function of
+ * Recording is a WRAPPER rather than a line inside each undoable case, so the existing
+ * cases stay exactly as they were and another undoable action is one entry in
+ * `UNDO_SCOPE` rather than another place to remember. It stays a pure function of
  * `(state, action)` — no clock, no coalescing keys, no merge logic. The dock's slider
  * commits once on release instead (see SelectionDock.jsx), which is what keeps a drag
  * from becoming eighteen undo steps without any of that machinery.

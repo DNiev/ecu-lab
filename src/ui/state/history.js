@@ -60,7 +60,8 @@ export const HISTORY_LIMIT = 50;
 const BUILD_KEYS = [
   'engineConfig', 'mods', 'turboOn', 'boostCurve', 'turbineIdx', 'turbineCount',
   'compressorIdx', 'injIdx', 'ecuInjectorCc', 'octaneIdx', 'exhaustDiaIdx',
-  'mafScalar', 'presetId',
+  'mafScalar', 'presetId', 'fuelSystem', 'sensorHw', 'wastegate', 'coil', 'plugGapMm',
+  'ethanolPct',
 ];
 
 /**
@@ -75,7 +76,7 @@ const BUILD_KEYS = [
  * undoing either must put back the baseline that went with the tables it restores, or
  * the CHANGES view would compare the old tables against the new calibration.
  */
-const TUNE_KEYS = ['ve', 'timing', 'afr', 'tablesDirty', 'baseline'];
+const TUNE_KEYS = ['ve', 'timing', 'afr', 'ecu', 'maps', 'activeMap', 'tablesDirty', 'baseline'];
 
 /**
  * Does a write to `tune.<field>` touch something a snapshot carries?

@@ -264,3 +264,30 @@
 }
 
 .track:focus-visible { outline: 2px solid var(--acc); outline-offset: 2px; }
+
+.ecu {
+  margin-top: var(--sp-lg);
+  padding: var(--sp-md) 0 var(--sp-md);
+  border-top: 1px solid var(--line);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-md);
+}
+
+/* The stack lines up with the gauges' 12px inset rather than the card edge. */
+.ecu > :last-child { margin: 0 12px; }
+
+.ecuHead {
+  padding: 0 12px;
+  font-size: var(--fs-micro);
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  color: var(--ink3);
+}
+
+.ecuNote {
+  margin: 4px 12px 0;
+  font-size: var(--fs-xs);
+  line-height: 1.45;
+  color: var(--ink2);
+}

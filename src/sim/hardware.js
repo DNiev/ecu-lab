@@ -67,6 +67,21 @@ export const OCTANE_OPTS = [
 ];
 
 /**
+ * Every fuel BUILD offers: the four pump fuels, then a flex-fuel tank — whatever blend of
+ * pump gasoline and E85 the last fills left in it. The flex entry's figures are the
+ * gasoline end; the tank's real properties come from `blendFuel` at the ethanol content
+ * BUILD sets (`tankFuel` in src/sim/ecu/context.js).
+ *
+ * A separate list rather than a fifth OCTANE_OPTS entry: OCTANE_OPTS is the pump-fuel
+ * catalogue the physics and the fingerprint are pinned to, and a flex tank is not a pump
+ * fuel. `octaneIdx` indexes this list; its first four entries ARE OCTANE_OPTS.
+ */
+export const FUEL_CHOICES = [
+  ...OCTANE_OPTS,
+  { label: 'Flex', flex: true, bonus: 3, octane: 93, stoich: 14.7, density: 0.745, lhv: 44.0e6 },
+];
+
+/**
  * Real static flow ratings, cc/min.
  *
  * Duty cycle is computed from actual required pulse width against the time available
@@ -163,6 +178,49 @@ export const COMPRESSOR_OPTS = [
   {
     label: 'Large', size: 'large', boostCeiling: 30,
     etaMax: 0.80, pkFlowKgS: 0.28, pkPr: 2.4, surgeSlope: 0.150, chokeFlowKgS: 0.50,
+  },
+];
+
+/**
+ * Superchargers, from their makers' published figures (see src/sim/blower.js for the
+ * physics). `dispL` is litres per rotor revolution; `maxRpm` the rated rotor speed;
+ * `etaPeak` the best adiabatic efficiency and `prBest` the pressure ratio it is found at;
+ * `leak` the internal leakage coefficient behind volumetric efficiency; `dragWAtMax`
+ * bearing, seal and gear drag at rated speed. A centrifugal carries a compressor map in
+ * the shape turbo compressors use, its internal step-up and its impeller tip diameter.
+ *
+ *   Eaton M90 (Roots): 90 in³ (1.47 L) per revolution, 14,000 rpm. A Roots blower does
+ *     not compress internally, so it runs near 50-55% adiabatic efficiency.
+ *   Eaton TVS R1900: 1.9 L per revolution, 18,000 rpm, pressure ratios to ~1.8, up to
+ *     75% efficiency (Eaton).
+ *   Whipple W175AX 2.9 L (twin-screw): 2.9 L per revolution, 18,000 rpm, peak adiabatic
+ *     efficiency 78% and volumetric 99% (Whipple), built-in pressure ratio 1.36.
+ *   ProCharger P-1SC-1 (centrifugal): 4.10:1 internal step-up, 65,000 rpm impeller, 32 psi
+ *     and 1,200 cfm maximum (ProCharger). Its peak efficiency is not published; 76% sits
+ *     inside the 60-80% range quoted for centrifugal superchargers, and the tip diameter is
+ *     fitted so that 65,000 rpm at that efficiency makes about 30 psi.
+ *
+ * `whineOrder` is what the ear hears: lobes (or impeller blades, splitters included) passing
+ * the outlet per revolution, so the whine's pitch is rotor speed times it — the M90's three
+ * lobes, the TVS's four, a screw's four-lobe male rotor, and about twelve impeller blades.
+ */
+export const BLOWER_OPTS = [
+  {
+    id: 'm90', label: 'Eaton M90', type: 'roots', dispL: 1.47, maxRpm: 14000,
+    etaPeak: 0.55, prBest: 1.4, leak: 0.08, dragWAtMax: 1200, defaultRatio: 1.7, whineOrder: 3,
+  },
+  {
+    id: 'tvs1900', label: 'Eaton TVS R1900', type: 'roots', dispL: 1.9, maxRpm: 18000,
+    etaPeak: 0.75, prBest: 1.6, leak: 0.05, dragWAtMax: 1500, defaultRatio: 1.45, whineOrder: 4,
+  },
+  {
+    id: 'whipple29', label: 'Whipple 2.9 L', type: 'twinscrew', dispL: 2.9, maxRpm: 18000,
+    etaPeak: 0.78, prBest: 1.45, leak: 0.03, dragWAtMax: 1800, defaultRatio: 1.1, whineOrder: 4,
+  },
+  {
+    id: 'p1sc1', label: 'ProCharger P-1SC-1', type: 'centrifugal', stepUp: 4.10,
+    maxImpellerRpm: 65000, tipDiaM: 0.121, boostCeiling: 32, dragWAtMax: 1500, defaultRatio: 1.4, whineOrder: 12,
+    etaMax: 0.76, pkFlowKgS: 0.45, pkPr: 2.2, surgeSlope: 0.17, chokeFlowKgS: 0.67,
   },
 ];
 

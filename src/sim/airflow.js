@@ -36,12 +36,23 @@ import { DEFAULT_VE, LOAD, RPM } from './tables.js';
  *   solve needs — the same field `turbo.js` passes to `turbineBackPressureKpa`.
  * @param {number|null} [hw.exhaustDia] exhaust diameter, inches
  * @param {{stoich: number}|null} [hw.fuel]
+ * @param {boolean} [hw.supercharged] a supercharger in the intake: the same blower
+ *   ducting, intercooler core and charge piping a turbo kit carries, without a turbine
  * @param {number} [hw.peakBoostPsi] peak boost target, psi — raises the ideal exhaust
  *   diameter, because sizing follows power and boost makes power
+ * @param {number} [hw.intakeCamAdvanceDeg] how far a cam phaser has advanced the intake
+ *   cam, crank degrees. It moves intake valve close earlier by the same amount, which is
+ *   exactly what a shorter grind does to IVC — so the breathing curve slides down the
+ *   RPM range by the same RPM per degree of IVC the duration model already uses
+ * @param {number} [hw.exhaustCamRetardDeg] how far a phaser has retarded the exhaust
+ *   cam. It adds overlap, which is what a turbine's backpressure pushes against
  * @returns {number[][]} VE table, percent, indexed [LOAD][RPM]
  */
 export function computeHardwareVE(cfg, mods, hw = {}) {
-  const { turboOn = false, turbine = null, exhaustDia = null, fuel = null, peakBoostPsi = 0 } = hw;
+  const {
+    turboOn = false, turbine = null, exhaustDia = null, fuel = null, peakBoostPsi = 0, supercharged = false,
+    intakeCamAdvanceDeg = 0, exhaustCamRetardDeg = 0,
+  } = hw;
   const ratio = cfg.bore / cfg.stroke;
   const cyl = CYL_COUNT[cfg.configuration];
   const displacementL = (Math.PI / 4 * Math.pow(cfg.bore / 10, 2) * (cfg.stroke / 10) * cyl) / 1000;
@@ -74,7 +85,11 @@ export function computeHardwareVE(cfg, mods, hw = {}) {
   // whole breathing curve slides up the RPM range — top end gained, bottom lost.
   const camDuration = cfg.camDuration ?? CAM_BASE_DURATION;
   const springRate = cfg.springRate ?? 50;
-  const camShift = camPeakShiftRpm(camDuration);
+  // Intake valve close moves IVC_PER_CAM_DEG per degree of duration and the peak moves
+  // CAM_PEAK_SHIFT_PER_DEG, so one degree of IVC is worth their ratio in RPM. A phaser
+  // advancing the intake cam moves IVC earlier by its own angle, directly.
+  const camShift = camPeakShiftRpm(camDuration)
+    - intakeCamAdvanceDeg * (COEFF.CAM_PEAK_SHIFT_PER_DEG / COEFF.IVC_PER_CAM_DEG);
   // More open time = more flow area-seconds.
   const flowGain = 1 + (camDuration - CAM_BASE_DURATION) * COEFF.CAM_FLOW_GAIN_PER_DEG;
   const floatRpm = valveFloatRpm(springRate, camDuration);
@@ -88,7 +103,8 @@ export function computeHardwareVE(cfg, mods, hw = {}) {
   // intake valve. A short factory cam is genuinely less exposed than a long one, and
   // that ordering is load-bearing — flattening it over-charges every production engine
   // in the app by more than 20% of peak power.
-  const overlapFactor = camOverlapDeg(camDuration) / COEFF.VE_BACKPRESSURE_OVERLAP_REF;
+  const overlapFactor = Math.max(0, camOverlapDeg(camDuration) + intakeCamAdvanceDeg + exhaustCamRetardDeg)
+    / COEFF.VE_BACKPRESSURE_OVERLAP_REF;
 
   return DEFAULT_VE.map((row, ri) => row.map((v, ci) => {
     const rpm = RPM[ci];
@@ -125,6 +141,12 @@ export function computeHardwareVE(cfg, mods, hw = {}) {
     // scavenging velocity. Both directions cost VE, in different places.
     if (diaError < 0) val *= 1 + diaError * COEFF.VE_EXHAUST_UNDERSIZE * Math.max(0, norm);
     else if (diaError > 0) val *= 1 - diaError * COEFF.VE_EXHAUST_OVERSIZE * Math.max(0, -norm);
+
+    // A supercharger kit puts the blower, its intercooler core and the charge piping in
+    // the intake path: the same flat cost a turbo kit's intake side carries. It has no
+    // turbine, so no exhaust backpressure penalty — which is why, at equal boost, it
+    // breathes better than a turbo and pays for it at the crank instead.
+    if (supercharged && !turboOn) val *= COEFF.VE_TURBINE_BACKPRESSURE;
 
     // A turbine in the exhaust stream is a restriction. Small housings choke the top
     // end; large ones flow better up high but hurt low-RPM scavenging.

@@ -31,7 +31,8 @@ model say so, not because someone typed 250.
 
 - **Air charge** from the ideal gas law — `ρ = MAP / (R·T)`, `airCharge = VE × V_cyl × ρ`
 - **Fuel mass** from lambda and each fuel's real stoichiometric ratio, density and lower
-  heating value — which is why E85 needs ~1.5× the injector volume for the same lambda
+  heating value — which is why E85 needs ~1.5× the fuel mass (about 1.43× the volume)
+  for the same lambda
 - **Injector pulse width** against the real time available per engine cycle, so duty
   cycle is a physical wall rather than a capacity index
 - **The closed cycle**, integrated two crank degrees at a time from intake valve close
@@ -44,6 +45,14 @@ model say so, not because someone typed 250.
 - **Torque** as `IMEP − friction − PMEP → BMEP → T = BMEP × Vd / 4π`. Pumping work is
   exhaust manifold pressure minus intake, with its real sign, so a turbine's
   backpressure is a cost and a well-matched one can hand work back
+- **Superchargers** from their makers' figures — Roots, twin-screw and centrifugal. A
+  positive-displacement blower pumps a fixed volume per turn and boost settles where the
+  engine swallows it; a centrifugal's comes from impeller tip speed. The adiabatic
+  efficiency sets both the charge heat and the drive power, `W = ṁ·cp·T·(PR^0.286 − 1)/η`,
+  charged to the crank
+- **Nitrous oxide** as chemistry: 36% oxygen by mass, heat from its own breakdown
+  (−82 kJ/mol), charge cooling as it boils, bottle pressure from its vapour-pressure curve,
+  wet and dry kits, and the controller's window, retard, ramp and lean cut
 - **A live engine** integrating real crankshaft dynamics at 20 Hz: it idles, revs,
   stalls, hits a rev limiter with hysteresis, and cuts fuel on overrun
 - **Cam and valvetrain** — duration shifts the VE peak, overlap costs idle vacuum, and
@@ -64,7 +73,8 @@ npm test         # physics test suite
 npm run build    # production build into dist/
 ```
 
-Requires Node 20 or newer.
+Requires Node 20 or 22 — not newer; [CONTRIBUTING.md](CONTRIBUTING.md) explains why
+(the behavioural fingerprint is float-sensitive).
 
 ## How the code is laid out
 
@@ -81,12 +91,23 @@ src/
     engine.js        short-block design -> derived properties
     manifold.js      manifold pressure, best-power mixture
     airflow.js       hardware -> VE table
+    cycle.js         the closed cycle: heat release, two-zone gas, knock integral, EGT
+    knock.js         charge index and autoignition helpers
+    turbo.js         the turbo spool-up solve (and the induction solve for a supercharger)
+    compressorMap.js efficiency, surge and choke on a compressor map (turbo and centrifugal)
+    blower.js        superchargers: Roots, twin-screw and centrifugal, and what they cost the crank
+    blowerPreview.js what a supercharger and pulley will do on this engine, before a pull
+    nitrous.js       nitrous oxide: the bottle, the jets, and its oxygen and heat in the cylinder
     point.js         evaluatePoint — the heart of it
     sweep.js         a full dyno pull + the event log
     live.js          real-time crank dynamics + ECU control loop
     drivetrain.js    the car: gearing, grip, weight transfer, the quarter mile
     advisors.js      what the hardware wants vs. what your tables say
     scoring.js       tuning / engineer / pull scores
+    presets.js       the factory engines and their generated calibrations
+    acoustics.js     the engine sound, built from the same cycle
+    ecu/             engine management: calibration, sensors, controllers, protections,
+                     the live ECU and its pull-log events
   ui/            presentation only — no physics below this line
   storage.js     persistence adapter (artifact host / localStorage / memory)
 tests/           physics intent tests + the behavioural fingerprint
@@ -107,9 +128,15 @@ Two layers, doing different jobs:
   relationship — "a longer cam gives away bottom end and gains top end", "a
   traction-limited launch is independent of mass". Readable failures that say what
   broke.
-- **`tests/fingerprint.test.js`** hashes the entire simulation across 6,480 operating
-  points, 432 full sweeps and 144 VE tables. It catches the coupled changes you did not
-  think to check.
+- **`tests/fingerprint.test.js`** hashes the entire simulation across 9,720 operating
+  points, 756 full sweeps, 252 VE tables and 72 drag runs. It catches the coupled changes
+  you did not think to check.
+- **Accuracy** — `tests/benchmark.test.js` holds the factory engines to real-engine
+  ranges, `tests/physics-invariants.test.js` checks physical laws on thousands of random
+  builds, `tests/consistency-fuzz.test.js` checks that the advisor, the dyno and LIVE
+  agree, and `tests/accuracy-claims.test.js` holds what the docs say about the model to
+  what it does. [docs/accuracy.md](docs/accuracy.md) reports the results and what the
+  model simplifies.
 
 If the fingerprint fails, that is not automatically a bug — it means the numbers moved.
 Work out whether you meant it. If you did, review the diff and run

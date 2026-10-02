@@ -1,0 +1,17 @@
+/* TUNE's engine management views. */
+
+.wrap {
+  display: flex;
+  flex-direction: column;
+}
+
+.tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(96px, 1fr));
+  gap: var(--sp-sm);
+  padding: var(--sp-xl) var(--sp-xl) 0;
+}
+
+.note {
+  padding: var(--sp-lg) var(--sp-xl) 0;
+}

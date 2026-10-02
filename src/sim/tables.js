@@ -184,7 +184,7 @@ export function interpolationRoomDeg({ ceilingAtFrac, aboveDeg, entered }) {
 // WHICH cells and WHICH op. Every one returns a new table and writes only inside the
 // rectangle. Written values are clamped and rounded to 2 dp — the storage precision the
 // dock's steppers have always used, not the display precision (VE carries decimals from
-// the re-logged values, and rounding those away would change cells nobody meant to move).
+// the logged corrections, and rounding those away would change cells nobody meant to move).
 //
 // Clamping is local rather than `math.js`'s `clamp`: `math.js` imports this module's
 // axes, and importing back would make the two a cycle.

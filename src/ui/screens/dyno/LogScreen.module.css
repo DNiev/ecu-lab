@@ -74,6 +74,32 @@
 
 .eventLabel { color: var(--ink-soft); }
 
+/* The screens a fix names, as links. Chips under the fix line, indented with it. */
+.eventLinks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+  padding-left: 22px;
+}
+
+.eventLink {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 5px 9px;
+  border: 1px solid var(--line-hi);
+  border-radius: var(--r-sm);
+  background: var(--panel);
+  color: var(--acc-ink);
+  font-size: var(--fs-xs);
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-decoration: none;
+}
+.eventLink:hover { border-color: var(--acc); }
+.eventLink:focus-visible { outline: 2px solid var(--acc); outline-offset: 2px; }
+
 /* The entry a chart band pointed at. A left edge rather than a background, so it
    reads as "this one" without fighting the per-tone backgrounds above. */
 .event[data-focused='true'] {

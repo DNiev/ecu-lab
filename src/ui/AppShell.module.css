@@ -90,15 +90,22 @@
 }
 
 /* Capped to the same column as the content below it, so the strip's readouts line up
-   with the screen they describe instead of running to the edge of a wide display. */
+   with the screen they describe instead of running to the edge of a wide display.
+   border-box, because width is 100%: without it the padding sat outside the column and
+   pushed the Repair button 16px off the right edge at every width below the cap. It
+   wraps rather than clips, so on a phone the readouts and both buttons drop to a second
+   line instead of running off-screen where they cannot be tapped. The phone spacing is
+   a step tighter; the breakpoint below restores the original. */
 .stripInner {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: var(--sp-lg);
+  gap: var(--sp-xs) var(--sp-md);
+  box-sizing: border-box;
   width: 100%;
   max-width: var(--content-max);
   margin: 0 auto;
-  padding: var(--sp-sm) var(--sp-xl);
+  padding: var(--sp-sm) var(--sp-lg);
 }
 
 /* The maker + product name, restored from the old header this strip replaced (see
@@ -127,9 +134,10 @@
 
 /* 11px is off the font-size ramp deliberately: this is the header's build line moved
    here verbatim, and 10.5px (--fs-xs) is a re-size of an existing element rather than
-   the adoption of a token. */
+   the adoption of a token. The 14em basis keeps the line readable when the strip wraps;
+   with a zero basis it was squeezed to nothing on a phone. */
 .engine {
-  flex: 1;
+  flex: 1 1 14em;
   min-width: 0;
   overflow: hidden;
   color: var(--ink2);
@@ -254,5 +262,10 @@
     width: 2px;
     height: auto;
     border-radius: 0 2px 2px 0;
+  }
+
+  .stripInner {
+    gap: var(--sp-xs) var(--sp-lg);
+    padding: var(--sp-sm) var(--sp-xl);
   }
 }

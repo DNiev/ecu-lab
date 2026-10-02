@@ -178,7 +178,8 @@ describe('the status strip', () => {
       type: ACTIONS.SET_SESSION_FIELD, field: 'result', value: { peakHp: 12345, peakTq: 1, points: [], events: [] },
     }));
 
-    expect(screen.getByText('12345 hp')).toBeTruthy();
+    // Wheel horsepower, labelled as every other power figure in the app is.
+    expect(screen.getByText('12345 whp')).toBeTruthy();
   });
 });
 

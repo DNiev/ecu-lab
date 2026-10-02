@@ -45,7 +45,7 @@ calibration is loaded, and the diff maths is in `tables.js` too.
 `TuneAdvisory` is the ordinary reason once more, one layer up: `AdvisorPanel` is chrome
 only (see its own header comment) and `advisorReports.js` only classifies, so something
 has to turn a report into prose, and SPARK, FUEL and AIRFLOW all need one. `kind` picks
-the body; `report.state` (from `sparkReport`/`fuelReport`/`veReport` in
+the body; `report.state` (from `sparkReport`/`fuelReport`/`veLogReport` in
 `advisorReports.js`) picks which of that body's cases renders, and `report.detail`
 supplies the numbers. It is pure — no store access, no computation — so the screens stay
 the only thing in TUNE that talks to the store, and `advisorReports.js` stays the only

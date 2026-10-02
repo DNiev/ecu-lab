@@ -43,15 +43,15 @@ search keywords:
 |---|---|
 | HOME | Customer Cars, Career & Last Pull, Engine Health, Learn How It Works, Taking It To A Real Car |
 | BUILD | Engine Architecture, Induction (`turbo`, `boost`), Fuel System (`octane`), Exhaust |
-| TUNE | Airflow (`ve`, `volumetric`), Spark (`timing`, `ignition`, `knock`), Fuel (`afr`, `lambda`, `mixture`), Injectors, Sensors (`maf`) |
+| TUNE | Airflow (`ve`, `volumetric`), Spark (`timing`, `ignition`, `knock`), Fuel (`afr`, `lambda`, `mixture`), Injectors, Sensors (`maf`); after #115: Boost Control, Variable Cam Timing, Idle Control, Engine Protection, Torque Management, Nitrous Control |
 | LIVE | — (one section, so one command) |
 | DYNO | Curves (`power`, `torque`), Pull Log, Datalog, Score, History |
 | DRAG | Car Body, Gearbox, Tyres & Drive |
 
-`pageCommands({ showJobs, hasResult, hasHistory })` returns one command per tab
+`pageCommands({ showJobs, hasResult, hasHistory, hasNitrous })` returns one command per tab
 (`HOME`, …) and one per section (`TUNE › Spark`), in nav order, dropping sections that
 would render nothing: Customer Cars without `showJobs`; the four result sections
-without `hasResult`; History without `hasHistory || hasResult`. A test fails if a route
+without `hasResult`; History without `hasHistory || hasResult`; Nitrous Control without `hasNitrous` (TUNE's switcher hides it without a kit). A test fails if a route
 has no label or a label has no route.
 
 A command is `{ id, label, kind: 'page'|'action', keywords, run }`; `commands.js`

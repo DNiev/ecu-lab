@@ -26,9 +26,11 @@ import styles from './SensorsScreen.module.css';
  * @param {Array<{rpm: number, trimPct: number}>} props.chartData the shell's,
  *   shared with DYNO's own fuel-trim chart
  * @param {{points: Array<object>}|null} props.result the shell's, shared with DYNO
+ * @param {React.ReactNode} [props.children] the engine management settings that belong
+ *   with this screen, shown under it
  * @returns {React.ReactElement}
  */
-export function SensorsScreen({ needsMafRecal, chartData, result }) {
+export function SensorsScreen({ needsMafRecal, chartData, result, children }) {
   const [build, dispatch] = useBuild();
   const { turboOn, mods, mafScalar } = build;
 
@@ -76,6 +78,7 @@ export function SensorsScreen({ needsMafRecal, chartData, result }) {
           </ResponsiveContainer>
         </Panel>
       )}
+      {children}
     </div>
   );
 }

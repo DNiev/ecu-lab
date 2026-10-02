@@ -24,10 +24,12 @@
  */
 
 import {
-  EIGHTH_MILE_M, G, MPH_PER_MS, M_PER_INCH, QUARTER_MILE_M, RHO_AIR, SIXTY_FEET_M,
+  DRIVETRAIN_EFF, EIGHTH_MILE_M, G, MPH_PER_MS, M_PER_INCH, QUARTER_MILE_M, RHO_AIR, SIXTY_FEET_M,
   SIXTY_MPH_MS,
 } from './constants.js';
 import { COEFF } from './coefficients.js';
+import { ECU_COEFF } from './ecu/ecuCoefficients.js';
+import { read1 } from './ecu/ecuTables.js';
 import { frictionTorqueNm } from './friction.js';
 import { ENGINE_INERTIA } from './live.js';
 import { clamp } from './math.js';
@@ -315,9 +317,17 @@ export function rotatingMassKg(car, overallRatio, coupled) {
  * @param {number} input.redline rev limit, RPM
  * @param {number} [input.displacementL] displacement, for engine braking off throttle
  * @param {number} [input.peakHp] peak power of the pull, carried through for display
+ * @param {object} [input.ecu] the engine management's torque strategy: `cal.torque` for
+ *   gear torque limits and traction control. Absent, the engine is driven by the
+ *   driver's right foot alone, as it always was
+ * @param {(gear: number) => ((rpm: number) => number)} [input.torqueCurveForGear] a
+ *   different crank-torque curve per gear, when the calibration limits boost by gear —
+ *   each is a real pull at that gear's boost, not a scaled copy
  * @returns {DragResult}
  */
-export function simulateDragRun({ car, torqueCurveNm, redline, displacementL = 3.5, peakHp = 0 }) {
+export function simulateDragRun({
+  car, torqueCurveNm, redline, displacementL = 3.5, peakHp = 0, ecu = null, torqueCurveForGear = null,
+}) {
   const grip = TIRE_GRIP[car.gripIdx];
   const drive = DRIVETRAIN_OPTS[car.driveIdx];
   const box = GEARBOX_OPTS[car.boxIdx];
@@ -328,13 +338,32 @@ export function simulateDragRun({ car, torqueCurveNm, redline, displacementL = 3
 
   // The engine starts at the launch speed the gearbox implies — a converter sitting
   // on its stall speed, or a clutch slipped from the driver's chosen launch RPM.
-  let engineRpm = box.launchRpm;
+  // Launch control's two-step replaces the driver's launch speed with the calibrated one.
+  const arc = ecu?.cal?.arc;
+  const launchRpm = arc?.launchEnabled ? arc.launchRpm : box.launchRpm;
+  // Flat-foot shifting: no lift before the shift and no re-application after it, so a
+  // manual shift takes only what the gearbox itself needs.
+  const shiftSec = arc?.ffsEnabled && box.box === 'manual' ? box.shiftSec * ECU_COEFF.FFS_SHIFT_SHARE : box.shiftSec;
+  const speedLimitMs = (ecu?.cal?.limiter?.speedLimitKph ?? 0) / 3.6;
+  let speedCut = false;
+  let engineRpm = launchRpm;
   let limiterCut = false;
   let driverThrottle = 1;
   let v = 0, x = 0, t = 0, gearIdx = 0, shiftUntil = -1;
   let sixty = null, sixtyFtT = null, eighthT = null, eighthV = null;
   let aPrev = 0, wheelspun = false;
   const trace = [];
+  // Traction control: the reduction it is commanding, and the reduction the chosen
+  // actuator has actually delivered — spark acts on the next firing, a throttle has to
+  // empty the manifold, a turbo has to slow down.
+  const tq = ecu?.cal?.torque;
+  const tc = !!tq?.tcEnabled;
+  const TC_TAU_S = {
+    spark: ECU_COEFF.TC_TAU_SPARK_S, fuel: ECU_COEFF.TC_TAU_FUEL_S,
+    throttle: ECU_COEFF.TC_TAU_THROTTLE_S, boost: ECU_COEFF.TC_TAU_BOOST_S,
+  };
+  const cylCount = ecu?.cyl ?? 6;
+  let tcCmd = 0, tcAct = 0, slip = 0;
 
   while (x < QUARTER_MILE_M && t < DRAG_TIMEOUT_S) {
     const gearRatio = gears[gearIdx];
@@ -359,9 +388,24 @@ export function simulateDragRun({ car, torqueCurveNm, redline, displacementL = 3
     const converterMult = box.torqueMult > 1
       ? box.torqueMult - (box.torqueMult - 1) * clamp(v / box.couplingSpeedMs, 0, 1)
       : 1;
-    const crankNm = (shifting || limiterCut)
+    const curve = torqueCurveForGear ? torqueCurveForGear(gearIdx + 1) : torqueCurveNm;
+    let engineNm = curve(clamp(engineRpm, 1000, redline));
+    if (tq) {
+      // The calibration's torque ceiling for this gear, and traction control's cut. The
+      // limit is crank torque, the ECU's own number; this curve already has the
+      // transmission's loss taken off, so the ceiling is compared like for like.
+      engineNm = Math.min(engineNm, read1(tq.limitByGear, gearIdx + 1) * DRIVETRAIN_EFF);
+      const deliveredCut = tq.tcMethod === 'fuel' ? Math.ceil(tcAct * cylCount - 1e-9) / cylCount : tcAct;
+      engineNm *= 1 - clamp(deliveredCut, 0, ECU_COEFF.TC_MAX_CUT);
+    }
+    // The calibrated road-speed limit cuts fuel, with a little hysteresis.
+    if (speedLimitMs > 0) {
+      if (v >= speedLimitMs) speedCut = true;
+      else if (v < speedLimitMs - 1) speedCut = false;
+    }
+    const crankNm = (shifting || limiterCut || speedCut)
       ? 0
-      : torqueCurveNm(clamp(engineRpm, 1000, redline)) * converterMult * driverThrottle;
+      : engineNm * converterMult * driverThrottle;
     const commandedN = (crankNm * overall) / r;
 
     // --- Longitudinal dynamics ----------------------------------------------
@@ -390,8 +434,25 @@ export function simulateDragRun({ car, torqueCurveNm, redline, displacementL = 3
     if (spinning) wheelspun = true;
     const a = spinning ? (tractiveN - resistN) / car.massKg : aEngine;
 
+    // --- Traction control ---------------------------------------------------
+    // Driven-wheel speed against vehicle speed. The wheel turns with the engine through
+    // the gearing, so a spinning tyre is an engine running ahead of the road.
+    if (tc) {
+      // Only a spinning tyre is slip; an engine running ahead of the road on a slipping
+      // clutch or converter is not, and traction control cannot see it.
+      const wheelMs = spinning && !shifting ? roadSpeedMs(engineRpm, gearRatio, car) : v;
+      slip = Math.max(0, (wheelMs - v) / Math.max(v, 2));
+      const excess = slip * 100 - tq.tcSlipPct;
+      tcCmd = clamp(tcCmd + (excess > 0 ? excess * tq.tcGain * 0.01 : -ECU_COEFF.TC_RELEASE_RATE) * dt * 10, 0, ECU_COEFF.TC_MAX_CUT);
+      const tau = TC_TAU_S[tq.tcMethod] ?? 0.05;
+      tcAct += (tcCmd - tcAct) * clamp(dt / tau, 0, 1);
+    }
+
     // --- Driver model --------------------------------------------------------
-    if (t > COEFF.DRIVER_REACTION_S && contactN > gripLimitN) {
+    // With traction control on, the driver stays flat and lets the ECU manage the tyre.
+    if (tc) {
+      driverThrottle = 1;
+    } else if (t > COEFF.DRIVER_REACTION_S && contactN > gripLimitN) {
       driverThrottle = Math.max(COEFF.DRIVER_MIN_THROTTLE, driverThrottle - COEFF.DRIVER_LIFT_RATE * dt);
     } else if (contactN < gripLimitN * COEFF.DRIVER_REAPPLY_MARGIN) {
       driverThrottle = Math.min(1, driverThrottle + COEFF.DRIVER_REAPPLY_RATE * dt);
@@ -424,7 +485,7 @@ export function simulateDragRun({ car, torqueCurveNm, redline, displacementL = 3
       const engaged = box.engageSec > 0
         ? clamp(t / box.engageSec, 0, 1)                       // a clutch, taking up
         : clamp(v / box.couplingSpeedMs, 0, 1);                // a converter, coupling
-      engineRpm = Math.max(geared, box.launchRpm * (1 - engaged) + geared * engaged);
+      engineRpm = Math.max(geared, launchRpm * (1 - engaged) + geared * engaged);
     }
 
     // --- Rev limiter ---------------------------------------------------------
@@ -443,9 +504,12 @@ export function simulateDragRun({ car, torqueCurveNm, redline, displacementL = 3
     // The driver upshifts when the CAR has the speed for the next gear, not because a
     // spinning tyre has sent the tacho to the limiter. Shifting off wheelspin would
     // drop it into second at walking pace.
-    if (!shifting && geared >= redline - COEFF.UPSHIFT_MARGIN_RPM && gearIdx < gears.length - 1) {
+    // A driver flat on the pedal behind traction control shifts when the engine hits the
+    // limiter, too — a moment of wheelspin can put it there before road speed does.
+    const onLimiterFlat = tc && limiterCut && !spinning;
+    if (!shifting && (geared >= redline - COEFF.UPSHIFT_MARGIN_RPM || onLimiterFlat) && gearIdx < gears.length - 1) {
       gearIdx++;
-      shiftUntil = t + box.shiftSec;
+      shiftUntil = t + shiftSec;
       limiterCut = false;
     }
 
@@ -453,6 +517,7 @@ export function simulateDragRun({ car, torqueCurveNm, redline, displacementL = 3
       trace.push({
         t, x, v, rpm: engineRpm, gear: gearIdx + 1, a,
         spinning, limiter: limiterCut, throttle: driverThrottle,
+        ...(tc ? { slip: Number((slip * 100).toFixed(1)), tcCut: Number((tcAct * 100).toFixed(1)) } : {}),
       });
     }
   }

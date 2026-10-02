@@ -50,6 +50,12 @@ export const SECTION_LABELS = {
   'tune/fuel': { label: 'Fuel', keywords: ['afr', 'lambda', 'mixture'] },
   'tune/injectors': { label: 'Injectors', keywords: ['duty', 'scaling'] },
   'tune/sensors': { label: 'Sensors', keywords: ['maf'] },
+  'tune/boost': { label: 'Boost Control', keywords: ['wastegate', 'turbo', 'overboost'] },
+  'tune/vvt': { label: 'Variable Cam Timing', keywords: ['vvt', 'vanos', 'cam', 'phaser'] },
+  'tune/idle': { label: 'Idle Control', keywords: ['stall', 'hunt', 'rpm'] },
+  'tune/protect': { label: 'Engine Protection', keywords: ['rev limiter', 'limp', 'safety'] },
+  'tune/torque': { label: 'Torque Management', keywords: ['traction', 'launch', 'limiter'] },
+  'tune/nitrous': { label: 'Nitrous Control', keywords: ['nos', 'spray', 'shot'] },
   'dyno/result': { label: 'Curves', keywords: ['power', 'torque', 'result'] },
   'dyno/data': { label: 'Datalog', keywords: ['histogram', 'data'] },
   'dyno/log': { label: 'Pull Log', keywords: ['events'] },
@@ -67,11 +73,13 @@ const RESULT_SECTIONS = new Set(['dyno/result', 'dyno/log', 'dyno/data', 'dyno/s
  * Whether a section would render anything right now — the same conditions its own
  * screen applies, so the palette never offers a blank page.
  * @param {string} key `tab/section`
- * @param {{showJobs: boolean, hasResult: boolean, hasHistory: boolean}} flags
+ * @param {{showJobs: boolean, hasResult: boolean, hasHistory: boolean, hasNitrous: boolean}} flags
  * @returns {boolean}
  */
-function available(key, { showJobs, hasResult, hasHistory }) {
+function available(key, { showJobs, hasResult, hasHistory, hasNitrous }) {
   if (key === 'dash/jobs') return showJobs;
+  // TUNE's switcher shows NITROUS only with a kit fitted; the palette follows it.
+  if (key === 'tune/nitrous') return hasNitrous;
   if (RESULT_SECTIONS.has(key)) return hasResult;
   if (key === 'dyno/history') return hasHistory || hasResult;
   return true;
@@ -84,11 +92,12 @@ function available(key, { showJobs, hasResult, hasHistory }) {
  * @param {boolean} args.showJobs career mode, or a job underway
  * @param {boolean} args.hasResult a pull is showing
  * @param {boolean} args.hasHistory at least one pull is banked
+ * @param {boolean} args.hasNitrous a nitrous kit is fitted
  * @param {(tab: string, section: string|null) => void} args.go `null`: the tab, as a
  *   nav tap opens it
  * @returns {Command[]}
  */
-export function pageCommands({ showJobs, hasResult, hasHistory, go }) {
+export function pageCommands({ showJobs, hasResult, hasHistory, hasNitrous, go }) {
   /** @type {Command[]} */
   const out = [];
   for (const [tab, sections] of Object.entries(ROUTES)) {
@@ -97,7 +106,7 @@ export function pageCommands({ showJobs, hasResult, hasHistory, go }) {
     if (sections.length < 2) continue;
     for (const section of sections) {
       const key = `${tab}/${section}`;
-      if (!available(key, { showJobs, hasResult, hasHistory })) continue;
+      if (!available(key, { showJobs, hasResult, hasHistory, hasNitrous })) continue;
       const s = SECTION_LABELS[key];
       out.push({
         id: `page:${key}`, label: s.label, context: t.label, kind: 'page',

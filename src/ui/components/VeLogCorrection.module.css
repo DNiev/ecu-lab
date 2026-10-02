@@ -1,0 +1,84 @@
+/* TUNE > AIRFLOW: the logged VE error and the buttons that apply it. */
+
+.panel {
+  margin: var(--sp-lg) 0;
+  padding: var(--sp-md) var(--sp-lg);
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  background: var(--panel2);
+}
+
+.head {
+  margin-bottom: 6px;
+  font-size: var(--fs-micro);
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  color: var(--ink3);
+}
+
+.summary {
+  margin: 0 0 8px;
+  font-size: var(--fs-sm);
+  color: var(--ink2);
+}
+
+.summary b { color: var(--ink); }
+
+.hint {
+  margin: 8px 0 0;
+  font-size: var(--fs-xs);
+  line-height: 1.5;
+  color: var(--ink3);
+}
+
+.scroll {
+  overflow-x: auto;
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+}
+
+.grid {
+  width: 100%;
+  border-collapse: collapse;
+  font-family: var(--mono);
+  font-size: 10px;
+}
+
+.grid th {
+  padding: 4px 3px;
+  font-weight: 700;
+  color: var(--ink3);
+  background: var(--panel);
+}
+
+.grid td {
+  padding: 5px 2px;
+  text-align: center;
+  color: var(--ink3);
+  border-top: 1px solid var(--line);
+}
+
+.corner { text-align: left; }
+
+.grid td[data-tone='good'] { color: var(--ok-ink); background: var(--ok-bg); }
+.grid td[data-tone='near'] { color: var(--ink); }
+.grid td[data-tone='far'] { color: var(--warn-ink); background: var(--warn-bg); }
+
+.actions {
+  display: flex;
+  gap: var(--sp-sm);
+  margin-top: 10px;
+}
+
+.maf {
+  margin: 0 0 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--warn-line);
+  border-radius: var(--r-sm);
+  background: var(--warn-bg);
+  font-size: var(--fs-xs);
+  line-height: 1.5;
+  color: var(--warn-ink);
+}
+
+.maf a { color: var(--acc-ink); font-weight: 800; }

@@ -7,11 +7,12 @@
 
 import React, { useEffect, useRef } from 'react';
 
-import { AlertTriangle } from 'lucide-react';
+import { AlertTriangle, ArrowUpRight } from 'lucide-react';
 
 import { Eyebrow } from '../../primitives/Eyebrow.jsx';
 import { useSession } from '../../state/StoreProvider.jsx';
 import { coversRpm, eventTone } from '../../components/eventBands.js';
+import { fixLinks } from '../../components/fixLinks.js';
 
 import styles from './LogScreen.module.css';
 
@@ -68,6 +69,17 @@ export function LogScreen() {
                 </div>
                 {e.cause && <div className={styles.eventCause}><b className={styles.eventLabel}>Why: </b>{e.cause}</div>}
                 {e.fix && <div className={styles.eventFix}><b className={styles.eventLabel}>Try: </b>{e.fix}</div>}
+                {/* Crosslinks: the screens the fix names, one tap away rather than found
+                    by name. */}
+                {fixLinks(e.fix).length > 0 && (
+                  <div className={styles.eventLinks}>
+                    {fixLinks(e.fix).map((l) => (
+                      <a key={l.href} href={l.href} className={styles.eventLink}>
+                        {l.label}<ArrowUpRight size={12} aria-hidden="true" />
+                      </a>
+                    ))}
+                  </div>
+                )}
               </div>
             );
           })}

@@ -21,7 +21,11 @@ afterEach(cleanup);
 
 const dialog = () => /** @type {HTMLDialogElement} */ (document.querySelector('dialog'));
 const input = () => /** @type {HTMLInputElement} */ (screen.getByRole('combobox', { name: 'Search pages and actions' }));
-const options = () => screen.queryAllByRole('option');
+// The palette's own options: TUNE's map-slot <select>s put native options on the page too.
+const options = () => {
+  const list = screen.queryByRole('listbox', { name: 'Results' });
+  return list ? within(list).queryAllByRole('option') : [];
+};
 const type = (text) => fireEvent.change(input(), { target: { value: text } });
 const key = (k) => fireEvent.keyDown(input(), { key: k });
 

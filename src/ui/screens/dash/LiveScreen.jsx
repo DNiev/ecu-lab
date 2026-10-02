@@ -25,6 +25,7 @@ import { ACTIONS } from '../../state/reducer.js';
 import { useSession } from '../../state/StoreProvider.jsx';
 import { T } from '../../theme.js';
 
+import { LiveEcuPanel } from './LiveEcuPanel.jsx';
 import styles from './LiveScreen.module.css';
 
 /**
@@ -121,9 +122,11 @@ export function LiveScreen({ tachFullScaleRpm, onStart, onStop, onToggleSound, o
           <div className={styles.column}>
             <div className={styles.status}>
               {live.running
-                ? (live.limiterCut ? 'Rev limiter — fuel cut to protect the engine.'
+                ? (live.limiterCut || live.onLimiter ? 'On the rev limiter — the ECU is cutting cylinders to hold the engine at its limit. With a fuel cut those cylinders pump plain air, so the wideband reads lean here; that is not a lean mixture.'
                   : live.dfco ? 'Overrun fuel cut — injectors off while coasting down. Real ECUs do this; it costs nothing to spin.'
-                  : live.coolantC < 70 ? 'Warming up — the ECU is running extra fuel until it reaches temperature.'
+                  : live.ecu?.knockNow ? `Knock — your TIMING table asks for more advance than the engine tolerates at this RPM and boost. The ECU is pulling ${(live.ecu.knockRetard ?? 0).toFixed(1)}° to protect it; take timing out of that part of the table.`
+                  : (live.ecu?.knockRetard ?? 0) > 0.5 ? `Nothing is knocking now. The ECU is still giving back ${live.ecu.knockRetard.toFixed(1)}° it pulled for knock a moment ago, a little each second.`
+                  : live.coolantC < 80 ? 'Warming up — the ECU adds extra fuel until the coolant reaches 80 °C.'
                   : live.closedLoop ? 'Warm and in closed loop — the ECU is trimming fuel against the O2 sensor.'
                   : 'Open loop — the ECU is following your tables directly, ignoring O2 feedback.')
                 : live.cranking ? 'Starter engaged…' : 'Engine off. Start it to watch the ECU work in real time.'}
@@ -202,7 +205,7 @@ export function LiveScreen({ tachFullScaleRpm, onStart, onStop, onToggleSound, o
         <div className={styles.gaugeRow}>
           <LiveGauge label="LAMBDA" value={live.sensedLambda.toFixed(2)} unit="λ" color={T.violet} />
           <LiveGauge label="COOLANT" value={Math.round(live.sensedCoolant)} unit="°C" warn={live.sensedCoolant > 105} />
-          <LiveGauge label="TIMING" value={live.live ? live.live.timing : '—'} unit="°" warn={!!(live.live && live.live.knock)} />
+          <LiveGauge label="TIMING" value={live.live ? live.live.timing : '—'} unit="°" warn={!!(live.live && (live.ecu ? live.ecu.knockNow : live.live.knock))} />
         </div>
         <div className={styles.gaugeRow}>
           <LiveGauge label="INJ PW" value={live.live ? live.live.pw : '—'} unit="ms" />
@@ -216,6 +219,7 @@ export function LiveScreen({ tachFullScaleRpm, onStart, onStop, onToggleSound, o
           <TrimBar label="LONG TERM FUEL TRIM (LTFT)" value={live.ltft} />
         </div>
       </Panel>
+      <LiveEcuPanel />
       <ExpandableInfo title="Why these gauges jitter">
         Every value above is a simulated sensor reading, with real noise and lag — not the exact internal number. That is what a tuner actually sees on a scan tool, and why real logs never look perfectly smooth.
       </ExpandableInfo>

@@ -82,3 +82,17 @@
     flex: 0 0 auto;
   }
 }
+
+/* The step's action: what to go and do. Set apart from the prose so a player skimming
+   the tutorial still leaves each step knowing their next move. */
+.action {
+  margin: 0;
+  padding: 9px 12px;
+  border-left: 3px solid var(--acc);
+  border-radius: 0 var(--r-sm) var(--r-sm) 0;
+  background: var(--acc-bg);
+  font-size: var(--fs-md);
+  line-height: 1.6;
+  color: var(--ink);
+  font-weight: 600;
+}

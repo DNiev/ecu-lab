@@ -235,10 +235,12 @@ describe('DataScreen', () => {
     // commanded -> table under-reads airflow -> VE goes UP) moved here verbatim
     // from EcuLab.jsx's doRun-adjacent code; this proves it still lands correctly
     // now that it runs off store reads instead of shell-scoped closures.
-    // FAKE_POINT: afr 13.0 vs afrCommanded 12.5 -> ran leaner than commanded by
-    // (13.0/12.5 - 1) * 100 = 4%, so the VE cell nearest 100 kPa / 1500 RPM should
-    // be multiplied by 1.04.
-    mountWithResult(<DataScreen />, { result: FAKE_RESULT, histogram: null });
+    // FAKE_POINT: the wideband read 13.0 vs afrCommanded 12.5 -> ran leaner than
+    // commanded by (13.0/12.5 - 1) * 100 = 4%, so the VE cell at 100 kPa / 1500 RPM
+    // should be multiplied by 1.04. It runs on the same engine as TUNE > AIRFLOW, so a
+    // point has to be open-loop wideband data, and a cell needs more than one of them.
+    const logged = { ...FAKE_POINT, openLoop: true, sensedLambda: 13.0 / 14.7, sensedMap: 100 };
+    mountWithResult(<DataScreen />, { result: { ...FAKE_RESULT, points: [logged, logged, logged] }, histogram: null });
 
     fireEvent.click(screen.getByRole('button', { name: 'BUILD HISTOGRAM FROM THIS PULL' }));
     expect(screen.getByText('+4.0')).toBeTruthy();
@@ -545,6 +547,25 @@ describe('LogScreen', () => {
     mountWithResult(<LogScreen />, { result: { ...FAKE_RESULT, events: [event] } });
     const card = screen.getByText('FABRICATED MAF TRIM NOTE').closest('[data-tone]');
     expect(card.getAttribute('data-tone')).toBe('violet');
+  });
+});
+
+describe('LogScreen crosslinks', () => {
+  it('turns every screen a fix names into a link that opens it', () => {
+    const event = {
+      type: 'nitrouslean', severity: 3, msg: 'FABRICATED LEAN CUT', cause: null, impact: 10,
+      fix: 'Fit a bigger fuel pump on BUILD → FUEL SYSTEM, or raise Fuel correction while spraying on TUNE → NITROUS.',
+    };
+    mountWithResult(<LogScreen />, { result: { ...FAKE_RESULT, events: [event] } });
+    const links = screen.getAllByRole('link');
+    expect(links.map((a) => a.textContent)).toEqual(['BUILD › FUEL SYSTEM', 'TUNE › NITROUS']);
+    expect(links.map((a) => a.getAttribute('href'))).toEqual(['#/build/fuel', '#/tune/nitrous']);
+  });
+
+  it('adds no links to a fix that names no screen', () => {
+    const event = { type: 'float', severity: 3, msg: 'FABRICATED FLOAT', cause: null, impact: 5, fix: 'Raise the valve spring rate.' };
+    mountWithResult(<LogScreen />, { result: { ...FAKE_RESULT, events: [event] } });
+    expect(screen.queryAllByRole('link')).toHaveLength(0);
   });
 });
 

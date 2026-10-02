@@ -17,3 +17,15 @@
 /* Prose emphasis inside the ExpandableInfo panel. */
 .em { color: var(--ink); }
 .emAcc { color: var(--acc-ink); }
+
+.slider {
+  width: 100%;
+  accent-color: var(--acc);
+  margin-bottom: 8px;
+}
+
+.hint {
+  margin-top: 6px;
+  font-size: var(--fs-xs);
+  color: var(--ink3);
+}

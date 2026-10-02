@@ -175,7 +175,7 @@ describe('LearnScreen', () => {
     expect(screen.getByText('PART 3 · THE TUNING PROCESS')).toBeTruthy();
   });
 
-  it('is memoised, so a live-engine tick does not walk sixteen articles', () => {
+  it('is memoised, so a live-engine tick does not walk all thirty-nine articles', () => {
     // A performance contract with no other observable effect: with the memo in place
     // React skips this subtree when its props have not changed, and without it there
     // is no rendered difference to assert on — only twenty needless passes a second
@@ -214,5 +214,12 @@ describe('the Learn guide', () => {
   it('opens its maths part with the reference build\'s plain-English symbol key', () => {
     render(<LearnScreen active onToggle={() => {}} />);
     expect(screen.getByText('Symbol key — plain-English version')).toBeTruthy();
+  });
+
+  it('explains what the dyno\'s two numbers are before its reading list', () => {
+    render(<LearnScreen active onToggle={() => {}} />);
+    expect(screen.getByText('37. Horsepower and torque: two views of one number')).toBeTruthy();
+    expect(screen.getByText('38. Further reading on engine management')).toBeTruthy();
+    expect(screen.getByText('39. What this simulator simplifies')).toBeTruthy();
   });
 });

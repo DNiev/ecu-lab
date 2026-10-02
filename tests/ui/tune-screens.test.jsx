@@ -22,7 +22,7 @@
 
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import React from 'react';
-import { afterAll, afterEach, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, describe, expect, it, vi } from 'vitest';
 
 import { AirflowScreen } from '../../src/ui/screens/tune/AirflowScreen.jsx';
 import { FuelScreen } from '../../src/ui/screens/tune/FuelScreen.jsx';
@@ -114,7 +114,7 @@ function expectAboveTheGrid(control) {
 
 describe('AirflowScreen', () => {
   it('mounts the shared TuningGrid and SelectionDock with their test ids intact', () => {
-    mount(<AirflowScreen veAdvice={null} veTruth={[]} />);
+    mount(<AirflowScreen />);
     expect(screen.getByTestId('tuning-grid')).toBeTruthy();
     // The dock is selection-gated — nothing is selected on a fresh store — so it
     // only appears once a cell is clicked, same as inside the full app.
@@ -128,7 +128,7 @@ describe('AirflowScreen', () => {
     // Task 2's headline requirement — AIRFLOW, SPARK and FUEL each mount the ↶ ↷
     // pair — was previously held only incidentally, by TUNE routing to AIRFLOW by
     // default. Pinned here, standalone, per screen.
-    mount(<AirflowScreen veAdvice={null} veTruth={[]} />);
+    mount(<AirflowScreen />);
     // `getByRole` throws when the element is absent, so `.toBeTruthy()` on its result
     // could never fail — and the name alternation matches the populated and empty
     // states alike, so the query cannot tell them apart either. The rule is stated at
@@ -141,87 +141,64 @@ describe('AirflowScreen', () => {
     expectAboveTheGrid(undo);
   });
 
-  it('shows the shell-computed veAdvice sync gap, not one it derived itself', () => {
-    // Fabricated — not a value `veRecommendations` could produce for the default
-    // store's engine, and AirflowScreen never imports that function itself.
-    const veAdvice = {
-      inSync: false,
-      maxAbs: 42.3,
-      recs: [{ rpmText: 'FABRICATED 9999 RPM', text: 'fabricated advisory text', cells: ['9999@1 -> 2'] }],
-    };
-    mount(<AirflowScreen veAdvice={veAdvice} veTruth={[]} />);
+  // What the logs say, as the shell hands it down: a pull's samples at one operating
+  // point, five of them so the cell clears the minimum weight.
+  /** @param {object} [over] */
+  const logAt = (over = {}) => {
+    const s = { rpm: 4500, mapKpa: 100, lambdaRatio: 1.134, trim: 1, maf: 0.9, rescale: 1, source: 'pull', ...over };
+    return { ...s, ratio: s.lambdaRatio * s.trim * s.maf * s.rescale };
+  };
+  /** @param {object} [over] */
+  const veLog = (over = {}) => ({
+    pull: Array.from({ length: 5 }, () => logAt()), live: [], airModel: 'blend',
+    pullInfo: { state: 'ok' }, onApply: vi.fn(), ...over,
+  });
+
+  it('with no logs, says why and offers no one-tap copy of the answer — there is no ACCEPT RE-LOGGED VALUES', () => {
+    mount(<AirflowScreen veLog={veLog({ pull: [], pullInfo: { state: 'stale', changed: ['MAF scalar'] } })} />);
     const panel = within(screen.getByTestId('advisor-panel'));
-    // maxAbs is folded into the panel headline now (veReport's table-stale
-    // state), not a standalone '42% max gap' string.
-    expect(panel.getByText('VE out of sync — 42% max gap')).toBeTruthy();
-    expect(panel.getByText('FABRICATED 9999 RPM')).toBeTruthy();
+    expect(panel.getAllByText('No VE logs yet').length).toBeGreaterThan(0);
+    expect(panel.getByText(/before you changed: MAF scalar/)).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'ACCEPT RE-LOGGED VALUES' })).toBeNull();
   });
 
-  it('writes the shell-computed veTruth into the store on ACCEPT RE-LOGGED VALUES, not one it derived itself', () => {
-    // 6 rows (LOAD) x 8 cols (RPM), filled with a value no default build's VE table
-    // would ever land on uniformly across every cell.
-    const veTruth = Array.from({ length: 6 }, () => Array(8).fill(77));
-    mount(<AirflowScreen veAdvice={{ inSync: false, maxAbs: 1, recs: [] }} veTruth={veTruth} />);
-    fireEvent.click(screen.getByRole('button', { name: 'ACCEPT RE-LOGGED VALUES' }));
-    // Every grid cell now reads 77 — proof the dispatched value was this exact
-    // prop, not a recomputation off the store's own engineConfig/mods.
-    const grid = screen.getByTestId('tuning-grid');
-    const cells = within(grid).getAllByRole('button').filter((b) => b.textContent === '77');
-    expect(cells).toHaveLength(48);
-  });
-
-  it('narrows to the selected column rather than the whole table', () => {
-    // deltas[3] is the only column-scoped number veReport is allowed to read
-    // for a cell/col selection — arbitrary index, veReport looks it up by
-    // selection.col, it never touches TuningGrid's real geometry.
-    const veAdvice = {
-      inSync: false,
-      maxAbs: 42.3,
-      recs: [{ rpmText: 'FABRICATED 9999 RPM', text: 'fabricated advisory text', cells: ['9999@1 -> 2'] }],
-      deltas: [
-        { rpm: 800, pct: 0, from: 50, to: 50 },
-        { rpm: 1500, pct: 0, from: 50, to: 50 },
-        { rpm: 2500, pct: 0, from: 50, to: 50 },
-        { rpm: 3500, pct: 18.2, from: 60, to: 71 },
-      ],
-    };
-    mount(<><SelectionProbe value={{ type: 'col', col: 3 }} /><AirflowScreen veAdvice={veAdvice} veTruth={[]} /></>);
+  it('works the worst logged cell through: wideband ratio, the MAF error taken out, the new VE', () => {
+    mount(<AirflowScreen veLog={veLog()} />);
     const panel = within(screen.getByTestId('advisor-panel'));
-    expect(panel.queryByText('VE out of sync — 42% max gap')).toBeTruthy();
-
-    fireEvent.click(screen.getByRole('button', { name: 'probe-set-selection' }));
-
-    // The table-wide headline is gone; the panel now reports THIS column's
-    // measured gap instead, and says plainly it belongs to the column.
-    expect(panel.queryByText('VE out of sync — 42% max gap')).toBeNull();
-    expect(panel.getByText('18% more air at 3500 RPM than your table assumes')).toBeTruthy();
-    expect(panel.getByText(/This gap belongs to the RPM column, not to this one cell\./)).toBeTruthy();
+    // 1.134 × 0.900 = 1.0206: the engine got 2.1% more air than the table said, once
+    // the MAF's own 10% is left to the MAF scalar.
+    expect(panel.getAllByText('Logged VE off by up to 2.1% (1 cell)').length).toBeGreaterThan(0);
+    expect(panel.getByText('λ measured ÷ λ target')).toBeTruthy();
+    expect(panel.getByText('1.134')).toBeTruthy();
+    expect(panel.getByText('× MAF error taken out')).toBeTruthy();
+    expect(panel.getByText('0.900')).toBeTruthy();
+    expect(panel.getByText(/1\.021 \(\+2\.1%\)/)).toBeTruthy();
   });
 
-  it('reports group-ve for a row selection, with no whole-table accept button — there is no column-scoped number for a row', () => {
-    // Finding 4: a row selection used to fall through to table-stale, whose
-    // body renders ACCEPT RE-LOGGED VALUES — a button that writes every row,
-    // not just the one selected. A row selection now gets its own state
-    // instead, and that button must not appear.
-    const veAdvice = { inSync: false, maxAbs: 42.3, recs: [], deltas: [{ rpm: 800, pct: 18.2, from: 60, to: 71 }] };
-    mount(<><SelectionProbe value={{ type: 'row', row: 1 }} /><AirflowScreen veAdvice={veAdvice} veTruth={[]} /></>);
+  it('APPLY HALF hands half the correction to the shell, and the MAF error is sent to TUNE › SENSORS', () => {
+    const log = veLog();
+    mount(<AirflowScreen veLog={log} />);
+    const region = within(screen.getByRole('region', { name: 'Correct VE from logs' }));
+    fireEvent.click(region.getByRole('button', { name: 'APPLY HALF' }));
+    expect(log.onApply).toHaveBeenCalledWith(0.5);
+    expect(region.getByRole('link', { name: 'TUNE › SENSORS' }).getAttribute('href')).toBe('#/tune/sensors');
+  });
+
+  it('narrows to a selected cell: its own working, or plainly no data there yet', () => {
+    mount(<><SelectionProbe value={{ type: 'cell', row: 5, col: 0 }} /><AirflowScreen veLog={veLog()} /></>);
     fireEvent.click(screen.getByRole('button', { name: 'probe-set-selection' }));
     const panel = within(screen.getByTestId('advisor-panel'));
-    expect(panel.getByText('VE is measured per RPM column')).toBeTruthy();
-    expect(panel.queryByText('VE out of sync — 42% max gap')).toBeNull();
-    expect(panel.queryByRole('button', { name: 'ACCEPT RE-LOGGED VALUES' })).toBeNull();
+    expect(panel.getAllByText('No logged data in 800 RPM, 20 kPa yet').length).toBeGreaterThan(0);
   });
 
-  it('shows a no-advice state instead of throwing when veAdvice is null, and keeps the panel mounted', () => {
-    mount(<AirflowScreen veAdvice={null} veTruth={[]} />);
+  it('on the MAF strategy, says the table is not in the fuel path', () => {
+    mount(<AirflowScreen veLog={veLog({ airModel: 'maf' })} />);
     const panel = within(screen.getByTestId('advisor-panel'));
-    // The brief gives one string for this state, used as both the collapsed
-    // headline and the expanded body, so it legitimately appears twice.
-    expect(panel.getAllByText('No airflow comparison available for this build yet.')).toHaveLength(2);
+    expect(panel.getAllByText('MAF strategy: the VE table is not in the fuel path').length).toBeGreaterThan(0);
   });
 
   it('mounts exactly one advisor panel', () => {
-    mount(<AirflowScreen veAdvice={null} veTruth={[]} />);
+    mount(<AirflowScreen />);
     expect(screen.getAllByTestId('advisor-panel')).toHaveLength(1);
   });
 });

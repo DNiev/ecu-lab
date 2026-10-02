@@ -15,7 +15,6 @@
 
 import React from 'react';
 
-import { Button } from '../primitives/Button.jsx';
 
 import styles from './TuneAdvisory.module.css';
 
@@ -25,13 +24,12 @@ import styles from './TuneAdvisory.module.css';
  * @param {object} props
  * @param {'ve'|'timing'|'afr'} props.kind
  * @param {AdvisorReport} props.report
- * @param {() => void} [props.onAcceptVe] only read by the `'ve'` kind
  * @returns {React.ReactElement|null}
  */
-export function TuneAdvisory({ kind, report, onAcceptVe }) {
+export function TuneAdvisory({ kind, report }) {
   if (kind === 'timing') return <TimingAdvisory report={report} />;
   if (kind === 'afr') return <AfrAdvisory report={report} />;
-  if (kind === 've') return <VeAdvisory report={report} onAcceptVe={onAcceptVe} />;
+  if (kind === 've') return <VeAdvisory report={report} />;
   return null;
 }
 
@@ -75,7 +73,7 @@ function TimingAdvisory({ report }) {
       return (
         <>
           <div className={styles.bannerBody}>
-            Your current hardware will not tolerate this much advance here. These cells are asking for more timing than the charge, octane and compression allow:
+            Your current hardware will not tolerate this much advance here. These cells are asking for more timing than the charge, octane and compression allow{detail.cells.some((c) => c.knockingOnPull) ? ' — they are the cells the engine was reading when it knocked on a full-throttle pull' : ''}:
           </div>
           {detail.cells.map((c, i) => (
             <div key={i} className={styles.bannerCell}>
@@ -108,7 +106,7 @@ function TimingAdvisory({ report }) {
       return (
         <div className={styles.prose}>
           <CellStats cell={detail.cell} />
-          Past the knock limit the engine is damaging itself. Pull this cell back to the suggested value, or lower.
+          {detail.cell.knockingOnPull ? 'The engine knocked while it was reading this cell on a full-throttle pull. ' : ''}Past the knock limit the engine is damaging itself. Pull this cell back to the suggested value, or lower.
         </div>
       );
     case 'cell-past-mbt':
@@ -171,6 +169,29 @@ function AfrCellLine({ cell }) {
 }
 
 /**
+ * Whether the engine got a different mixture from the one the cell asks for — by more
+ * than a wideband's worth of noise. When it did, the cell is not where the fault is.
+ * @param {{current: number, delivered: number}} cell
+ * @returns {boolean}
+ */
+function missesTarget(cell) {
+  return Math.abs(cell.delivered - cell.current) > 0.5;
+}
+
+/**
+ * Said wherever a cell's suggestion is making up for fuelling that misses its target:
+ * the suggestion works, but a tuner fixes the cause first.
+ * @returns {React.ReactElement}
+ */
+function FuellingNote() {
+  return (
+    <p className={styles.prose}>
+      The engine is not getting what these cells ask for, so the fuelling is off, not just the target. A tuner fixes that first: correct VE on AIRFLOW, and check the injector scaling on INJECTORS and the MAF scalar on SENSORS. Then the table means what it says everywhere, not only in the cells you patched.
+    </p>
+  );
+}
+
+/**
  * @param {object} props
  * @param {AdvisorReport} props.report
  * @returns {React.ReactElement|null}
@@ -191,6 +212,7 @@ function AfrAdvisory({ report }) {
           </div>
           {detail.cells.map((c, i) => <AfrCellLine key={i} cell={c} />)}
           {detail.more > 0 && <div className={styles.bannerMore}>…and {detail.more} more</div>}
+          {detail.cells.some(missesTarget) && <div className={styles.bannerBody}><FuellingNote /></div>}
         </>
       );
     // FUEL had no clean state at all — the old banner simply did not render
@@ -207,12 +229,13 @@ function AfrAdvisory({ report }) {
         <div className={styles.prose}>
           <AfrCellLine cell={detail.cell} />
           Best-power mixture shifts with boost, and this cell is judged on what the engine actually delivered, not on what the table commanded. Type the suggested value into the cell to land on target.
+          {missesTarget(detail.cell) && <FuellingNote />}
         </div>
       );
     case 'cell-closed-loop':
       return (
         <div className={styles.prose}>
-          Below open-loop boost the ECU targets stoichiometric and the fuel trims correct any error live. Best-power mixture advice does not apply here — this cell belongs to the trims, not this table.
+          Below the open-loop load (85 kPa) the ECU runs closed loop: the fuel trims hold the delivered mixture on this cell&apos;s target and correct any error live. Best-power mixture advice does not apply here — this cell belongs to the trims, not the power tune.
         </div>
       );
     case 'cell-ok':
@@ -241,95 +264,80 @@ function AfrAdvisory({ report }) {
   }
 }
 
+/** Why the last pull is not in the VE numbers, in words. */
+function pullWhy(pullInfo) {
+  switch (pullInfo?.state) {
+    case 'none': return 'No dyno pull yet.';
+    case 'stale': return pullInfo.changed?.length
+      ? `The last pull was run before you changed: ${pullInfo.changed.join(', ')}. A log only describes the tune it was taken on — run another pull.`
+      : 'The last pull was run in different conditions (the day or an injected fault changed). Run another pull.';
+    case 'part-load': return 'The last pull was at part throttle, in closed loop, where the fuel trims — not the table — set the mixture. Pull at full load, or drive LIVE for part-throttle cells.';
+    case 'unused': return 'The last pull had no usable points (nitrous, injectors at their limit, protection or fuel cut).';
+    default: return null;
+  }
+}
+
+/** One cell's correction, worked through the way tuning software does it. */
+function VeMath({ cell }) {
+  const f = (v) => v.toFixed(3);
+  const newVe = cell.table * cell.ratio;
+  return (
+    <div className={styles.veMath}>
+      <div className={styles.recTitle}>{cell.rpm} RPM · {cell.load} kPa — {cell.samples} samples</div>
+      <dl className={styles.cellStats}>
+        <dt>Table VE now</dt><dd>{cell.table.toFixed(1)}%</dd>
+        <dt>λ measured ÷ λ target</dt><dd>{f(cell.lambdaRatio)}</dd>
+        {Math.abs(cell.trim - 1) > 0.0005 && <><dt>× fuel trims</dt><dd>{f(cell.trim)}</dd></>}
+        {Math.abs(cell.maf - 1) > 0.0005 && <><dt>× MAF error taken out</dt><dd>{f(cell.maf)}</dd></>}
+        {Math.abs(cell.rescale - 1) > 0.0005 && <><dt>× logged on a different VE</dt><dd>{f(cell.rescale)}</dd></>}
+        <dt>= correction</dt><dd>{f(cell.ratio)} ({cell.ratio >= 1 ? '+' : ''}{((cell.ratio - 1) * 100).toFixed(1)}%)</dd>
+        <dt>New VE</dt><dd>{cell.table.toFixed(1)} × {f(cell.ratio)} = {newVe.toFixed(1)}% (half: {(cell.table + (newVe - cell.table) / 2).toFixed(1)}%)</dd>
+      </dl>
+      <div className={styles.recText}>
+        Leaner than the table asked (over 1) means the engine got more air than the ECU calculated from MAP, IAT and this VE; richer means less.
+        {Math.abs(cell.maf - 1) > 0.0005 && ' The MAF was reading wrong too; that part is taken out here because it belongs to the MAF scalar on TUNE › SENSORS, not the VE table.'}
+      </div>
+    </div>
+  );
+}
+
 /**
  * @param {object} props
- * @param {AdvisorReport} props.report
- * @param {() => void} [props.onAcceptVe]
+ * @param {AdvisorReport} props.report from `veLogReport`
  * @returns {React.ReactElement|null}
  */
-function VeAdvisory({ report, onAcceptVe }) {
+function VeAdvisory({ report }) {
   const { state, detail } = report;
-
+  const formula = (
+    <div className={styles.bannerCell}>VE new = VE × (λ measured ÷ λ target) × fuel trims × MAF factor</div>
+  );
   switch (state) {
-    // Table-wide, verbatim from the old `.inSyncBanner` text — the bordered/
-    // tinted flex box and its Info icon do NOT come along, same reasoning as
-    // every other table-wide state in this file: the panel already renders and
-    // colours that surface from `report.tone`.
-    case 'table-sync':
-      return <div className={`${styles.prose} ${styles.ok}`}>VE table matches your current hardware. Nothing to correct.</div>;
-    // Table-wide, verbatim from the old `.staleBanner` body — its `.staleHead`
-    // (the "VE OUT OF SYNC WITH HARDWARE" label plus the max-gap figure) does
-    // NOT come along either: both numbers are already folded into
-    // `report.headline`, the same move SPARK's `.dangerLabel` and FUEL's
-    // `.label` made.
-    case 'table-stale':
+    case 'no-logs':
+    case 'sel-empty': {
+      const why = pullWhy(detail.pullInfo);
+      return (
+        <div className={styles.prose}>
+          {formula}
+          No tuning software can see an engine&apos;s true VE; it corrects the table from logs. {why}
+          {' '}Run a pull for the full-throttle row, and drive the LIVE engine warm at a steady throttle for the rest — then apply the correction under the table.
+        </div>
+      );
+    }
+    case 'maf-model':
+      return <div className={styles.prose}>The ECU is running on the MAF, so this table does not set the fuel. Mixture error belongs in the MAF calibration: the MAF transfer correction on this page and the MAF scalar on TUNE › SENSORS.</div>;
+    case 'log-sync':
+    case 'log-off':
       return (
         <>
-          <div className={styles.staleBody}>
-            Your hardware changed but this table is still the old log. Here is what re-logging airflow on the dyno would actually show:
+          {formula}
+          <VeMath cell={detail.cell} />
+          <div className={styles.acceptNote}>
+            {state === 'log-sync'
+              ? 'Within what a wideband and fuel trims can resolve. Nothing to correct here.'
+              : 'Apply half with CORRECT VE FROM LOGS under the table, log again, and repeat until every cell you use is within 2–3%.'}
           </div>
-          {detail.recs.map((r, i) => (
-            <div key={i} className={styles.rec}>
-              <div className={styles.recTitle}>{r.rpmText}</div>
-              <div className={styles.recText}>{r.text}</div>
-              <div className={styles.recCells}>{r.cells.join('   ')}</div>
-            </div>
-          ))}
-          {/* Was width:100%. It is the only action in this advisory box and
-              reads as one at its own width; the box is already the full
-              content column, so stretching it only made it wider. */}
-          <Button onClick={onAcceptVe} style={{ marginTop: 4 }}>
-            ACCEPT RE-LOGGED VALUES
-          </Button>
-          <div className={styles.acceptNote}>Or type them in yourself — these are the measured targets, not a suggestion.</div>
         </>
       );
-
-    // A single cell or column. Neither state existed before the panel —
-    // AirflowScreen never narrowed to a selection — so there is no old markup
-    // to preserve. `veRecommendations` only measures at wide-open throttle, one
-    // gap per RPM column, so both states report the SAME number (the column's)
-    // and say plainly that it is the column's, never inventing a per-cell one.
-    case 'cell-gap':
-    case 'col-gap':
-      return (
-        <div className={styles.prose}>
-          <div className={styles.bannerCell}>{detail.rpm} RPM: {detail.from}% &rarr; {detail.to}%</div>
-          Measured at wide-open throttle. This gap belongs to the RPM column, not to this one cell.
-        </div>
-      );
-    // The below-threshold counterpart to cell-gap/col-gap — the column's gap
-    // is smaller than `VE_NOTABLE_PCT`, the same cutoff `veRecommendations`
-    // itself uses to decide a column is not worth flagging, so this reads as
-    // an all-clear rather than a muted warning.
-    case 'cell-sync':
-    case 'col-sync':
-      return (
-        <div className={`${styles.prose} ${styles.ok}`}>
-          <div className={styles.bannerCell}>{detail.rpm} RPM: {detail.from}% &rarr; {detail.to}%</div>
-          Measured at wide-open throttle. This column matches your hardware.
-        </div>
-      );
-
-    // A selected row. `veRecommendations` reports one gap per RPM column, never
-    // per row, so there is no row-scoped number to narrow to — unlike SPARK and
-    // FUEL's `group-*` states, which count flagged cells inside the band. This
-    // deliberately does NOT fall through to `table-stale`: that body carries
-    // the ACCEPT RE-LOGGED VALUES button, which writes every row in the table,
-    // and a player who selected one row must never be shown a button that
-    // silently overwrites the other five.
-    case 'group-ve':
-      return (
-        <div className={styles.prose}>
-          VE is measured per RPM column, at wide-open throttle — a row has no gap of its own to report. Select a column header, or a single cell, to see the gap for that RPM.
-        </div>
-      );
-
-    // No shell comparison at all for this build (`veAdvice` is `null`) — keep
-    // the panel mounted rather than throwing or rendering nothing.
-    case 'no-advice':
-      return <div className={styles.prose}>No airflow comparison available for this build yet.</div>;
-
     default:
       return null;
   }

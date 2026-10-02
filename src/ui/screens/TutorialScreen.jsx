@@ -32,9 +32,10 @@ export function TutorialScreen({ steps, onDone }) {
               read as arithmetic. Steps with no newlines render exactly as before. */}
           {current.body.split('\n').map((line, i) => {
             if (line.trim() === '') return <div key={i} className={styles.gap} />;
-            return line.startsWith('    ')
-              ? <p key={i} className={styles.formula}>{line.trim()}</p>
-              : <p key={i} className={styles.text}>{line}</p>;
+            if (line.startsWith('    ')) return <p key={i} className={styles.formula}>{line.trim()}</p>;
+            // A line opening with an arrow is the step's action: what to go and do.
+            if (line.startsWith('→ ')) return <p key={i} className={styles.action}>{line.slice(2)}</p>;
+            return <p key={i} className={styles.text}>{line}</p>;
           })}
         </div>
       </div>

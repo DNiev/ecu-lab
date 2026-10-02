@@ -14,7 +14,8 @@
  */
 
 import {
-  EXHAUST_DIA_OPTS, INJECTOR_OPTS, OCTANE_OPTS, TURBINE_OPTS, computeHardwareVE, turbineWithCount,
+  EXHAUST_DIA_OPTS, INJECTOR_OPTS, TURBINE_OPTS, computeHardwareVE, defaultEcuCalibration,
+  deriveEngine, tankFuel, turbineWithCount,
 } from '../sim/index.js';
 
 import { makeInitialState } from './state/initialState.js';
@@ -34,21 +35,21 @@ export function hardwareOf(build) {
     turboOn: build.turboOn,
     turbine: build.turboOn ? turbineWithCount(TURBINE_OPTS[build.turbineIdx], build.turbineCount) : null,
     exhaustDia: EXHAUST_DIA_OPTS[build.exhaustDiaIdx].dia,
-    fuel: OCTANE_OPTS[build.octaneIdx],
+    fuel: tankFuel(build),
     peakBoostPsi: build.turboOn ? Math.max(...build.boostCurve) : 0,
   };
 }
 
 /**
  * The car a customer hands over: the stock car with that job's fault fitted, and the
- * VE table it arrives with.
+ * VE table and factory engine management it arrives with.
  *
  * Built on the WHOLE stock build rather than patched over the player's, so nothing of
  * the previous car rides along: a pipe, turbine or compressor the player chose would
  * otherwise turn up on a customer's car the brief says nothing about.
  *
  * @param {typeof CAREER_JOBS[number]} job
- * @returns {{build: BuildState, ve: number[][]}}
+ * @returns {{build: BuildState, ve: number[][], ecu: object}}
  */
 export function jobCar(job) {
   const stock = makeInitialState().build;
@@ -72,7 +73,13 @@ export function jobCar(job) {
   // A "stale VE" job hands you the OLD log against new hardware, which is the whole
   // point of it: the table is a record of what the stock engine used to flow.
   const logged = s.staleVe ? stock : build;
-  return { build, ve: computeHardwareVE(logged.engineConfig, logged.mods, hardwareOf(logged)) };
+  return {
+    build,
+    ve: computeHardwareVE(logged.engineConfig, logged.mods, hardwareOf(logged)),
+    // Tuned to THIS engine's valvetrain noise, as a preset's is: the previous car's knock
+    // threshold, corrections and map slots are not the customer's.
+    ecu: defaultEcuCalibration({ derived: deriveEngine(build.engineConfig), gate: build.wastegate }),
+  };
 }
 
 export const CAREER_JOBS = [
@@ -90,7 +97,7 @@ export const CAREER_JOBS = [
     id: 'stale-ve',
     title: 'Cam swap, never re-logged',
     customer: 'Shop fitted a big cam and handed it back on the old calibration. Customer says it runs rough and lean up top.',
-    brief: 'The engine breathes differently now. The VE table is still describing the old engine, so the ECU is fuelling for air that is not there.',
+    brief: 'The engine breathes differently now. The VE table is still describing the old engine, so the ECU fuels for the old engine\'s air: too much where the new cam breathes worse, too little where it breathes better.',
     target: 'Get the mixture back on target and reach Tuning Score 85+.',
     setup: { camDuration: 268, springRate: 78, staleVe: true },
     goal: (r, ctx) => ctx.tuningScore >= 85 && !r.events.some((e) => e.type === 'lean' || e.type === 'rich'),

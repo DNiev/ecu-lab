@@ -41,9 +41,10 @@ export function JobsScreen({ active, onToggle, onTakeJob, onAbandon }) {
         sub={`${completedJobs.length}/${CAREER_JOBS.length} completed`}
       >
         <div style={{ fontSize: 12, color: T.ink2, lineHeight: 1.55, marginBottom: 10 }}>
-          Each car comes in with one real fault. Nothing is scripted — take a job, run a
-          pull, and read the log. The cause is always something the simulation genuinely
-          models, and the tables are what fix it.
+          Each car comes in with a real problem: a fault to find, or a job to finish.
+          Nothing is scripted — take a job, run a pull, and read the log. The cause is
+          always something the simulation genuinely models, and the calibration is what
+          fixes it.
         </div>
 
         {activeJob != null && (

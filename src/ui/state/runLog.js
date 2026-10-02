@@ -2,10 +2,11 @@
  * The dyno run log: what one banked pull keeps, and the operations over a list of them.
  *
  * WHY A SLIM RECORD
- * A full `simulateSweep` result is 46,459 bytes of JSON — 61 points of 50 fields each.
- * The three things a timeline row and a ghost curve actually need are 2,258 bytes. At
- * twenty runs that is the difference between ~1 MB of localStorage and ~80 KB, so the
- * record stores the projection and not the result.
+ * A full `simulateSweep` result is about 88 KB of JSON — 61 points of 83 fields each.
+ * The three things a timeline row and a ghost curve actually need are about 2 KB. A
+ * whole record, with the measured build and calibration it was pulled on, is about
+ * 9 KB. At twenty runs that is the difference between ~1.8 MB of localStorage and
+ * ~190 KB, so the record stores the projection and not the result.
  *
  * WHY `knocks` IS A STORED COUNT AND NOT A DERIVED ONE
  * The delta panel on DYNO compares knock counts between the current pull and the one
@@ -19,7 +20,7 @@
  */
 
 /**
- * How many runs the log keeps. Twenty at ~4 KB each is ~80 KB, comfortably inside a
+ * How many runs the log keeps. Twenty at ~9 KB each is ~190 KB, comfortably inside a
  * ~5 MB localStorage budget while leaving room for a career's other state.
  */
 export const RUN_LIMIT = 20;

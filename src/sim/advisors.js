@@ -13,7 +13,7 @@ import { chargeIndexOf } from './knock.js';
 import { mbtForCell, trappedAirGrams } from './cycle.js';
 import { exhaustManifoldKpa } from './friction.js';
 import { chargeTempK, exhaustTempK } from './thermo.js';
-import { clamp, interp2 } from './math.js';
+import { clamp, interp1, interp2 } from './math.js';
 import { evaluatePoint } from './point.js';
 import { reachableKpa } from './manifold.js';
 import {
@@ -153,11 +153,16 @@ function mbtAtRow({ rpm, mapKpa, veCell, afrCell, fuel, mods, derived, turboOn, 
  */
 export function calibrationAdvice({
   ve, veTruth, timing, afr, derived, fuel, mods, turboOn, boostCurve,
-  compressor, turbine, injectorCc, ecuInjectorCc, mafScalar, mafErrorBase,
+  compressor, turbine, injectorCc, ecuInjectorCc, mafScalar, mafErrorBase, pull = null,
 }) {
   const spark = [], fuelAdv = [];
-  /** Highest manifold pressure the boost controller is even asking for at this speed. */
-  const reachAt = (rpm) => reachableKpa({ turboOn, boostCurve, rpm });
+  /** Highest manifold pressure the boost controller is even asking for at this speed. A
+   *  supercharger asks for nothing — its boost is what the pulley makes — so there the
+   *  pull's own boost is the answer. */
+  const blowerPull = !turboOn && pull?.points?.some((p) => p.blowerRpm != null) ? pull.points : null;
+  const reachAt = (rpm) => (blowerPull
+    ? reachableKpa({ turboOn, boostCurve, rpm, boostPsi: interp1(blowerPull.map((p) => p.rpm), blowerPull.map((p) => p.boostPsi), rpm) })
+    : reachableKpa({ turboOn, boostCurve, rpm }));
 
   /**
    * The knock threshold at any manifold pressure, not just a row's.
@@ -356,11 +361,113 @@ export function calibrationAdvice({
   // ceiling and the table is over both: the cell is detonating, but the lower ceiling
   // is MBT. Classifying on ceiling order would file that cell as merely wasteful and
   // tell the player it is safe, which is the one thing this report must never do.
+  const wrongMix = fuelAdv.filter((c) => !c.bracketOnly && c.map >= OPEN_LOOP_KPA
+    && Math.abs(c.delta) > MIX_NOTABLE_AFR);
+  if (pull) {
+    return { spark, fuelAdv, wrongMix, ...judgeAgainstPull(spark, pull) };
+  }
   const overAdvanced = spark.filter((c) => !c.bracketOnly && c.current - c.knockCeiling > ADVANCE_TOLERANCE_DEG);
   const pastMbt = spark.filter((c) => !c.bracketOnly && c.current - c.knockCeiling <= ADVANCE_TOLERANCE_DEG
     && c.current - c.mbt > ADVANCE_TOLERANCE_DEG);
   const underAdvanced = spark.filter((c) => !c.bracketOnly && c.delta > UNDER_ADVANCED_DEG);
-  const wrongMix = fuelAdv.filter((c) => !c.bracketOnly && c.map >= OPEN_LOOP_KPA
-    && Math.abs(c.delta) > MIX_NOTABLE_AFR);
   return { spark, fuelAdv, overAdvanced, underAdvanced, pastMbt, wrongMix };
+}
+
+/** A cell carrying less than this share of a point's timing is not "in force" there. */
+const IN_FORCE_WEIGHT = 0.15;
+
+/**
+ * How much each spark-table cell contributes to the timing read at one operating point,
+ * by the same bilinear blend `interp2` reads the table with.
+ * @param {number} rpm
+ * @param {number} mapKpa
+ * @returns {{ri: number, ci: number, w: number}[]}
+ */
+export function cellsInForce(rpm, mapKpa) {
+  const axis = (xs, x) => {
+    const asc = xs[0] < xs[xs.length - 1];
+    const a = asc ? xs : [...xs].reverse();
+    if (x <= a[0]) return [[0, 1]];
+    if (x >= a[a.length - 1]) return [[a.length - 1, 1]];
+    let i = 0;
+    while (x > a[i + 1]) i += 1;
+    const f = (x - a[i]) / (a[i + 1] - a[i]);
+    return [[i, 1 - f], [i + 1, f]];
+  };
+  const toIdx = (xs, i) => (xs[0] < xs[xs.length - 1] ? i : xs.length - 1 - i);
+  const out = [];
+  for (const [ci, wc] of axis(RPM, rpm)) {
+    for (const [ri, wr] of axis(LOAD, mapKpa)) {
+      out.push({ ri: toIdx(LOAD, ri), ci: toIdx(RPM, ci), w: wc * wr });
+    }
+  }
+  return out;
+}
+
+/**
+ * The spark verdicts, judged against a full-throttle pull of the same engine.
+ *
+ * Grading every cell at its own row pressure is right for a table's shape, but it is not
+ * what the dyno does: the pull reads the table at whatever manifold pressure the turbo
+ * actually made, blending the rows either side, with the ECU's own corrections and knock
+ * control in the loop. Judging one way and pulling the other is how the advisor came to
+ * call a table clean that the pull showed knocking, and to warn of knock the pull never
+ * met. So wherever the pull's own operating points use a cell, the pull decides:
+ *
+ * - it knocked where the cell is in force → the cell is past the knock limit, by as much
+ *   as the pull ran past it, and the suggestion takes that out plus the safety margin;
+ * - it did not → the cell is not, and no suggestion may add more advance than the margin
+ *   the pull measured there.
+ *
+ * Cells no full-throttle pull uses keep their row grading. And the idle column and the
+ * closed-throttle row are never "timing left on the table": a calibration runs idle
+ * below MBT on purpose, to give idle control spark in reserve, and nobody chases torque
+ * on overrun.
+ *
+ * @param {object[]} spark the per-cell grading, adjusted in place
+ * @param {{points: object[]}} pull a full-throttle `simulateSweep` result
+ * @returns {{overAdvanced: object[], underAdvanced: object[], pastMbt: object[]}}
+ */
+function judgeAgainstPull(spark, pull) {
+  const knockBy = new Map();
+  const marginBy = new Map();
+  for (const p of pull.points) {
+    for (const { ri, ci, w } of cellsInForce(p.rpm, p.map)) {
+      if (w < IN_FORCE_WEIGHT) continue;
+      const key = `${ri}|${ci}`;
+      marginBy.set(key, Math.min(marginBy.get(key) ?? Infinity, p.margin));
+      if (p.margin < 0) knockBy.set(key, Math.max(knockBy.get(key) ?? 0, -p.margin));
+    }
+  }
+  const halfDown = (v) => Math.floor(v * 2) / 2;
+  const overAdvanced = [], underAdvanced = [], pastMbt = [];
+  for (const c of spark) {
+    const key = `${c.ri}|${c.ci}`;
+    const idle = c.ci === 0 || c.map <= 30;
+    if (marginBy.has(key)) {
+      c.pullMargin = Number(marginBy.get(key).toFixed(1));
+      // The limit shown beside the verdict is the one the pull met, so the two never
+      // disagree: a clean cell cannot show a limit under the player's own number.
+      c.knockCeiling = Number((c.current + marginBy.get(key)).toFixed(1));
+      const knock = knockBy.get(key) ?? 0;
+      if (knock > 0) {
+        c.knockingOnPull = true;
+        c.suggested = clamp(Math.min(c.suggested, halfDown(c.current - knock - KNOCK_SAFETY_DEG)), SPARK_MIN_DEG, SPARK_MAX_DEG);
+        c.delta = Number((c.suggested - c.current).toFixed(1));
+        overAdvanced.push(c);
+        continue;
+      }
+      // Clean on the pull: never advise more advance than the pull had room for.
+      c.suggested = clamp(Math.min(c.suggested, halfDown(c.current + marginBy.get(key) - KNOCK_SAFETY_DEG)), SPARK_MIN_DEG, SPARK_MAX_DEG);
+      c.delta = Number((c.suggested - c.current).toFixed(1));
+      if (c.current - c.mbt > ADVANCE_TOLERANCE_DEG) pastMbt.push(c);
+      else if (!idle && c.delta > UNDER_ADVANCED_DEG) underAdvanced.push(c);
+      continue;
+    }
+    if (c.bracketOnly) continue;
+    if (c.current - c.knockCeiling > ADVANCE_TOLERANCE_DEG) overAdvanced.push(c);
+    else if (c.current - c.mbt > ADVANCE_TOLERANCE_DEG) pastMbt.push(c);
+    else if (!idle && c.delta > UNDER_ADVANCED_DEG) underAdvanced.push(c);
+  }
+  return { overAdvanced, underAdvanced, pastMbt };
 }

@@ -19,7 +19,7 @@ import React from 'react';
 
 import { Fuel } from 'lucide-react';
 
-import { INJECTOR_OPTS, OCTANE_OPTS } from '../../../sim/index.js';
+import { INJECTOR_OPTS, FUEL_CHOICES } from '../../../sim/index.js';
 import { ExpandableInfo } from '../../components/ExpandableInfo.jsx';
 import { Bar } from '../../primitives/Bar.jsx';
 import { Button } from '../../primitives/Button.jsx';
@@ -39,12 +39,14 @@ import styles from './InjectorsScreen.module.css';
  *   also read by the score breakdown and dyno payload
  * @param {number} props.injectorCc the shell's — `INJECTOR_OPTS[injIdx].cc`, also
  *   read by the same computations as `dutyPreview`
+ * @param {React.ReactNode} [props.children] the engine management settings that belong
+ *   with this screen, shown under it
  * @returns {React.ReactElement}
  */
-export function InjectorsScreen({ dutyPreview, injectorCc }) {
+export function InjectorsScreen({ dutyPreview, injectorCc, children }) {
   const [build, dispatch] = useBuild();
   const { turboOn, octaneIdx, ecuInjectorCc } = build;
-  const fuel = OCTANE_OPTS[octaneIdx];
+  const fuel = FUEL_CHOICES[octaneIdx];
   const dutyDangerous = utilisationColor(dutyPreview) === T.danger;
 
   return (
@@ -99,6 +101,7 @@ export function InjectorsScreen({ dutyPreview, injectorCc }) {
           </div>
         )}
       </Panel>
+      {children}
     </div>
   );
 }
