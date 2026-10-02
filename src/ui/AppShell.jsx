@@ -179,12 +179,17 @@ const HealthField = React.memo(HealthFieldInner);
  * rest of the strip is not dragged along by it. See this file's header for what the
  * single-context store means for that in practice today.
  *
- * @returns {React.ReactElement|null}
+ * @returns {React.ReactElement}
  */
 function EngineRunLight() {
   const [session] = useSession();
-  if (!session.live.running) return null;
-  return <span className={styles.run}>● RUNNING</span>;
+  // The slot stays mounted while idle so the strip does not change shape when the
+  // engine starts; see `.run` in AppShell.module.css for how it keeps its width.
+  return (
+    <span className={styles.run}>
+      {session.live.running && <span>● RUNNING</span>}
+    </span>
+  );
 }
 
 /**
@@ -266,10 +271,14 @@ export function StatusStrip({ onTutorial, onRepair }) {
         <div className={styles.engine} data-testid="build-line">
           {engineName} · {induction}{build.nitrous ? ` + ${build.nitrous.shotHp} shot` : ''} · {fuelLabel(FUEL_CHOICES[octaneIdx], build.ethanolPct)} · {INJECTOR_OPTS[injIdx].label} · {BUILD_VERSION}
         </div>
-        <StripField label="BOOST" value={turboOn || blower ? `${peakBoost.toFixed(1)} psi` : 'N/A'} />
-        <HealthField pct={overallHealth} />
-        <StripField label="LAST PULL" value={result ? `${Math.round(result.peakHp)} whp` : '—'} />
-        <EngineRunLight />
+        {/* Grouped so they wrap as one unit — see `.readouts` in AppShell.module.css
+            for how the strip fits a phone. */}
+        <div className={styles.readouts}>
+          <StripField label="BOOST" value={turboOn || blower ? `${peakBoost.toFixed(1)} psi` : 'N/A'} />
+          <HealthField pct={overallHealth} />
+          <StripField label="LAST PULL" value={result ? `${Math.round(result.peakHp)} whp` : '—'} />
+          <EngineRunLight />
+        </div>
         {/* Icon-only, so the label has to be spelled out: `title` alone leaves a
             button whose accessible name depends on the tooltip surviving. Note the
             lower-case names — the start screen's TUTORIAL button is queried by exact

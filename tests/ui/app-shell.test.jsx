@@ -13,12 +13,16 @@
  * `onNavigate` it was handed.
  */
 
+import { readFileSync } from 'node:fs';
+import { URL as NodeURL } from 'node:url';
+
 import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import React from 'react';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import { ENGINE_PRESETS, applyPreset } from '../../src/sim/index.js';
 import { AppShell } from '../../src/ui/AppShell.jsx';
+import shellStyles from '../../src/ui/AppShell.module.css';
 import EcuLab from '../../src/ui/EcuLab.jsx';
 import { ROUTES } from '../../src/ui/routing.js';
 import { StoreProvider, useBuild, useSession } from '../../src/ui/state/StoreProvider.jsx';
@@ -225,5 +229,148 @@ describe('the app\'s name', () => {
 
     expect(screen.getByText('CARIBOU TUNING')).toBeTruthy();
     expect(screen.getByText('ECU Lab')).toBeTruthy();
+  });
+});
+
+// Read the real stylesheet, the way tokens.test.js and readouts.test.jsx do: jsdom
+// does no layout, so "the strip fits a 375px phone" cannot be measured here — only
+// the declarations that make it fit can be pinned. Under jsdom the global `URL` is
+// jsdom's own, which `readFileSync` rejects, hence node:url's.
+const shellCss = readFileSync(new NodeURL('../../src/ui/AppShell.module.css', import.meta.url), 'utf8')
+  .replace(/\/\*[\s\S]*?\*\//g, '');
+
+/**
+ * Splits the stylesheet into its top-level rules and its `@media`/`@container` blocks,
+ * matching braces so a block's body is exactly its own rules: nothing before it, and
+ * nothing after its closing brace.
+ * @param {string} css comment-free CSS
+ * @returns {{base: string, blocks: {prelude: string, body: string}[]}}
+ */
+function splitAtRules(css) {
+  const blocks = [];
+  let base = '';
+  let i = 0;
+  while (i < css.length) {
+    const at = css.indexOf('@', i);
+    if (at === -1) { base += css.slice(i); break; }
+    base += css.slice(i, at);
+    const open = css.indexOf('{', at);
+    let depth = 1;
+    let j = open + 1;
+    for (; depth > 0; j += 1) {
+      if (css[j] === '{') depth += 1;
+      else if (css[j] === '}') depth -= 1;
+    }
+    blocks.push({ prelude: css.slice(at, open).trim(), body: css.slice(open + 1, j - 1) });
+    i = j;
+  }
+  return { base, blocks };
+}
+
+const { base: phoneCss, blocks } = splitAtRules(shellCss);
+
+/**
+ * The body of the one at-rule block whose prelude is exactly `prelude`. Throws when
+ * absent, so a renamed query fails loudly rather than asserting against nothing.
+ * @param {string} prelude e.g. '@media (min-width: 560px)'
+ * @returns {string}
+ */
+function block(prelude) {
+  const found = blocks.filter((b) => b.prelude === prelude);
+  if (found.length !== 1) throw new Error(`expected one "${prelude}" block, found ${found.length}`);
+  return found[0].body;
+}
+
+// The project's one breakpoint (see tokens.css), and the strip's own container query.
+const breakpointCss = block('@media (min-width: 560px)');
+const STRIP_QUERY = blocks.find((b) => b.prelude.startsWith('@container strip '));
+const stripQueryCss = STRIP_QUERY ? STRIP_QUERY.body : '';
+
+/**
+ * The declarations of EVERY `selector { ... }` rule in `css`, joined. Matches the
+ * selector exactly, so `.strip` does not find `.stripInner` or `.strip::after`.
+ * Every rule, not the first, so a later override cannot slip past an assertion.
+ * @param {string} css
+ * @param {string} selector e.g. '.readouts'
+ * @returns {string} '' when there is no such rule
+ */
+function decls(css, selector) {
+  const escaped = selector.replace(/[.[\]():]/g, '\\$&');
+  const rules = [...css.matchAll(new RegExp(`(?:^|[\\s},])${escaped}\\s*{([^}]*)}`, 'g'))];
+  return rules.map((r) => r[1]).join(';');
+}
+
+/**
+ * `prop: value` as a whole declaration, so `order: 1` does not also match `order: 10`.
+ * @param {string} prop @param {string} value
+ * @returns {RegExp}
+ */
+const decl = (prop, value) => new RegExp(`(?:^|[\\s;{])${prop}:\\s*${value.replace(/[()/]/g, '\\$&')}\\s*(?:;|$)`);
+
+describe('the status strip at every width', () => {
+  // The defect: at 375px the strip's readouts and buttons ran ~150px past the
+  // viewport, the page scrolled sideways and the brand and nav were clipped. Then,
+  // between the breakpoint and a wide display, the browser's greedy line-filling
+  // wrapped the action buttons onto a second line on their own. The browser check
+  // this stands in for: at 320-1400px, `document.documentElement.scrollWidth`
+  // equals the viewport and the buttons share the first line with the brand.
+
+  it('groups the readouts apart from the action buttons, so they can wrap as a unit', () => {
+    mountShell(ROUTE_DASH, () => {});
+    const readouts = document.querySelector(`.${shellStyles.readouts}`);
+    expect(readouts).toBeTruthy();
+    for (const label of ['BOOST', 'HEALTH', 'LAST PULL']) {
+      expect(within(/** @type {HTMLElement} */ (readouts)).getByText(label)).toBeTruthy();
+    }
+    // What would turn this red: the buttons folded into the group that drops to a
+    // second line, which is the very thing that used to push them off the edge.
+    expect(readouts.contains(screen.getByRole('button', { name: 'Tutorial' }))).toBe(false);
+    expect(readouts.contains(screen.getByRole('button', { name: 'Repair engine' }))).toBe(false);
+  });
+
+  it('wraps the strip instead of overflowing, and keeps its padding inside its width', () => {
+    const inner = decls(shellCss, '.stripInner');
+    expect(decls(phoneCss, '.stripInner')).toMatch(decl('flex-wrap', 'wrap'));
+    expect(inner).not.toMatch(decl('flex-wrap', 'nowrap'));
+    // `width: 100%` + side padding as a content box was wider than the strip at
+    // every width below the content cap.
+    if (decl('width', '100%').test(inner)) expect(inner).toMatch(decl('box-sizing', 'border-box'));
+  });
+
+  it('puts the readouts on their own line until the strip itself is wide enough for them', () => {
+    expect(decls(phoneCss, '.strip')).toMatch(decl('container', 'strip / inline-size'));
+
+    const own = decls(phoneCss, '.readouts');
+    expect(own).toMatch(decl('flex-basis', '100%'));
+    expect(own).toMatch(decl('order', '1'));
+
+    // Inline only on the strip's width. The viewport breakpoint must not decide it:
+    // that let the buttons wrap alone between 560px and a wide display.
+    expect(STRIP_QUERY?.prelude).toMatch(/^@container strip \(min-width: \d+px\)$/);
+    const inline = decls(stripQueryCss, '.readouts');
+    expect(inline).toMatch(decl('flex', '0 0 auto'));
+    expect(inline).toMatch(decl('order', '0'));
+    expect(decls(breakpointCss, '.readouts')).not.toMatch(/order|flex/);
+  });
+
+  it('lets the build line take what the first line leaves, so the buttons never wrap', () => {
+    // A non-zero basis wrapped the buttons off the first line on a phone.
+    expect(decls(shellCss, '.engine')).toMatch(decl('flex', '1 1 0'));
+  });
+
+  it('drops the health bar below the breakpoint only, keeping the percentage', () => {
+    expect(decls(phoneCss, '.healthTrack')).toMatch(decl('display', 'none'));
+    expect(decls(breakpointCss, '.healthTrack')).toMatch(decl('display', 'block'));
+  });
+
+  it('holds the run light\'s width while the engine is idle, so starting it cannot reflow the strip', () => {
+    mountShell(ROUTE_DASH, () => {});
+    expect(screen.queryByText('● RUNNING')).toBeNull();
+    // The slot is mounted while idle, and its invisible stand-in is the exact text
+    // the light shows, so lit and unlit are the same width.
+    expect(document.querySelector(`.${shellStyles.run}`)).toBeTruthy();
+    const standIn = decls(shellCss, '.run::after');
+    expect(standIn).toMatch(decl('content', "'● RUNNING'"));
+    expect(standIn).toMatch(decl('visibility', 'hidden'));
   });
 });
