@@ -44,7 +44,7 @@
  */
 
 import {
-  Activity, Flag, Flame, Gauge, Grid3x3, Info, Settings, Wrench,
+  Activity, Flag, Flame, Gauge, Grid3x3, Info, Search, Settings, Wrench,
 } from 'lucide-react';
 import React, { useMemo } from 'react';
 
@@ -188,24 +188,6 @@ function EngineRunLight() {
 }
 
 /**
- * The always-visible status strip: what is built, how hard it is boosted, how healthy
- * it is, and what the last pull made. Engine state never leaves the screen.
- *
- * It reads the store itself rather than being handed props by the app — the shell is
- * mounted once and outlives every screen, so threading five values through
- * `EcuLab.jsx` would only move the same re-render one level up.
- *
- * `onTutorial`/`onRepair` are the exception: what those two icon buttons DO is not
- * chrome's business (see this file's header), so they arrive as props from
- * `EcuLab.jsx` exactly like `onNavigate` does, and are rendered here because this is
- * where the header's icon buttons used to live.
- *
- * @param {object} props
- * @param {() => void} [props.onTutorial]
- * @param {() => void} [props.onRepair]
- * @returns {React.ReactElement}
- */
-/**
  * The fuel as the header names it: a pump fuel by its octane ("93 oct"), E85 by name, a
  * flex tank by the blend it holds.
  * @param {{label: string, flex?: boolean}} fuel
@@ -217,7 +199,26 @@ function fuelLabel(fuel, ethanolPct) {
   return /^\d+$/.test(fuel.label) ? `${fuel.label} oct` : fuel.label;
 }
 
-export function StatusStrip({ onTutorial, onRepair }) {
+/**
+ * The always-visible status strip: what is built, how hard it is boosted, how healthy
+ * it is, and what the last pull made. Engine state never leaves the screen.
+ *
+ * It reads the store itself rather than being handed props by the app — the shell is
+ * mounted once and outlives every screen, so threading five values through
+ * `EcuLab.jsx` would only move the same re-render one level up.
+ *
+ * `onTutorial`/`onRepair`/`onSearch` are the exception: what those icon buttons DO is
+ * not chrome's business (see this file's header), so they arrive as props from
+ * `EcuLab.jsx` exactly like `onNavigate` does, and are rendered here because this is
+ * where the header's icon buttons used to live.
+ *
+ * @param {object} props
+ * @param {() => void} [props.onTutorial]
+ * @param {() => void} [props.onRepair]
+ * @param {() => void} [props.onSearch] opens the command palette
+ * @returns {React.ReactElement}
+ */
+export function StatusStrip({ onTutorial, onRepair, onSearch }) {
   const [build] = useBuild();
   const [session] = useSession();
   const { engineConfig, presetId, turboOn, boostCurve, octaneIdx, injIdx } = build;
@@ -276,6 +277,9 @@ export function StatusStrip({ onTutorial, onRepair }) {
             name and must stay the only match. Moved here verbatim from the header
             this strip replaced. */}
         <div className={styles.actions}>
+          <Button variant="ghost" size="sm" title="Search (⌘K)" aria-label="Search pages and actions" onClick={onSearch}>
+            <Search size={16} aria-hidden="true" />
+          </Button>
           <Button variant="ghost" size="sm" title="Tutorial" aria-label="Tutorial" onClick={onTutorial}>
             <Info size={16} aria-hidden="true" />
           </Button>
@@ -294,17 +298,18 @@ export function StatusStrip({ onTutorial, onRepair }) {
  * @param {(tab: string) => void} props.onNavigate what a nav item means
  * @param {() => void} [props.onTutorial] what the strip's Tutorial button means
  * @param {() => void} [props.onRepair] what the strip's Repair engine button means
+ * @param {() => void} [props.onSearch] what the strip's Search button means
  * @param {React.ReactNode} props.children the screen for the current route
  * @returns {React.ReactElement}
  */
 export function AppShell({
-  route, onNavigate, onTutorial, onRepair, children,
+  route, onNavigate, onTutorial, onRepair, onSearch, children,
 }) {
   return (
     <div className={styles.shell}>
       <SideNav tab={route.tab} onNavigate={onNavigate} />
       <div className={styles.main}>
-        <StatusStrip onTutorial={onTutorial} onRepair={onRepair} />
+        <StatusStrip onTutorial={onTutorial} onRepair={onRepair} onSearch={onSearch} />
         <div className={styles.content}>{children}</div>
       </div>
     </div>
