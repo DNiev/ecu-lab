@@ -27,6 +27,7 @@ export default [
         Float32Array: 'readonly',
         process: 'readonly',
         URL: 'readonly',
+        fetch: 'readonly',
         Blob: 'readonly',
         AudioWorkletNode: 'readonly',
       },
