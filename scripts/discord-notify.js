@@ -166,6 +166,8 @@ async function main() {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
+      // A hung Discord request must not stall the job; a timeout lands in the warning path.
+      signal: AbortSignal.timeout(10_000),
     });
     if (!res.ok) {
       const body = (await res.text().catch(() => '')).slice(0, 200);

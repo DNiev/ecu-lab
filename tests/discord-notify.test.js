@@ -7,6 +7,8 @@
  * These pin the limits so a long commit message or an empty field can't do that.
  */
 
+import { spawnSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 import { describe, expect, it, vi } from 'vitest';
 
 import { buildPayload } from '../scripts/discord-notify.js';
@@ -153,16 +155,61 @@ describe('buildPayload color', () => {
 });
 
 describe('importing the module', () => {
-  it('has no side effects: it does not run the CLI or call fetch', async () => {
+  it('has no side effects: it does not run the CLI, print or call fetch', async () => {
+    // The webhook must be SET, or main() would take its "not set" early return and this
+    // would pass even with the run-directly guard deleted.
+    const previous = process.env.DISCORD_WEBHOOK;
+    process.env.DISCORD_WEBHOOK = 'https://example.invalid/hook';
     const fetchStub = vi.fn();
     vi.stubGlobal('fetch', fetchStub);
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {});
     try {
       vi.resetModules();
       const mod = await import('../scripts/discord-notify.js');
       expect(typeof mod.buildPayload).toBe('function');
       expect(fetchStub).not.toHaveBeenCalled();
+      expect(log).not.toHaveBeenCalled();
     } finally {
+      log.mockRestore();
       vi.unstubAllGlobals();
+      if (previous === undefined) delete process.env.DISCORD_WEBHOOK;
+      else process.env.DISCORD_WEBHOOK = previous;
     }
+  });
+});
+
+describe('running the script', () => {
+  const script = fileURLToPath(new URL('../scripts/discord-notify.js', import.meta.url));
+  /** Runs the CLI with exactly `env` (plus PATH) so nothing leaks in from the host. */
+  const run = (/** @type {Record<string, string>} */ env) =>
+    spawnSync(process.execPath, [script], {
+      env: { PATH: process.env.PATH ?? '', ...env },
+      encoding: 'utf8',
+    });
+
+  it('is a quiet notice and exit 0 when DISCORD_WEBHOOK is empty', () => {
+    const out = run({ DISCORD_WEBHOOK: '' });
+    expect(out.stdout).toContain('::notice::');
+    expect(out.status).toBe(0);
+  });
+
+  it('warns and exits 0 on bad input, and never prints the webhook URL', () => {
+    // Port 9 (discard) is never listening, so even a fetch that got past the bad FIELDS
+    // would fail without touching the network.
+    const webhook = 'http://127.0.0.1:9/hook';
+    const out = run({ DISCORD_WEBHOOK: webhook, TITLE: 'x', FIELDS: 'not json' });
+    expect(out.stdout).toContain('::warning::');
+    expect(out.status).toBe(0);
+    expect(out.stdout).not.toContain(webhook);
+    expect(out.stderr).not.toContain(webhook);
+  });
+
+  it('warns and exits 0 when the request itself fails, without printing the URL', () => {
+    const webhook = 'http://127.0.0.1:9/hook';
+    const out = run({ DISCORD_WEBHOOK: webhook, TITLE: 'x' });
+    expect(out.stdout).toContain('::warning::');
+    expect(out.status).toBe(0);
+    expect(out.stdout).not.toContain(webhook);
+    expect(out.stderr).not.toContain(webhook);
   });
 });

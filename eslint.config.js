@@ -28,6 +28,7 @@ export default [
         process: 'readonly',
         URL: 'readonly',
         fetch: 'readonly',
+        AbortSignal: 'readonly',
         Blob: 'readonly',
         AudioWorkletNode: 'readonly',
       },
