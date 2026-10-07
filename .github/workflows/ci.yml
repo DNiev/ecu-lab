@@ -45,3 +45,59 @@ jobs:
 
       - name: Build
         run: npm run build
+
+  # Pings the maintainers channel when main goes red.
+  #
+  # Main only: a failure on a pull request already shows on that PR, where its author
+  # will see it, and pinging the channel for every red branch would be noise that
+  # teaches people to ignore the channel. A broken `main` is different — it blocks
+  # everyone and nobody is looking at it by default.
+  #
+  # `check` is a matrix. `needs.check.result` is `failure` if any leg failed, so this
+  # runs once however many legs broke.
+  notify-failure:
+    needs: check
+    if: failure() && github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      # Only the notifier is needed, so skip the history. Root files (.nvmrc,
+      # package.json) are checked out regardless of the sparse pattern.
+      - uses: actions/checkout@v5
+        with:
+          sparse-checkout: scripts
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version-file: .nvmrc
+
+      - name: Report the failure
+        env:
+          DISCORD_WEBHOOK: ${{ secrets.DISCORD_MAINTAINERS_WEBHOOK }}
+          # A commit message and an author name are free text from whoever pushed. They
+          # reach the script only as environment variables, never pasted into `run:`.
+          COMMIT_MESSAGE: ${{ github.event.head_commit.message }}
+          COMMIT_AUTHOR: ${{ github.event.head_commit.author.name }}
+          SHA: ${{ github.sha }}
+          TITLE: CI failed on main
+          URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          DESCRIPTION: A fingerprint mismatch is the usual cause. Open the run and check the Test, Lint, Typecheck and Build steps of the failed Node leg.
+          COLOR: '0xe74c3c'
+        run: |
+          # Subject line only; the body of a commit message can be long. Parameter
+          # expansion rather than `head`, which can break a pipe under `pipefail`.
+          SUBJECT=${COMMIT_MESSAGE%%$'\n'*}
+
+          # Built with jq so the values are escaped properly instead of being pasted
+          # into JSON by hand.
+          FIELDS=$(jq -nc \
+            --arg subject "$SUBJECT" \
+            --arg sha "${SHA:0:7}" \
+            --arg author "$COMMIT_AUTHOR" \
+            '[
+              {name: "Commit", value: $subject},
+              {name: "SHA", value: $sha, inline: true},
+              {name: "Author", value: $author, inline: true}
+            ]')
+
+          FIELDS="$FIELDS" node scripts/discord-notify.js

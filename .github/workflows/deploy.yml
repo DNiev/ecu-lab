@@ -54,6 +54,96 @@ jobs:
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
+    # `environment.url` is only visible to the Actions UI. Re-exporting it as a job
+    # output is what lets the announce job below link to the live site.
+    outputs:
+      page_url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - id: deployment
         uses: actions/deploy-pages@v4
+
+  # Tells the public #releases channel that a tag is live. It only runs after `deploy`
+  # succeeded (the default for `needs`), so nobody is told about a release that did not
+  # publish.
+  #
+  # Push only. A `workflow_dispatch` re-publishes a tag that was already announced the
+  # first time it deployed, and saying "v1.9.0 is live" twice is noise.
+  announce:
+    needs: [build, deploy]
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    # Backstop only: the script gives up on Discord after 10 seconds by itself.
+    timeout-minutes: 5
+    steps:
+      # Full history, because the changelog is `git log` between this tag and the one
+      # before it, and the default shallow clone has neither.
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      # The notifier is dependency-free, so this is all it needs — no `npm ci`.
+      - uses: actions/setup-node@v5
+        with:
+          node-version-file: .nvmrc
+
+      - name: Announce the release
+        env:
+          DISCORD_WEBHOOK: ${{ secrets.DISCORD_RELEASES_WEBHOOK }}
+          # A tag name may legally contain shell metacharacters (`$`, `;`, backticks),
+          # so it travels as an environment variable and is only ever quoted in the
+          # script, never pasted into it.
+          TAG: ${{ github.ref_name }}
+          URL: ${{ needs.deploy.outputs.page_url }}
+          REPO_URL: ${{ github.server_url }}/${{ github.repository }}
+          COLOR: '0x2ecc71'
+        run: |
+          # The tag before this one. Empty for the very first release, in which case the
+          # log below runs from the beginning of history. `$TAG^` is the commit the tag
+          # points at, minus one, so the search cannot find the tag itself.
+          PREV=$(git describe --tags --abbrev=0 --match 'v*' "$TAG^" 2>/dev/null || echo '')
+
+          # Same shape as the notes release.yml writes: one line per non-merge commit.
+          # The version bump commit ("Release v1.9.0") says nothing a reader wants, so it
+          # is dropped; `|| true` because a release made of only that commit leaves grep
+          # with no lines, which it reports as failure.
+          LOG=$(git log --no-merges --pretty='- %s' "${PREV:+$PREV..}$TAG")
+          printf '%s\n' "$LOG" | grep -v '^- Release v' > changelog.md || true
+
+          # Built with jq so the values are escaped properly instead of being pasted
+          # into JSON by hand. With no previous tag there is nothing to compare against.
+          if [ -n "$PREV" ]; then
+            FIELDS=$(jq -nc --arg url "$REPO_URL/compare/$PREV...$TAG" '[{name: "Compare", value: $url}]')
+          else
+            FIELDS='[]'
+          fi
+
+          TITLE="ECU Lab $TAG is live" DESCRIPTION_FILE=changelog.md FIELDS="$FIELDS" \
+            node scripts/discord-notify.js
+
+  # Tells the private maintainers channel that a deploy broke. `failure()` is true when
+  # any job it `needs` failed; `announce` is deliberately not listed, because a failed
+  # announcement must never raise a failure alarm (and the script never fails anyway).
+  deploy-failed:
+    needs: [build, deploy]
+    if: failure()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      # Only the notifier is needed here, not the history, so fetch just that. Root
+      # files (.nvmrc, package.json) come along regardless of the sparse pattern.
+      - uses: actions/checkout@v5
+        with:
+          sparse-checkout: scripts
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version-file: .nvmrc
+
+      - name: Report the failed deploy
+        env:
+          DISCORD_WEBHOOK: ${{ secrets.DISCORD_MAINTAINERS_WEBHOOK }}
+          TITLE: Deploy of ${{ github.ref_name }} failed
+          URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          DESCRIPTION: The build or the Pages deploy failed, so the site is still serving the previous release. Open the run for the logs; re-running the Deploy workflow from the Actions tab is safe.
+          COLOR: '0xe74c3c'
+        run: node scripts/discord-notify.js
