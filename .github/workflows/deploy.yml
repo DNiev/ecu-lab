@@ -111,8 +111,8 @@ jobs:
           # Same shape as the notes release.yml writes: one line per non-merge commit.
           # The version bump commit ("Release v1.9.0") says nothing a reader wants, so it
           # is dropped. The pattern is anchored on the full version so a real commit such
-          # as "Release valve model" survives; `|| true` because a release made of only that commit leaves grep
-          # with no lines, which it reports as failure.
+          # as "Release valve model" survives. `|| true` because a release made of only
+          # that commit leaves grep with no lines, which it reports as failure.
           LOG=$(git log --no-merges --pretty='- %s' "${PREV:+$PREV..}$TAG")
           printf '%s\n' "$LOG" | grep -vE '^- Release v[0-9]+\.[0-9]+\.[0-9]+$' > changelog.md || true
 
