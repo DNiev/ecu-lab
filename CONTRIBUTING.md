@@ -133,9 +133,11 @@ lifecycle hook, so `scripts/sync-version.js` regenerates `src/version.js` — th
 `package.json`. **Do not edit `src/version.js` by hand**; it is generated, and a build
 that misreports its own version makes every bug report from it untrustworthy.
 
-If a deploy fails for reasons that are not the code's fault, re-run the Deploy workflow
-from the Actions tab rather than moving the tag. A tag should keep meaning the commit it
-originally meant.
+If a deploy fails for reasons that are not the code's fault, re-run it rather than
+moving the tag. A tag should keep meaning the commit it originally meant. Use **Re-run
+failed jobs** on the failed run: that keeps it a tag push, so it also posts the release
+announcement. A fresh **Run workflow** from the Actions tab re-publishes the site but
+does not announce it.
 
 ## Discord notifications
 
@@ -150,11 +152,12 @@ hold the webhook URLs:
 
 To create one, in Discord open the channel, then **Edit Channel → Integrations →
 Webhooks → New Webhook → Copy Webhook URL**. Then store it as a secret, pasting the URL
-when prompted:
+when prompted. `--repo` is spelled out because a clone that also has the CaribouTuning
+fork as a remote could otherwise set the secret on the fork:
 
 ```bash
-gh secret set DISCORD_RELEASES_WEBHOOK
-gh secret set DISCORD_MAINTAINERS_WEBHOOK
+gh secret set DISCORD_RELEASES_WEBHOOK --repo DNiev/ecu-lab
+gh secret set DISCORD_MAINTAINERS_WEBHOOK --repo DNiev/ecu-lab
 ```
 
 A webhook URL is a credential: anyone holding it can post to the channel. Never commit

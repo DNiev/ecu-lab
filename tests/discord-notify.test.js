@@ -1,5 +1,6 @@
 /**
- * The Discord webhook payload builder behind scripts/discord-notify.js.
+ * Tests for scripts/discord-notify.js: the payload builder, the import guard and the
+ * CLI's never-fail, never-leak-the-webhook behaviour.
  *
  * Discord rejects a webhook body outright when any text field is over its limit or when
  * a field value is empty, and the notifier deliberately never fails a deploy over a
@@ -211,5 +212,15 @@ describe('running the script', () => {
     expect(out.status).toBe(0);
     expect(out.stdout).not.toContain(webhook);
     expect(out.stderr).not.toContain(webhook);
+  });
+
+  it('redacts a webhook that is not even a URL from the warning', () => {
+    // fetch() rejects this with an error that quotes the whole string, so unless the
+    // script swaps it out, the credential lands in the public Actions log.
+    const out = run({ DISCORD_WEBHOOK: 'not a url', TITLE: 'x' });
+    expect(out.status).toBe(0);
+    expect(out.stdout).toContain('::warning::');
+    expect(out.stdout).not.toContain('not a url');
+    expect(out.stderr).not.toContain('not a url');
   });
 });

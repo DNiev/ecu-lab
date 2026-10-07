@@ -67,11 +67,17 @@ jobs:
   # publish.
   #
   # Push only. A `workflow_dispatch` re-publishes a tag that was already announced the
-  # first time it deployed, and saying "v1.9.0 is live" twice is noise.
+  # first time it deployed, and saying "v1.9.0 is live" twice is noise. The flip side:
+  # when the original push run failed before announcing, a fresh "Run workflow" would
+  # publish the site and stay silent. "Re-run failed jobs" on the original run keeps
+  # `event_name == 'push'`, so it runs this job (skipped the first time) and announces.
   announce:
     needs: [build, deploy]
     if: github.event_name == 'push'
     runs-on: ubuntu-latest
+    # Checkout, setup-node or `git log` can fail after Pages has already published, and
+    # that must not turn a live deploy red. The notifier script itself never fails.
+    continue-on-error: true
     # Backstop only: the script gives up on Discord after 10 seconds by itself.
     timeout-minutes: 5
     steps:
@@ -104,10 +110,11 @@ jobs:
 
           # Same shape as the notes release.yml writes: one line per non-merge commit.
           # The version bump commit ("Release v1.9.0") says nothing a reader wants, so it
-          # is dropped; `|| true` because a release made of only that commit leaves grep
+          # is dropped. The pattern is anchored on the full version so a real commit such
+          # as "Release valve model" survives; `|| true` because a release made of only that commit leaves grep
           # with no lines, which it reports as failure.
           LOG=$(git log --no-merges --pretty='- %s' "${PREV:+$PREV..}$TAG")
-          printf '%s\n' "$LOG" | grep -v '^- Release v' > changelog.md || true
+          printf '%s\n' "$LOG" | grep -vE '^- Release v[0-9]+\.[0-9]+\.[0-9]+$' > changelog.md || true
 
           # Built with jq so the values are escaped properly instead of being pasted
           # into JSON by hand. With no previous tag there is nothing to compare against.
@@ -144,6 +151,6 @@ jobs:
           DISCORD_WEBHOOK: ${{ secrets.DISCORD_MAINTAINERS_WEBHOOK }}
           TITLE: Deploy of ${{ github.ref_name }} failed
           URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-          DESCRIPTION: The build or the Pages deploy failed, so the site is still serving the previous release. Open the run for the logs; re-running the Deploy workflow from the Actions tab is safe.
+          DESCRIPTION: The build or the Pages deploy failed, so the site is still serving the previous release. Open the run for the logs. Use 'Re-run failed jobs' on this run, which also posts the release announcement. A fresh 'Run workflow' re-publishes without announcing.
           COLOR: '0xe74c3c'
         run: node scripts/discord-notify.js

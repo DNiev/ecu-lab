@@ -85,7 +85,9 @@ jobs:
           COLOR: '0xe74c3c'
         run: |
           # Subject line only; the body of a commit message can be long. Parameter
-          # expansion rather than `head`, which can break a pipe under `pipefail`.
+          # expansion rather than `head`: it needs no pipe, so there is no SIGPIPE to
+          # reason about whichever shell options the runner uses (the default `bash -e`
+          # leaves `pipefail` off; only an explicit `shell: bash` turns it on).
           SUBJECT=${COMMIT_MESSAGE%%$'\n'*}
 
           # Built with jq so the values are escaped properly instead of being pasted
