@@ -83,8 +83,11 @@
 
 /* ---------- The status strip ---------- */
 
+/* A size container, so `.readouts` can go inline on the strip's own width rather than
+   the viewport's: above the breakpoint the sidebar takes 76px of it. */
 .strip {
   flex-shrink: 0;
+  container: strip / inline-size;
   background: var(--panel);
   border-bottom: 1px solid var(--line);
 }
@@ -92,10 +95,15 @@
 /* Capped to the same column as the content below it, so the strip's readouts line up
    with the screen they describe instead of running to the edge of a wide display.
    border-box, because width is 100%: without it the padding sat outside the column and
-   pushed the Repair button 16px off the right edge at every width below the cap. It
-   wraps rather than clips, so on a phone the readouts and both buttons drop to a second
-   line instead of running off-screen where they cannot be tapped. The phone spacing is
-   a step tighter; the breakpoint below restores the original. */
+   pushed the Repair button off the right edge at every width below the cap, scrolling
+   the whole shell sideways on a phone. The phone spacing is a step tighter; the
+   breakpoint below restores the original.
+
+   Wraps rather than clips. Which items go to the second line is not left to the
+   browser's greedy line-filling, which pushed the action buttons there on their own
+   at some widths: `.readouts` is either on a line of its own or inline, switched by
+   the container query below, so the brand, build line and buttons always share the
+   first line. */
 .stripInner {
   display: flex;
   flex-wrap: wrap;
@@ -134,10 +142,13 @@
 
 /* 11px is off the font-size ramp deliberately: this is the header's build line moved
    here verbatim, and 10.5px (--fs-xs) is a re-size of an existing element rather than
-   the adoption of a token. The 14em basis keeps the line readable when the strip wraps;
-   with a zero basis it was squeezed to nothing on a phone. */
+   the adoption of a token. It takes whatever the first line leaves between the brand
+   and the buttons (about 13em at 375px). The readouts only join that line once the
+   container query at the end of this file has left it at least 14em, so it is never
+   squeezed to nothing. A non-zero basis here would wrap the buttons off the first
+   line on a phone instead. */
 .engine {
-  flex: 1 1 14em;
+  flex: 1 1 0;
   min-width: 0;
   overflow: hidden;
   color: var(--ink2);
@@ -145,6 +156,23 @@
   font-size: 11px;
   white-space: nowrap;
   text-overflow: ellipsis;
+}
+
+/* BOOST, HEALTH, LAST PULL and the run light, as one group so they wrap together.
+   By default `order` and the 100% basis put the group on its own line UNDER the
+   brand, build line and action buttons, so the buttons stay on the first line within
+   reach instead of being the thing pushed off the edge. The container query at the
+   end of this file puts it back inline once the strip is wide enough for all of it.
+   The DOM order (readouts before buttons) is unchanged, so what a screen reader
+   announces is the same at every width. */
+.readouts {
+  display: flex;
+  flex-wrap: wrap;
+  flex-basis: 100%;
+  order: 1;
+  align-items: center;
+  gap: var(--sp-xs) var(--sp-md);
+  min-width: 0;
 }
 
 .field {
@@ -174,8 +202,13 @@
 
 /* 4px tall, so the 2px radius is pinned to half its own height rather than to the
    radius ramp; 54px wide is the width at which the bar still reads as a gauge next
-   to a two-character percentage. */
+   to a two-character percentage.
+
+   Hidden below the breakpoint: the percentage beside it carries the same number in
+   the same tone colour, and dropping the bar saves the readouts line about 60px on a
+   phone. Shown again in the media query below. */
 .healthTrack {
+  display: none;
   width: 54px;
   height: 4px;
   overflow: hidden;
@@ -193,12 +226,29 @@
 .healthFill[data-tone='warn'] { background: var(--warn); }
 .healthFill[data-tone='danger'] { background: var(--danger); }
 
+/* The run light's slot is always in the strip and always as wide as the light, lit
+   or not. If the light came and went, starting the engine could wrap the readouts
+   onto another line and shove every screen below the strip down, and stopping it
+   would pull them back up. The invisible `::after` copy holds the width; the visible
+   text (only rendered while running) is stacked on top of it in the same grid cell.
+   Keep the `content` string in step with EngineRunLight in AppShell.jsx. */
 .run {
+  display: inline-grid;
   flex-shrink: 0;
   color: var(--ok);
   font-size: var(--fs-micro);
   font-weight: 800;
   letter-spacing: 0.5px;
+}
+
+.run::after {
+  content: '● RUNNING';
+  visibility: hidden;
+}
+
+.run > *,
+.run::after {
+  grid-area: 1 / 1;
 }
 
 /* The strip's two icon buttons (Tutorial, Repair engine). 6px is off the spacing
@@ -236,6 +286,10 @@
 @media (min-width: 560px) {
   .shell { flex-direction: row; }
 
+  .readouts { gap: var(--sp-xs) var(--sp-lg); }
+
+  .healthTrack { display: block; }
+
   .nav {
     flex-direction: column;
     width: 76px;
@@ -267,5 +321,20 @@
   .stripInner {
     gap: var(--sp-xs) var(--sp-lg);
     padding: var(--sp-sm) var(--sp-xl);
+  }
+}
+
+/* Back in DOM order, sized to its content, beside the build line: the one-line strip a
+   wide display has always had. 880px is everything on that line at its widest, with
+   the desktop spacing: the brand, the build line at 14em, every readout
+   (boost and last pull at their longest, the health bar, the run light's reserved
+   slot) and both buttons. Narrower than that and `.readouts` stays on its own line
+   below, so the buttons never wrap and the build line never shrinks under 14em.
+   Measured at 840px in the browser with the system fonts on macOS; the rest is
+   headroom for wider fallback fonts. Re-measure if anything on the strip gets wider. */
+@container strip (min-width: 880px) {
+  .readouts {
+    flex: 0 0 auto;
+    order: 0;
   }
 }

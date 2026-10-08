@@ -87,5 +87,7 @@
      src/ui/screens/TutorialScreen.module.css, src/ui/AppShell.module.css,
      src/ui/components/AdvisorPanel.module.css, src/ui/screens/tune/AirflowScreen.module.css,
      src/ui/screens/tune/SparkScreen.module.css, src/ui/screens/tune/FuelScreen.module.css
-     and src/ui/screens/dyno/DataScreen.module.css. */
+     and src/ui/screens/dyno/DataScreen.module.css. AppShell.module.css also has
+     a container query on the status strip's own width; that threshold is measured
+     from what the strip holds, not a breakpoint, and is documented beside it. */
 }
