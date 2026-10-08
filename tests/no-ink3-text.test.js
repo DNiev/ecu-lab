@@ -26,13 +26,18 @@ const GUARDED = /\.(jsx?|css)$/;
 
 /**
  * A line that colours text --ink3: a CSS `color` (not `border-color`), a JSX `color:`
- * whose expression up to the next `,` or `}` names T.ink3, or a recharts axis stroked
- * T.ink3 (recharts colours tick labels with the axis stroke).
+ * whose expression up to the next `,` or `}` names T.ink3, a JSX `color={…}` prop naming
+ * T.ink3 (icons, LiveGauge), a recharts axis stroked T.ink3 (recharts colours tick labels
+ * with the axis stroke), a recharts `tick` prop filled T.ink3, or a recharts series
+ * stroked T.ink3 (recharts colours a series' legend and tooltip text with its stroke).
  */
 const INK3_TEXT = [
   /(^|[^-\w])color\s*:\s*var\(--ink3\)/,
   /(^|[^-\w])color\s*:[^,}]*\bT\.ink3\b/,
   /<[XY]Axis\b[^>]*\bstroke=\{T\.ink3\}/,
+  /\bcolor=\{[^}]*\bT\.ink3\b/,
+  /\btick=\{\{[^}]*\bfill:\s*T\.ink3\b/,
+  /<(Line|Area|Bar)\b[^>]*\bstroke=\{T\.ink3\}/,
 ];
 
 /** @returns {string[]} every guarded source file under src/ui */
@@ -67,6 +72,10 @@ describe('the premise: --ink2 is legible small text on every surface', () => {
 });
 
 describe('src/ui colours no text --ink3', () => {
+  it('finds the UI sources it guards', () => {
+    expect(sourceFiles().length).toBeGreaterThan(50);
+  });
+
   for (const file of sourceFiles()) {
     const rel = file.slice(file.indexOf('src/ui'));
     it(`${rel} colours no text --ink3`, () => {

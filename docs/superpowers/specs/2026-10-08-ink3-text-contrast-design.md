@@ -12,13 +12,15 @@ Text is never coloured `--ink3`. Hierarchy below `--ink2` comes from size, weigh
 letter-spacing, not from a dimmer grey.
 
 - Every `color: var(--ink3)` in a CSS module, every inline `color: … T.ink3 …` in JSX,
-  and every recharts `<XAxis>`/`<YAxis>` `stroke={T.ink3}` (recharts colours tick labels
-  with the axis stroke) becomes `--ink2` / `T.ink2`.
+  every recharts `<XAxis>`/`<YAxis>` `stroke={T.ink3}` (recharts colours tick labels
+  with the axis stroke), and every recharts `<Line>`/`<Area>`/`<Bar>` `stroke={T.ink3}`
+  (recharts colours a series' legend label and tooltip row with its stroke, so a series
+  is text too) becomes `--ink2` / `T.ink2`.
 - Chevron and other state-carrying icons coloured through `color` follow the same rule:
   they become `--ink2` too, so no judgement call is needed for them.
 - `--ink3` stays legitimate for non-text graphics drawn with `stroke`/`fill` (dial ticks,
-  `CalTable`'s outline, the dashed `afrCommanded` series) and for borders. Those are not
-  matched by the guard and are not changed.
+  `CalTable`'s outline) and for borders. Those are not matched
+  by the guard and are not changed.
 - A `color` use that really is text-free decoration (an element that holds nothing but
   a graphic) may keep `--ink3` if the declaration's own line, or the line above it,
   contains the word `decorative` in a comment saying why.
@@ -32,6 +34,10 @@ failing on any line matching one of:
 - CSS `color` (not `border-color` etc.) set to `var(--ink3)`;
 - a JSX `color:` whose expression up to the next `,` or `}` names `T.ink3`;
 - `<XAxis` / `<YAxis` with `stroke={T.ink3}`;
+- a JSX `color={…}` prop naming `T.ink3`;
+- a recharts `tick={{ … fill: T.ink3 … }}` prop;
+- `<Line` / `<Area` / `<Bar` with `stroke={T.ink3}` (legend and tooltip text take the
+  series stroke);
 
 unless that line or the one above contains `decorative`. A second test pins the premise:
 `ink2` measures at least 4.5:1 against `bg`, `panel`, `panel2` and `panel3`, read from
