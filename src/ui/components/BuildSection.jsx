@@ -65,7 +65,7 @@ export function BuildSection({ active, onClick, icon: Icon, label, sub, children
       {/* inert while shut: still mounted so it can animate, but neither read nor tabbable.
           React 18 drops a boolean `inert`, so it has to be the string ''; @types/react 18
           types `inert` only as experimental, hence the cast. On React 19 this must become
-          `inert={!open}` (the hasAttribute check in disclosures.test.jsx would catch it). */}
+          `inert={!active}` (the hasAttribute check in disclosures.test.jsx would catch it). */}
       <div id={bodyId} {...(/** @type {object} */ (active ? {} : { inert: '' }))} style={{ maxHeight: active ? 20000 : 0, opacity: active ? 1 : 0, overflow: 'hidden', transition: active ? 'max-height .6s ease-in, opacity .25s ease' : 'max-height .35s cubic-bezier(0, 1, 0, 1), opacity .25s ease' }}>
         <div style={{ padding: '13px 2px 2px' }}>{children}</div>
       </div>
