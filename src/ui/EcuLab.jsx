@@ -1449,6 +1449,7 @@ export function EcuLabApp() {
                 row on a phone. A number on a page is how many of the last pull's log
                 entries send you there — shown only while that pull still describes this
                 setup. */}
+            <nav aria-label="TUNE pages" style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
             {(nitrous ? [0, 1, 2] : [0, 1]).map((rowIdx) => (
               <div key={rowIdx}>
                 <div style={{ fontSize: 9, fontWeight: 800, letterSpacing: '0.12em', color: T.ink3, margin: '4px 0 5px' }}>
@@ -1461,6 +1462,7 @@ export function EcuLabApp() {
                     const flagged = attention[v.id] ?? 0;
                     return (
                       <button key={v.id} onClick={() => { goSection('tune', v.id); setSelection(null); }}
+                        aria-current={on ? 'page' : undefined}
                         aria-label={flagged ? `${v.label}, named by ${flagged} ${flagged === 1 ? 'entry' : 'entries'} in the last pull's log` : undefined}
                         style={{
                           position: 'relative', flex: '1 1 60px', padding: '9px 0 8px', borderRadius: 10, display: 'flex', flexDirection: 'column',
@@ -1482,6 +1484,7 @@ export function EcuLabApp() {
                 </div>
               </div>
             ))}
+            </nav>
             {Object.keys(attention).length > 0 && (
               <div style={{ fontSize: 10.5, color: T.ink3, marginTop: 2 }}>
                 Numbered pages are where the last pull&apos;s log sends you — DYNO › PULL LOG has the details.
@@ -1641,25 +1644,28 @@ export function EcuLabApp() {
                 the switcher below shows ONLY the history entry, since the other four
                 lead to sections that render nothing without one. */}
             {!running && (result || runs.length > 0) && (
-              <div style={{ display: 'flex', gap: 6, marginBottom: 14 }}>
+              <nav aria-label="DYNO pages" style={{ display: 'flex', gap: 6, marginBottom: 14 }}>
                 {(result
                   ? [['result', 'CURVES'], ['log', 'PULL LOG'], ['data', 'DATALOG'], ['score', 'SCORE'], ['history', 'HISTORY']]
                   : [['history', 'HISTORY']]
                 ).map(([id, label]) => {
                   const on = dynoView === id;
-                  const flag = id === 'log' && result && result.events.length > 0;
+                  const entries = id === 'log' && result ? result.events.length : 0;
                   return (
-                    <button key={id} onClick={() => goSection('dyno', id)} style={{
+                    <button key={id} onClick={() => goSection('dyno', id)}
+                      aria-current={on ? 'page' : undefined}
+                      aria-label={entries ? `${label}, ${entries} ${entries === 1 ? 'entry' : 'entries'}` : undefined}
+                      style={{
                       flex: 1, padding: '9px 0', borderRadius: 9, fontWeight: 800, fontSize: 10, letterSpacing: 0.3,
                       border: `1px solid ${on ? T.acc : T.line}`, background: on ? T.accBg : T.panel2,
                       color: on ? T.accInk : T.ink2, position: 'relative',
                     }}>
                       {label}
-                      {flag && <span style={{ position: 'absolute', top: 5, right: 7, width: 5, height: 5, borderRadius: 3, background: T.danger }} />}
+                      {entries > 0 && <span aria-hidden="true" style={{ position: 'absolute', top: 5, right: 7, width: 5, height: 5, borderRadius: 3, background: T.danger }} />}
                     </button>
                   );
                 })}
-              </div>
+              </nav>
             )}
 
             {result && (

@@ -17,7 +17,7 @@
  *   - "every accordion closed" is a state the URL can hold and restore.
  */
 
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import React from 'react';
 import { afterAll, afterEach, beforeEach, describe, expect, it } from 'vitest';
 
@@ -155,6 +155,24 @@ describe('clicking a tab', () => {
       fireEvent.click(screen.getByRole('button', { name: tabLabel }));
       expect(screen.getByText(ownEyebrow)).toBeTruthy();
     }
+  });
+
+  it('marks the open TUNE and DYNO page aria-current, and moves it on navigation', () => {
+    launch();
+    /** @param {string} name @returns {string[]} labels of the current buttons in that nav */
+    const current = (name) => within(screen.getByRole('navigation', { name }))
+      .getAllByRole('button')
+      .filter((b) => b.getAttribute('aria-current') === 'page')
+      .map((b) => b.textContent);
+
+    fireEvent.click(screen.getByRole('button', { name: 'TUNE' }));
+    expect(current('TUNE pages')).toEqual(['AIRFLOW']);
+    fireEvent.click(screen.getByRole('button', { name: 'SPARK' }));
+    expect(current('TUNE pages')).toEqual(['SPARK']);
+    // Absent, not "false", on every other page.
+    const others = within(screen.getByRole('navigation', { name: 'TUNE pages' }))
+      .getAllByRole('button').filter((b) => b.textContent !== 'SPARK');
+    for (const b of others) expect(b.hasAttribute('aria-current')).toBe(false);
   });
 });
 

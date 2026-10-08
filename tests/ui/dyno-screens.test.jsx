@@ -1251,3 +1251,33 @@ describe('DYNO event bands during the reveal', () => {
     expect(screen.getByRole('button', { name: /1 finding applies to the whole pull/ })).toBeTruthy();
   });
 });
+
+describe('the DYNO page switcher', () => {
+  it('is a labelled nav, marks the open page, and names PULL LOG with its entry count', async () => {
+    let dispatch;
+    render(
+      <StoreProvider>
+        <Capture onDispatch={(d) => { dispatch = d; }} />
+        <EcuLabApp />
+      </StoreProvider>,
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'SANDBOX' }));
+    // A stock pull logs nothing; 10° of extra spark everywhere makes it knock.
+    const timing = makeInitialState().tune.timing.map((row) => row.map((v) => v + 10));
+    act(() => dispatch({ type: ACTIONS.SET_TABLE, table: 'timing', value: timing }));
+    fireEvent.click(screen.getByRole('button', { name: /DYNO/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'RUN DYNO PULL' }));
+    await waitFor(
+      () => expect(screen.getByRole('button', { name: 'RUN DYNO PULL' })).toBeTruthy(),
+      { timeout: 10000 },
+    );
+
+    const nav = screen.getByRole('navigation', { name: 'DYNO pages' });
+    const log = within(nav).getByRole('button', { name: /^PULL LOG, \d+ entr(y|ies)$/ });
+    expect(log.querySelector('[aria-hidden="true"]')).toBeTruthy();
+
+    fireEvent.click(within(nav).getByRole('button', { name: 'DATALOG' }));
+    const current = within(nav).getAllByRole('button').filter((b) => b.getAttribute('aria-current') === 'page');
+    expect(current.map((b) => b.textContent)).toEqual(['DATALOG']);
+  }, 20000);
+});
