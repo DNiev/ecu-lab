@@ -713,18 +713,18 @@ function statTile(label) {
 describe('the engine-sound toggle', () => {
   it('switches the button between on and off', () => {
     // `soundOn` gates the audio synth's master gain, which jsdom has no way to hear.
-    // The button's own glyph is the readable half of that write.
+    // The button's pressed state is the readable half of that write.
     launchOnLive();
-    // By title, not by name: the button's only content is the glyph this test is
-    // asserting on, and that glyph IS its accessible name.
-    const toggle = () => screen.getByTitle('Engine sound');
+    const toggle = () => screen.getByRole('button', { name: 'Engine sound' });
+    expect(toggle().getAttribute('aria-pressed')).toBe('true');
     expect(toggle().textContent).toBe('♪');
 
     fireEvent.click(toggle());
+    expect(toggle().getAttribute('aria-pressed')).toBe('false');
     expect(toggle().textContent).toBe('✕');
 
     fireEvent.click(toggle());
-    expect(toggle().textContent).toBe('♪');
+    expect(toggle().getAttribute('aria-pressed')).toBe('true');
   });
 });
 

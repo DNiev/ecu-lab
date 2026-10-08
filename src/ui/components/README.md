@@ -12,9 +12,9 @@ Keeping them here rather than beside the primitives is the point. Three files in
 location, and the next person adding one would have no way to tell which kind they were
 looking at.
 
-`BuildSection` and `ExpandableInfo` are both hand-rolled disclosures, and neither carries
-`aria-expanded` — issue #81 tracks replacing both with a real `Disclosure` primitive, at
-which point they graduate out of this folder by being deleted.
+`BuildSection` and `ExpandableInfo` are both hand-rolled disclosures. Both now carry
+`aria-expanded`, `aria-controls` and an `inert` collapsed body (issue 81); a shared
+`Disclosure` primitive was left for later because a branch in flight edits both files.
 
 `BuildSection` keeps its inline `maxHeight` deliberately: `tests/ui/routing-shell.test.jsx`
 reads it to tell an open section from a collapsed one, which is how the fully-collapsed

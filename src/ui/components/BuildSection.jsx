@@ -20,7 +20,7 @@
  */
 
 import { ChevronDown } from 'lucide-react';
-import React from 'react';
+import React, { useId } from 'react';
 
 import { T, accAlpha } from '../theme.js';
 
@@ -35,9 +35,10 @@ import { T, accAlpha } from '../theme.js';
  * @returns {React.ReactElement}
  */
 export function BuildSection({ active, onClick, icon: Icon, label, sub, children }) {
+  const bodyId = useId();
   return (
     <div style={{ marginBottom: 9 }}>
-      <button onClick={onClick} style={{
+      <button type="button" aria-expanded={active ? 'true' : 'false'} aria-controls={bodyId} onClick={onClick} style={{
         width: '100%', display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '13px 14px',
         borderRadius: 11, border: `1px solid ${active ? T.acc : T.line}`, background: active ? T.accBg : T.panel2,
       }}>
@@ -50,13 +51,14 @@ export function BuildSection({ active, onClick, icon: Icon, label, sub, children
             {sub && <div style={{ fontSize: 10.5, color: T.ink2, marginTop: 1 }}>{sub}</div>}
           </div>
         </div>
-        <ChevronDown size={16} style={{ color: active ? T.accInk : T.ink3, flexShrink: 0, marginLeft: 8, transform: active ? 'rotate(180deg)' : 'none', transition: 'transform .2s' }} />
+        <ChevronDown aria-hidden="true" size={16} style={{ color: active ? T.accInk : T.ink3, flexShrink: 0, marginLeft: 8, transform: active ? 'rotate(180deg)' : 'none', transition: 'transform .2s' }} />
       </button>
       {/* A cap, because the tests read maxHeight, but one no section reaches: at 3000px
           Learn How It Works (2400px of titles before any article opens) cut off whatever
           was opened past it. The easing differs by direction so a close still starts
           at once instead of spending most of its time above the content's real height. */}
-      <div style={{ maxHeight: active ? 20000 : 0, opacity: active ? 1 : 0, overflow: 'hidden', transition: active ? 'max-height .6s ease-in, opacity .25s ease' : 'max-height .35s cubic-bezier(0, 1, 0, 1), opacity .25s ease' }}>
+      {/* inert while shut: still mounted so it can animate, but neither read nor tabbable. */}
+      <div id={bodyId} {...(/** @type {object} */ (active ? {} : { inert: '' }))} style={{ maxHeight: active ? 20000 : 0, opacity: active ? 1 : 0, overflow: 'hidden', transition: active ? 'max-height .6s ease-in, opacity .25s ease' : 'max-height .35s cubic-bezier(0, 1, 0, 1), opacity .25s ease' }}>
         <div style={{ padding: '13px 2px 2px' }}>{children}</div>
       </div>
     </div>
