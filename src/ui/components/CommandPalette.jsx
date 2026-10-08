@@ -40,6 +40,8 @@ export function CommandPalette({ open, onClose, commands }) {
   // every reset below.
   const [activeId, setActiveId] = React.useState(/** @type {string|null} */ (null));
   const listId = React.useId();
+  // Whether the press that began the current click landed on the backdrop.
+  const pressedBackdrop = React.useRef(false);
 
   const results = matchCommands(query, commands);
   const activeIndex = results.findIndex((c) => c.id === activeId);
@@ -111,13 +113,23 @@ export function CommandPalette({ open, onClose, commands }) {
     }
   };
 
-  // The panel fills the dialog, so a click whose target is the dialog itself landed on
-  // the backdrop.
+  // The panel fills the dialog and draws its border, so the dialog itself is never hit
+  // inside the panel: a press on the dialog is a press on the backdrop. Both ends of the
+  // click must be there, because a click targets the common ancestor of where it was
+  // pressed and released — a drag that selects the query and lets go past the panel's
+  // edge is a "click" on the dialog too, and must not close it.
   /** @param {React.MouseEvent<HTMLDialogElement>} e */
-  const onDialogClick = (e) => { if (e.target === dialogRef.current) onClose(); };
+  const onDialogMouseDown = (e) => { pressedBackdrop.current = e.target === dialogRef.current; };
+  /** @param {React.MouseEvent<HTMLDialogElement>} e */
+  const onDialogClick = (e) => {
+    if (pressedBackdrop.current && e.target === dialogRef.current) onClose();
+    pressedBackdrop.current = false;
+  };
 
   return (
-    <dialog ref={dialogRef} className={styles.dialog} aria-label="Command palette" onClick={onDialogClick}>
+    <dialog ref={dialogRef} className={styles.dialog} aria-label="Command palette"
+      onMouseDown={onDialogMouseDown} onClick={onDialogClick}
+    >
       <div className={styles.panel}>
         <input
           ref={inputRef}

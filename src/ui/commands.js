@@ -8,7 +8,7 @@
  * `EcuLab.jsx`, which owns their handlers, and are matched here beside the pages.
  */
 
-import { ROUTES } from './routing.js';
+import { ROUTES, TAB_NAMES } from './routing.js';
 
 /**
  * One thing the palette can run.
@@ -21,14 +21,17 @@ import { ROUTES } from './routing.js';
  * @property {() => void} run
  */
 
-/** Each tab as the nav prints it, and what else a player might call it. */
-export const TAB_LABELS = {
-  dash: { label: 'HOME', keywords: ['dashboard'] },
-  build: { label: 'BUILD', keywords: ['garage', 'hardware'] },
-  tune: { label: 'TUNE', keywords: ['calibration', 'tables'] },
-  live: { label: 'LIVE', keywords: ['engine', 'sound', 'rev'] },
-  dyno: { label: 'DYNO', keywords: ['pull', 'power'] },
-  drag: { label: 'DRAG', keywords: ['strip', 'quarter'] },
+/**
+ * What else a player might call each tab. The tab's own name is `TAB_NAMES`, the
+ * nav's, so the palette prints exactly what the nav does.
+ */
+export const TAB_KEYWORDS = {
+  dash: ['dashboard'],
+  build: ['garage', 'hardware'],
+  tune: ['calibration', 'tables'],
+  live: ['engine', 'sound', 'rev'],
+  dyno: ['pull', 'power'],
+  drag: ['strip', 'quarter'],
 };
 
 /**
@@ -70,16 +73,29 @@ export const SECTION_LABELS = {
 const RESULT_SECTIONS = new Set(['dyno/result', 'dyno/log', 'dyno/data', 'dyno/score']);
 
 /**
- * Whether a section would render anything right now — the same conditions its own
- * screen applies, so the palette never offers a blank page.
+ * What decides which sections have anything to show.
+ * @typedef {object} SectionFlags
+ * @property {boolean} showJobs career mode, or a job underway
+ * @property {boolean} hasResult a pull is showing
+ * @property {boolean} hasHistory at least one pull is banked
+ * @property {boolean} hasNitrous a nitrous kit is fitted
+ * @property {boolean} running a dyno pull is under way
+ */
+
+/**
+ * Whether a section would render anything right now. The one statement of it: TUNE's
+ * and DYNO's switchers filter their buttons through this, and the palette its pages,
+ * so neither can offer a blank page the other knows to hide.
  * @param {string} key `tab/section`
- * @param {{showJobs: boolean, hasResult: boolean, hasHistory: boolean, hasNitrous: boolean}} flags
+ * @param {SectionFlags} flags
  * @returns {boolean}
  */
-function available(key, { showJobs, hasResult, hasHistory, hasNitrous }) {
+export function sectionAvailable(key, { showJobs, hasResult, hasHistory, hasNitrous, running }) {
   if (key === 'dash/jobs') return showJobs;
-  // TUNE's switcher shows NITROUS only with a kit fitted; the palette follows it.
+  // Like real ECU software, which shows its nitrous tables once nitrous is enabled.
   if (key === 'tune/nitrous') return hasNitrous;
+  // While a pull runs, DYNO shows its curves and nothing else, whatever the URL says.
+  if (running && key.startsWith('dyno/')) return key === 'dyno/result';
   if (RESULT_SECTIONS.has(key)) return hasResult;
   if (key === 'dyno/history') return hasHistory || hasResult;
   return true;
@@ -87,30 +103,26 @@ function available(key, { showJobs, hasResult, hasHistory, hasNitrous }) {
 
 /**
  * One command per tab and one per section, in nav order, leaving out sections that
- * would render nothing.
- * @param {object} args
- * @param {boolean} args.showJobs career mode, or a job underway
- * @param {boolean} args.hasResult a pull is showing
- * @param {boolean} args.hasHistory at least one pull is banked
- * @param {boolean} args.hasNitrous a nitrous kit is fitted
- * @param {(tab: string, section: string|null) => void} args.go `null`: the tab, as a
- *   nav tap opens it
+ * would render nothing (see `sectionAvailable`).
+ * @param {SectionFlags} flags
+ * @param {(tab: string, section: string|null) => void} go `null`: the tab, as a nav
+ *   tap opens it
  * @returns {Command[]}
  */
-export function pageCommands({ showJobs, hasResult, hasHistory, hasNitrous, go }) {
+export function pageCommands(flags, go) {
   /** @type {Command[]} */
   const out = [];
   for (const [tab, sections] of Object.entries(ROUTES)) {
-    const t = TAB_LABELS[tab];
-    out.push({ id: `page:${tab}`, label: t.label, kind: 'page', keywords: t.keywords, run: () => go(tab, null) });
+    const name = TAB_NAMES[tab];
+    out.push({ id: `page:${tab}`, label: name, kind: 'page', keywords: TAB_KEYWORDS[tab], run: () => go(tab, null) });
     if (sections.length < 2) continue;
     for (const section of sections) {
       const key = `${tab}/${section}`;
-      if (!available(key, { showJobs, hasResult, hasHistory, hasNitrous })) continue;
+      if (!sectionAvailable(key, flags)) continue;
       const s = SECTION_LABELS[key];
       out.push({
-        id: `page:${key}`, label: s.label, context: t.label, kind: 'page',
-        keywords: [...s.keywords, t.label.toLowerCase()],
+        id: `page:${key}`, label: s.label, context: name, kind: 'page',
+        keywords: [...s.keywords, name.toLowerCase()],
         run: () => go(tab, section),
       });
     }
@@ -118,8 +130,14 @@ export function pageCommands({ showJobs, hasResult, hasHistory, hasNitrous, go }
   return out;
 }
 
+/** @param {string} s lower-cased @returns {string[]} */
+const words = (s) => s.split(/[^a-z0-9]+/).filter(Boolean);
+
+/** What `rank` returns for a command the query does not match at all. */
+const NO_MATCH = 5;
+
 /**
- * How well a command matches a lower-cased query: 0 is best, 4 is no match.
+ * How well a command matches a lower-cased query: 0 is best, `NO_MATCH` is none.
  * @param {string} q
  * @param {Command} c
  * @returns {number}
@@ -127,10 +145,16 @@ export function pageCommands({ showJobs, hasResult, hasHistory, hasNitrous, go }
 function rank(q, c) {
   const label = c.label.toLowerCase();
   if (label.startsWith(q)) return 0;
-  if (label.split(/[^a-z0-9]+/).some((w) => w.startsWith(q))) return 1;
+  if (words(label).some((w) => w.startsWith(q))) return 1;
   if (label.includes(q)) return 2;
   if (c.keywords.some((k) => k.startsWith(q))) return 3;
-  return 4;
+  // A query of several words, typed the way the palette prints a page ("tune spark",
+  // "dyno hist", even "tune › spark"): each word starts a word of the tab, the label
+  // or a keyword.
+  const terms = words(q);
+  const vocab = [...words(`${c.context ?? ''} ${label}`.toLowerCase()), ...c.keywords.flatMap((k) => words(k))];
+  if (terms.length && terms.every((t) => vocab.some((w) => w.startsWith(t)))) return 4;
+  return NO_MATCH;
 }
 
 /**
@@ -145,7 +169,7 @@ export function matchCommands(query, commands) {
   if (!q) return [...commands.filter((c) => c.kind === 'action'), ...commands.filter((c) => c.kind === 'page')];
   return commands
     .map((c, i) => ({ c, i, r: rank(q, c) }))
-    .filter((x) => x.r < 4)
+    .filter((x) => x.r < NO_MATCH)
     .sort((a, b) => a.r - b.r || a.i - b.i)
     .map((x) => x.c);
 }

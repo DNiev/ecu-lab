@@ -53,6 +53,7 @@ import {
 } from '../sim/index.js';
 import { BUILD_VERSION } from '../version.js';
 import { Button } from './primitives/Button.jsx';
+import { TAB_NAMES } from './routing.js';
 import { useBuild, useSession } from './state/StoreProvider.jsx';
 import { statusTone } from './theme.js';
 
@@ -79,12 +80,12 @@ import styles from './AppShell.module.css';
 // measure it. LIVE used to be a collapsed section on HOME, several taps down and easy
 // never to find — a poor place for the one screen that shows a calibration running.
 const NAV_ITEMS = [
-  { id: 'dash', label: 'HOME', icon: Gauge },
-  { id: 'build', label: 'BUILD', icon: Settings },
-  { id: 'tune', label: 'TUNE', icon: Grid3x3 },
-  { id: 'live', label: 'LIVE', icon: Flame },
-  { id: 'dyno', label: 'DYNO', icon: Activity },
-  { id: 'drag', label: 'DRAG', icon: Flag },
+  { id: 'dash', label: TAB_NAMES.dash, icon: Gauge },
+  { id: 'build', label: TAB_NAMES.build, icon: Settings },
+  { id: 'tune', label: TAB_NAMES.tune, icon: Grid3x3 },
+  { id: 'live', label: TAB_NAMES.live, icon: Flame },
+  { id: 'dyno', label: TAB_NAMES.dyno, icon: Activity },
+  { id: 'drag', label: TAB_NAMES.drag, icon: Flag },
 ];
 
 /**

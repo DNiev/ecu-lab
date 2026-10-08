@@ -48,11 +48,14 @@ search keywords:
 | DYNO | Curves (`power`, `torque`), Pull Log, Datalog, Score, History |
 | DRAG | Car Body, Gearbox, Tyres & Drive |
 
-`pageCommands({ showJobs, hasResult, hasHistory, hasNitrous })` returns one command per tab
-(`HOME`, …) and one per section (`TUNE › Spark`), in nav order, dropping sections that
-would render nothing: Customer Cars without `showJobs`; the four result sections
-without `hasResult`; History without `hasHistory || hasResult`; Nitrous Control without `hasNitrous` (TUNE's switcher hides it without a kit). A test fails if a route
-has no label or a label has no route.
+`pageCommands(flags, go)` returns one command per tab (`HOME`, …, named by
+`routing.js`'s `TAB_NAMES`, which the nav reads too) and one per section
+(`TUNE › Spark`), in nav order, dropping sections that would render nothing.
+`sectionAvailable(key, flags)` decides that, and TUNE's and DYNO's switchers filter
+their buttons through the same function: Customer Cars without `showJobs`; the four
+result sections without `hasResult`; History without `hasHistory || hasResult`;
+Nitrous Control without `hasNitrous`; and while a pull is `running`, every DYNO
+section but Curves. A test fails if a route has no label or a label has no route.
 
 A command is `{ id, label, kind: 'page'|'action', keywords, run }`; `commands.js`
 leaves `run` to the caller, which passes a `go(tab, section|null)` callback.
@@ -64,7 +67,9 @@ Case-insensitive, whitespace-trimmed. Ranks, best first, stable within a rank:
 1. the query starts the label (`sp` → Spark);
 2. the query starts a word of the label (`log` → Pull Log);
 3. the query is a substring of the label;
-4. the query starts a keyword (`timing` → Spark).
+4. the query starts a keyword (`timing` → Spark);
+5. every word of the query starts a word of the tab, the label or a keyword, so a
+   page can be typed as it is printed (`tune spark`, `dyno hist`).
 
 No match on any is dropped. An empty query returns actions, then pages, unfiltered.
 
@@ -72,7 +77,7 @@ No match on any is dropped. An empty query returns actions, then pages, unfilter
 
 | Command | Shown when | Does |
 |---|---|---|
-| Start engine / Stop engine | always (one or the other, by `live.running \|\| live.cranking`) | `startEngine` / `stopEngine` |
+| Start engine / Stop engine | always (one or the other, by `live.running \|\| live.cranking`) | `changeTab('live')`, then `startEngine()` / `stopEngine()` |
 | Run dyno pull | `!running` | `goSection('dyno', 'result')`, then `doRun()` |
 | Undo *label* / Redo *label* | the stack is non-empty | dispatch `UNDO` / `REDO` |
 | Sound on / Sound off | always | `toggleSound()` |
@@ -82,7 +87,8 @@ Labels read like the undo button's: *Undo Spark edit · +5 · 12 cells*.
 ### 4. The palette: `src/ui/components/CommandPalette.jsx` + `.module.css`
 
 - A native `<dialog>`, opened with `showModal()`: the browser supplies Esc, the inert
-  page behind it and focus return to the trigger. Clicking the backdrop closes it.
+  page behind it and focus return to the trigger. Clicking the backdrop closes it: a
+  press and release both on the backdrop, so a drag out of the field does not.
 - Combobox pattern: the input keeps focus, `role="combobox"`, `aria-expanded`,
   `aria-controls`, `aria-activedescendant`; results are `role="listbox"` with
   `role="option"` / `aria-selected`, each tagged *Page* or *Action*.
@@ -99,7 +105,8 @@ Labels read like the undo button's: *Undo Spark edit · +5 · 12 cells*.
   it: the undo handler deliberately skips text fields and Cmd-K must work from them,
   and Cmd-K is gated on the app view where undo is not. App view only (not start or
   tutorial), toggles, works from inside a field (Cmd-K means nothing to an input),
-  `altKey` excluded like undo's.
+  `altKey` excluded like undo's. K is matched by `key` when that is a Latin letter
+  (Dvorak's K is the K) and by `code === 'KeyK'` otherwise (Cyrillic, Greek).
 - **Strip button:** a `Search` icon button first in StatusStrip's actions group,
   `aria-label="Search pages and actions"`, `title="Search (⌘K)"`, wired through a new
   `onSearch` prop on `AppShell`/`StatusStrip`.

@@ -994,25 +994,30 @@ describe('keyboard shortcuts', () => {
     // is what actually catches it: after unmount, the SAME function references handed
     // to addEventListener must come back out of removeEventListener.
     //
-    // Two global `keydown` listeners live in EcuLab once the app view is entered: this
-    // file's undo/redo handler, and the command palette's Cmd/Ctrl-K handler (issue 63,
-    // see EcuLab.jsx). The count below is 2 for that reason, not 1 — what this test
-    // actually holds is that every add is matched by exactly one remove of the same
-    // function, regardless of how many there are.
+    // EcuLab is not the only thing that may listen for `keydown` on the window (the
+    // command palette's Cmd/Ctrl-K handler is a second, issue 63), so this holds no
+    // count: each function added must be removed exactly as many times as it was added.
+    // A count per function, not a Set, so a listener added twice and removed once fails.
     const addSpy = vi.spyOn(window, 'addEventListener');
     const removeSpy = vi.spyOn(window, 'removeEventListener');
+    /** @param {unknown[][]} calls */
+    const keydownCounts = (calls) => {
+      const counts = new Map();
+      for (const [type, fn] of calls) if (type === 'keydown') counts.set(fn, (counts.get(fn) ?? 0) + 1);
+      return counts;
+    };
 
     const { unmount } = render(<EcuLab />);
     fireEvent.click(screen.getByRole('button', { name: 'SANDBOX' }));
 
-    const keydownAdds = addSpy.mock.calls.filter((call) => call[0] === 'keydown').map((call) => call[1]);
-    expect(keydownAdds.length).toBe(2);
+    const added = keydownCounts(addSpy.mock.calls);
+    expect(added.size).toBeGreaterThan(0);
 
     unmount();
 
-    const keydownRemoves = removeSpy.mock.calls.filter((call) => call[0] === 'keydown').map((call) => call[1]);
-    expect(keydownRemoves.length).toBe(2);
-    expect(new Set(keydownRemoves)).toEqual(new Set(keydownAdds));
+    const removed = keydownCounts(removeSpy.mock.calls);
+    expect([...removed.keys()].every((fn) => added.has(fn))).toBe(true);
+    for (const [fn, n] of added) expect(removed.get(fn) ?? 0).toBe(n);
 
     addSpy.mockRestore();
     removeSpy.mockRestore();

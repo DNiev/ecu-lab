@@ -64,7 +64,7 @@ import { Toggle } from './primitives/Toggle.jsx';
 import { DialMark } from './components/DialMark.jsx';
 import { eventBands } from './components/eventBands.js';
 import { tuneAttention } from './components/fixLinks.js';
-import { pageCommands } from './commands.js';
+import { pageCommands, sectionAvailable } from './commands.js';
 import { CommandPalette } from './components/CommandPalette.jsx';
 import { EngineScreen } from './screens/build/EngineScreen.jsx';
 import { ExhaustScreen } from './screens/build/ExhaustScreen.jsx';
@@ -610,7 +610,9 @@ export function EcuLabApp() {
   // jobs board. A ref, so `changeTab` below keeps the referential stability its note
   // depends on instead of changing identity whenever a job is taken.
   const homeFirstSectionRef = useRef('jobs');
-  homeFirstSectionRef.current = mode === 'career' || activeJob != null ? 'jobs' : 'stats';
+  // Whether HOME has a jobs board at all: CAREER's, or free play with a job underway.
+  const showJobs = mode === 'career' || activeJob != null;
+  homeFirstSectionRef.current = showJobs ? 'jobs' : 'stats';
   const changeTab = useCallback((t) => {
     // Browsers only let audio start from inside a user gesture, so take every tap on the
     // nav as another chance to unlock it. Without this a player who never presses START
@@ -1078,7 +1080,12 @@ export function EcuLabApp() {
     /** @param {KeyboardEvent} e */
     const onKey = (e) => {
       // Alt excluded for the same AltGr reason as the undo handler above.
-      if (!(e.metaKey || e.ctrlKey) || e.altKey || e.key.toLowerCase() !== 'k') return;
+      if (!(e.metaKey || e.ctrlKey) || e.altKey) return;
+      // By the character where it is a Latin letter, so Dvorak's K is the K; by the
+      // physical key otherwise, so Ctrl-K still opens it on a Cyrillic or Greek layout,
+      // whose `key` is 'л' or 'κ'.
+      const k = e.key?.toLowerCase() ?? '';
+      if (/^[a-z]$/.test(k) ? k !== 'k' : e.code !== 'KeyK') return;
       e.preventDefault();
       setPaletteOpen((o) => !o);
     };
@@ -1344,6 +1351,13 @@ export function EcuLabApp() {
     },
   } : null;
   const TUNE_GROUPS = ['BASE TABLES & HARDWARE', 'ENGINE MANAGEMENT', 'POWER ADDER'];
+  // Which sections have anything to show. TUNE's and DYNO's switchers and the command
+  // palette all read it through `sectionAvailable`, so none offers a page the others hide.
+  /** @type {import('./commands.js').SectionFlags} */
+  const sectionFlags = {
+    showJobs, hasResult: result != null, hasHistory: runs.length > 0, hasNitrous: !!nitrous, running,
+  };
+  const tuneViews = TUNE_VIEWS.filter((v) => sectionAvailable(`tune/${v.id}`, sectionFlags));
   // Which TUNE pages the last pull's log points at — only while that pull still
   // describes the setup on screen, so a fixed problem does not keep its flag.
   const attention = result && !scoresStale && !running ? tuneAttention(result.events) : {};
@@ -1367,7 +1381,9 @@ export function EcuLabApp() {
     const actions = [
       engineOn
         ? { id: 'act:stop', label: 'Stop engine', keywords: ['engine', 'off'], run: stopEngine }
-        : { id: 'act:start', label: 'Start engine', keywords: ['engine', 'crank'], run: startEngine },
+        // To LIVE first, as a pull goes to DYNO: the engine is only heard and seen there,
+        // so started from any other page it would seem to do nothing.
+        : { id: 'act:start', label: 'Start engine', keywords: ['engine', 'crank'], run: () => { changeTab('live'); startEngine(); } },
       !running && {
         id: 'act:pull', label: 'Run dyno pull', keywords: ['dyno', 'sweep', 'power'],
         run: () => { goSection('dyno', 'result'); doRun(); },
@@ -1389,13 +1405,7 @@ export function EcuLabApp() {
       goSection(t, sec);
       setSelection(null);
     };
-    paletteCommands.push(...pageCommands({
-      showJobs: mode === 'career' || activeJob != null,
-      hasResult: result != null,
-      hasHistory: runs.length > 0,
-      hasNitrous: !!nitrous,
-      go,
-    }));
+    paletteCommands.push(...pageCommands(sectionFlags, go));
   }
 
   if (appView === 'start') {
@@ -1442,7 +1452,7 @@ export function EcuLabApp() {
           <div style={{ padding: 16 }}>
             {/* Customer jobs are CAREER's. Free play has no objectives, so it has no
                 jobs board — unless a job is already underway, which must stay reachable. */}
-            {(mode === 'career' || activeJob != null) && (
+            {showJobs && (
               <JobsScreen
                 active={dashSection === 'jobs'} onToggle={toggleDashSection}
                 onTakeJob={takeJob} onAbandon={abandonJob}
@@ -1526,13 +1536,13 @@ export function EcuLabApp() {
                 row on a phone. A number on a page is how many of the last pull's log
                 entries send you there — shown only while that pull still describes this
                 setup. */}
-            {(nitrous ? [0, 1, 2] : [0, 1]).map((rowIdx) => (
+            {[0, 1, 2].filter((rowIdx) => tuneViews.some((v) => v.row === rowIdx)).map((rowIdx) => (
               <div key={rowIdx}>
                 <div style={{ fontSize: 9, fontWeight: 800, letterSpacing: '0.12em', color: T.ink3, margin: '4px 0 5px' }}>
                   {TUNE_GROUPS[rowIdx]}
                 </div>
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                  {TUNE_VIEWS.filter((v) => v.row === rowIdx).map((v) => {
+                  {tuneViews.filter((v) => v.row === rowIdx).map((v) => {
                     const on = tuneView === v.id;
                     const Icon = v.icon;
                     const flagged = attention[v.id] ?? 0;
@@ -1719,10 +1729,9 @@ export function EcuLabApp() {
                 lead to sections that render nothing without one. */}
             {!running && (result || runs.length > 0) && (
               <div style={{ display: 'flex', gap: 6, marginBottom: 14 }}>
-                {(result
-                  ? [['result', 'CURVES'], ['log', 'PULL LOG'], ['data', 'DATALOG'], ['score', 'SCORE'], ['history', 'HISTORY']]
-                  : [['history', 'HISTORY']]
-                ).map(([id, label]) => {
+                {[['result', 'CURVES'], ['log', 'PULL LOG'], ['data', 'DATALOG'], ['score', 'SCORE'], ['history', 'HISTORY']]
+                  .filter(([id]) => sectionAvailable(`dyno/${id}`, sectionFlags))
+                  .map(([id, label]) => {
                   const on = dynoView === id;
                   const flag = id === 'log' && result && result.events.length > 0;
                   return (

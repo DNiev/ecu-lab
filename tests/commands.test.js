@@ -4,19 +4,22 @@
 
 import { describe, expect, it, vi } from 'vitest';
 
-import { SECTION_LABELS, TAB_LABELS, matchCommands, pageCommands } from '../src/ui/commands.js';
-import { ROUTES } from '../src/ui/routing.js';
+import {
+  SECTION_LABELS, TAB_KEYWORDS, matchCommands, pageCommands, sectionAvailable,
+} from '../src/ui/commands.js';
+import { ROUTES, TAB_NAMES } from '../src/ui/routing.js';
 
-const ALL = { showJobs: true, hasResult: true, hasHistory: true, hasNitrous: true };
-const pages = (flags = ALL, go = () => {}) => pageCommands({ ...flags, go });
+const ALL = { showJobs: true, hasResult: true, hasHistory: true, hasNitrous: true, running: false };
+const pages = (flags = ALL, go = () => {}) => pageCommands(flags, go);
 const ids = (cmds) => cmds.map((c) => c.id);
 
 /** @returns {import('../src/ui/commands.js').Command} */
 const cmd = (id, label, keywords = [], kind = /** @type {'page'|'action'} */ ('page')) => ({ id, label, kind, keywords, run: () => {} });
 
 describe('the label table', () => {
-  it('labels every tab, and nothing that is not a tab', () => {
-    expect(Object.keys(TAB_LABELS).sort()).toEqual(Object.keys(ROUTES).sort());
+  it('names every tab, and nothing that is not a tab', () => {
+    expect(Object.keys(TAB_NAMES).sort()).toEqual(Object.keys(ROUTES).sort());
+    expect(Object.keys(TAB_KEYWORDS).sort()).toEqual(Object.keys(ROUTES).sort());
   });
 
   it('labels every section of a multi-section tab, and nothing else', () => {
@@ -66,6 +69,12 @@ describe('pageCommands', () => {
     expect(list).toContain('page:dyno');
   });
 
+  it('offers only Curves on DYNO while a pull runs, since nothing else renders then', () => {
+    const list = ids(pages({ ...ALL, running: true }));
+    expect(list).toContain('page:dyno/result');
+    for (const s of ['log', 'data', 'score', 'history']) expect(list).not.toContain(`page:dyno/${s}`);
+  });
+
   it('keeps History when pulls are banked but none is showing', () => {
     const list = ids(pages({ ...ALL, hasResult: false, hasHistory: true }));
     expect(list).toContain('page:dyno/history');
@@ -78,6 +87,17 @@ describe('pageCommands', () => {
     list.find((c) => c.id === 'page:tune/spark').run();
     list.find((c) => c.id === 'page:dyno').run();
     expect(go.mock.calls).toEqual([['tune', 'spark'], ['dyno', null]]);
+  });
+});
+
+describe('sectionAvailable', () => {
+  it('gates a section the same way for the palette and the switchers', () => {
+    expect(sectionAvailable('tune/spark', { ...ALL, hasResult: false, hasNitrous: false })).toBe(true);
+    expect(sectionAvailable('tune/nitrous', { ...ALL, hasNitrous: false })).toBe(false);
+    expect(sectionAvailable('dash/jobs', { ...ALL, showJobs: false })).toBe(false);
+    expect(sectionAvailable('dyno/data', { ...ALL, hasResult: false })).toBe(false);
+    expect(sectionAvailable('dyno/data', { ...ALL, running: true })).toBe(false);
+    expect(sectionAvailable('dyno/result', { ...ALL, running: true })).toBe(true);
   });
 });
 
@@ -107,6 +127,27 @@ describe('matchCommands', () => {
 
   it('drops what does not match', () => {
     expect(matchCommands('zzz', [spark, pullLog])).toEqual([]);
+  });
+
+  it('finds a page typed the way it is printed, tab first', () => {
+    const tuneSpark = cmd('ts', 'Spark', ['timing']);
+    tuneSpark.context = 'TUNE';
+    const dynoHistory = cmd('dh', 'History', ['runs']);
+    dynoHistory.context = 'DYNO';
+    const both = [tuneSpark, dynoHistory, start];
+    expect(ids(matchCommands('tune spark', both))).toEqual(['ts']);
+    expect(ids(matchCommands('tune sp', both))).toEqual(['ts']);
+    expect(ids(matchCommands('TUNE › Spark', both))).toEqual(['ts']);
+    expect(ids(matchCommands('dyno hist', both))).toEqual(['dh']);
+    expect(matchCommands('tune hist', both)).toEqual([]);
+  });
+
+  it('ranks a several-word match after every single-phrase match', () => {
+    const tuneSpark = cmd('ts', 'Spark');
+    tuneSpark.context = 'TUNE';
+    // 'tune spark' is a substring of this label (rank 2), so it outranks the page above.
+    const literal = cmd('lit', 'Retune Spark Plugs');
+    expect(ids(matchCommands('tune spark', [tuneSpark, literal]))).toEqual(['lit', 'ts']);
   });
 
   it('with no query lists actions first, then pages, each in input order', () => {

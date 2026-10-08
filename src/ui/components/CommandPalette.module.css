@@ -1,11 +1,11 @@
 /* The command palette (issue 63). Tokens only — see tests/no-hardcoded-colours.test.js. */
 
 .dialog {
+  /* No border, padding or fill of its own: the panel draws them, so every pixel of the
+     dialog that is not the panel's is backdrop (see onDialogClick). */
   padding: 0;
-  border: 1px solid var(--line-hi);
-  border-radius: var(--r-lg);
-  background: var(--panel);
-  color: var(--ink);
+  border: none;
+  background: transparent;
   /* Functional sizes, not rhythm steps: a readable column on a desktop, the phone
      width less the page's 16px gutters on a phone. */
   width: min(560px, calc(100vw - 32px));
@@ -23,6 +23,13 @@
   display: flex;
   flex-direction: column;
   max-height: inherit;
+  /* The border inside that height, or the dialog's overflow clips the bottom edge. */
+  box-sizing: border-box;
+  border: 1px solid var(--line-hi);
+  border-radius: var(--r-lg);
+  background: var(--panel);
+  color: var(--ink);
+  overflow: hidden;
 }
 
 .input {

@@ -127,13 +127,23 @@ describe('the palette', () => {
 
   it('closes on Escape, and on a click on the backdrop but not inside', () => {
     make();
+    fireEvent.mouseDown(input());
     fireEvent.click(input());
     expect(dialog().open).toBe(true);
+    fireEvent.mouseDown(dialog());
     fireEvent.click(dialog());
     expect(dialog().open).toBe(false);
     fireEvent.click(screen.getByRole('button', { name: 'OPEN', hidden: true }));
     key('Escape');
     expect(dialog().open).toBe(false);
+  });
+
+  it('stays open when a drag that began in the field is let go over the backdrop', () => {
+    make();
+    // A click lands on the common ancestor of press and release: here, the dialog.
+    fireEvent.mouseDown(input());
+    fireEvent.click(dialog());
+    expect(dialog().open).toBe(true);
   });
 
   it('starts empty each time it opens', () => {
@@ -230,6 +240,17 @@ describe('the palette in the app', () => {
     launch();
     cmdK();
     fireEvent.keyDown(input(), { key: 'k', code: 'KeyK', metaKey: true });
+    expect(isOpen()).toBe(false);
+  });
+
+  it('opens on Ctrl-K from a non-Latin layout by the physical key, and not on Dvorak\'s KeyK', () => {
+    launch();
+    cmdK({ key: 'л', metaKey: false, ctrlKey: true });
+    expect(isOpen()).toBe(true);
+    cmdK();
+    expect(isOpen()).toBe(false);
+    // Dvorak puts T where QWERTY has K: its `key` says what it is.
+    cmdK({ key: 't' });
     expect(isOpen()).toBe(false);
   });
 
@@ -331,6 +352,26 @@ describe('the palette in the app', () => {
     fireEvent.click(screen.getByRole('button', { name: 'TUTORIAL' }));
     cmdK();
     expect(isOpen()).toBe(false);
+  });
+
+  it('starts the engine on LIVE, where it is heard and seen', () => {
+    launch();
+    cmdK();
+    run('start engine');
+    expect(window.location.hash).toBe('#/live/engine');
+    expect(screen.getByRole('button', { name: 'STOP' })).toBeTruthy();
+  });
+
+  it('offers no DYNO page but Curves while a pull is running', () => {
+    launch();
+    cmdK();
+    run('run dyno');
+    expect(screen.getByRole('button', { name: 'SWEEPING…' })).toBeTruthy();
+    cmdK();
+    type('datalog');
+    expect(screen.getByText('No matches')).toBeTruthy();
+    type('curves');
+    expect(options().map((o) => o.textContent)).toEqual(['DYNO › CurvesPage']);
   });
 
   it('offers Stop engine once the engine is started, and running it stops it', () => {
