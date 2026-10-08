@@ -152,7 +152,7 @@ function Tach({ rpm, cylinders, running, fullScaleRpm }) {
         <DialMark size={168} pct={pct} live={running} />
         <div style={{ position: 'absolute', top: '58%', left: '50%', transform: 'translate(-50%,-50%)', textAlign: 'center' }}>
           <div style={{ fontSize: 26, fontWeight: 800, fontFamily: T.mono, color: T.ink }}>{Math.round(rpm)}</div>
-          <div style={{ fontSize: 8.5, color: T.ink3, letterSpacing: 1.5, fontWeight: 700 }}>RPM</div>
+          <div style={{ fontSize: 8.5, color: T.ink2, letterSpacing: 1.5, fontWeight: 700 }}>RPM</div>
         </div>
       </div>
       <div style={{ display: 'flex', gap: 4, justifyContent: 'center', marginTop: 8, height: 26 }}>
@@ -1451,7 +1451,7 @@ export function EcuLabApp() {
                 setup. */}
             {(nitrous ? [0, 1, 2] : [0, 1]).map((rowIdx) => (
               <div key={rowIdx}>
-                <div style={{ fontSize: 9, fontWeight: 800, letterSpacing: '0.12em', color: T.ink3, margin: '4px 0 5px' }}>
+                <div style={{ fontSize: 9, fontWeight: 800, letterSpacing: '0.12em', color: T.ink2, margin: '4px 0 5px' }}>
                   {TUNE_GROUPS[rowIdx]}
                 </div>
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
@@ -1483,7 +1483,7 @@ export function EcuLabApp() {
               </div>
             ))}
             {Object.keys(attention).length > 0 && (
-              <div style={{ fontSize: 10.5, color: T.ink3, marginTop: 2 }}>
+              <div style={{ fontSize: 10.5, color: T.ink2, marginTop: 2 }}>
                 Numbered pages are where the last pull&apos;s log sends you — DYNO › PULL LOG has the details.
               </div>
             )}
@@ -1570,7 +1570,7 @@ export function EcuLabApp() {
             <Eyebrow icon={Activity}>Dyno Cell</Eyebrow>
             <div style={{ fontSize: 12, color: T.ink2, marginBottom: 8, fontWeight: 600 }}>Manifold pressure for the pull (load)</div>
             <Seg label="Manifold pressure for the pull (load)" options={[100, 70, 40].map((l) => ({ label: `${l} kPa`, id: l }))} value={loadKpa} onChange={(v) => dispatch({ type: ACTIONS.SET_SESSION_FIELD, field: 'loadKpa', value: v })} />
-            <div style={{ fontSize: 10.5, color: T.ink3, marginTop: 4, marginBottom: 4 }}>
+            <div style={{ fontSize: 10.5, color: T.ink2, marginTop: 4, marginBottom: 4 }}>
               ~100 kPa is wide-open throttle naturally aspirated. Boost adds on top and walks the tables into the higher-MAP rows automatically.
             </div>
             {nitrous && (

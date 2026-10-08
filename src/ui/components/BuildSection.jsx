@@ -50,7 +50,7 @@ export function BuildSection({ active, onClick, icon: Icon, label, sub, children
             {sub && <div style={{ fontSize: 10.5, color: T.ink2, marginTop: 1 }}>{sub}</div>}
           </div>
         </div>
-        <ChevronDown size={16} style={{ color: active ? T.accInk : T.ink3, flexShrink: 0, marginLeft: 8, transform: active ? 'rotate(180deg)' : 'none', transition: 'transform .2s' }} />
+        <ChevronDown size={16} style={{ color: active ? T.accInk : T.ink2, flexShrink: 0, marginLeft: 8, transform: active ? 'rotate(180deg)' : 'none', transition: 'transform .2s' }} />
       </button>
       {/* A cap, because the tests read maxHeight, but one no section reaches: at 3000px
           Learn How It Works (2400px of titles before any article opens) cut off whatever

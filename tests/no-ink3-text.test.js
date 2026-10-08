@@ -22,7 +22,7 @@ const UI_DIR = new URL('../src/ui/', import.meta.url);
 const ALLOWED = new Set(['tokens.js', 'tokens.css', 'theme.js']);
 
 /** Which files the guard reads. */
-const GUARDED = /\.css$/;
+const GUARDED = /\.(jsx?|css)$/;
 
 /**
  * A line that colours text --ink3: a CSS `color` (not `border-color`), a JSX `color:`
