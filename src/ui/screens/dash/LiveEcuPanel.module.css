@@ -8,7 +8,7 @@
 .muted {
   margin: var(--sp-md) 0;
   font-size: var(--fs-sm);
-  color: var(--ink3);
+  color: var(--ink2);
 }
 
 .limp {
@@ -36,7 +36,7 @@
   font-size: var(--fs-micro);
   font-weight: 800;
   letter-spacing: 0.12em;
-  color: var(--ink3);
+  color: var(--ink2);
 }
 
 .flex { flex: 1; }
@@ -64,7 +64,7 @@
 .channel {
   font-size: var(--fs-micro);
   font-weight: 700;
-  color: var(--ink3);
+  color: var(--ink2);
   background: transparent;
   border: 1px solid var(--line);
   border-radius: 999px;
@@ -80,7 +80,7 @@
   font-weight: 700;
 }
 
-.chartUnit { color: var(--ink3); font-weight: 600; }
+.chartUnit { color: var(--ink2); font-weight: 600; }
 
 .chartNow {
   float: right;
@@ -121,7 +121,7 @@
 
 .hint {
   font-size: var(--fs-xs);
-  color: var(--ink3);
+  color: var(--ink2);
 }
 
 .faultGrid {

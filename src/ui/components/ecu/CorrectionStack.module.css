@@ -16,7 +16,7 @@
   font-weight: 800;
   letter-spacing: 0.12em;
   text-transform: uppercase;
-  color: var(--ink3);
+  color: var(--ink2);
   margin-bottom: 6px;
 }
 
@@ -49,5 +49,5 @@
 
 .unit {
   margin-left: 2px;
-  color: var(--ink3);
+  color: var(--ink2);
 }
