@@ -11,12 +11,17 @@
  * The body is HIDDEN, not unmounted: `max-height: 0` with an opacity fade, so the
  * transition has something to animate and so a control inside a closed section is
  * still in the document. Both halves of that are load-bearing — `tests/ui/
- * routing-shell.test.jsx` reads the inline `maxHeight` as the only DOM-visible
- * difference between open and closed, and `tests/ui/build-store.test.jsx` reaches a
- * slider inside a collapsed section. Do not convert this component's inline styles
- * to a stylesheet without re-pointing both.
+ * routing-shell.test.jsx` reads the inline `maxHeight` as a DOM-visible difference
+ * between open and closed (`aria-expanded` and `inert` differ too), and
+ * `tests/ui/build-store.test.jsx` reaches a slider inside a collapsed section. Do not
+ * convert this component's inline styles to a stylesheet without re-pointing both.
  *
- * Relocated from EcuLab.jsx by the screen split, markup unchanged.
+ * The shut body is `inert`: it stays mounted so it can animate, so jsdom and Testing
+ * Library can still reach controls in it (build-store.test.jsx relies on that), but a
+ * real user cannot read or Tab into it.
+ *
+ * Relocated from EcuLab.jsx by the screen split; it has since gained
+ * aria-expanded, aria-controls and inert (issue 81).
  */
 
 import { ChevronDown } from 'lucide-react';
@@ -57,7 +62,10 @@ export function BuildSection({ active, onClick, icon: Icon, label, sub, children
           Learn How It Works (2400px of titles before any article opens) cut off whatever
           was opened past it. The easing differs by direction so a close still starts
           at once instead of spending most of its time above the content's real height. */}
-      {/* inert while shut: still mounted so it can animate, but neither read nor tabbable. */}
+      {/* inert while shut: still mounted so it can animate, but neither read nor tabbable.
+          React 18 drops a boolean `inert`, so it has to be the string ''; @types/react 18
+          types `inert` only as experimental, hence the cast. On React 19 this must become
+          `inert={!open}` (the hasAttribute check in disclosures.test.jsx would catch it). */}
       <div id={bodyId} {...(/** @type {object} */ (active ? {} : { inert: '' }))} style={{ maxHeight: active ? 20000 : 0, opacity: active ? 1 : 0, overflow: 'hidden', transition: active ? 'max-height .6s ease-in, opacity .25s ease' : 'max-height .35s cubic-bezier(0, 1, 0, 1), opacity .25s ease' }}>
         <div style={{ padding: '13px 2px 2px' }}>{children}</div>
       </div>

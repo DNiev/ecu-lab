@@ -717,6 +717,7 @@ describe('the engine-sound toggle', () => {
     launchOnLive();
     const toggle = () => screen.getByRole('button', { name: 'Engine sound' });
     expect(toggle().getAttribute('aria-pressed')).toBe('true');
+    expect(toggle().querySelector('[aria-hidden="true"]')).toBeTruthy();
     expect(toggle().textContent).toBe('♪');
 
     fireEvent.click(toggle());

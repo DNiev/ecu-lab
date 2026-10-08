@@ -157,7 +157,7 @@ describe('clicking a tab', () => {
     }
   });
 
-  it('marks the open TUNE and DYNO page aria-current, and moves it on navigation', () => {
+  it('marks the open TUNE page aria-current, and moves it on navigation', () => {
     launch();
     /** @param {string} name @returns {string[]} labels of the current buttons in that nav */
     const current = (name) => within(screen.getByRole('navigation', { name }))

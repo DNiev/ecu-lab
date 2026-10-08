@@ -7,7 +7,8 @@
  * addresses it, so it is deliberately NOT part of the route the way a BuildSection
  * is.
  *
- * Relocated from EcuLab.jsx by the screen split, markup unchanged.
+ * Relocated from EcuLab.jsx by the screen split; it has since gained aria-expanded,
+ * aria-controls and inert (issue 81).
  */
 
 import { ChevronDown, Info } from 'lucide-react';
@@ -35,6 +36,10 @@ export function ExpandableInfo({ title, children }) {
       {/* Grid rows, not max-height: `1fr` animates to the content's own height, where a
           max-height cap clipped any article taller than it (four Learn articles ran past
           the old 900px on a phone, and their endings could not be read). */}
+      {/* inert while shut, as in BuildSection. React 18 drops a boolean `inert`, so it has
+          to be the string ''; @types/react 18 types `inert` only as experimental, hence
+          the cast. On React 19 this must become `inert={!open}` (the hasAttribute check in
+          disclosures.test.jsx would catch it). */}
       <div id={bodyId} {...(/** @type {object} */ (open ? {} : { inert: '' }))} style={{ display: 'grid', gridTemplateRows: open ? '1fr' : '0fr', opacity: open ? 1 : 0, transition: 'grid-template-rows .3s ease, opacity .2s ease' }}>
         <div style={{ overflow: 'hidden', minHeight: 0 }}>
           <div style={{ padding: '0 13px 13px', fontSize: 12.5, color: T.ink2, lineHeight: 1.65 }}>{children}</div>
