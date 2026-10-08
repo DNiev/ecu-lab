@@ -53,6 +53,7 @@ import {
 } from '../sim/index.js';
 import { BUILD_VERSION } from '../version.js';
 import { Button } from './primitives/Button.jsx';
+import { isApplePlatform } from './commands.js';
 import { TAB_NAMES } from './routing.js';
 import { useBuild, useSession } from './state/StoreProvider.jsx';
 import { statusTone } from './theme.js';
@@ -249,6 +250,7 @@ export function StatusStrip({ onTutorial, onRepair, onSearch }) {
     [blower, build],
   );
   const peakBoost = turboOn ? Math.max(...boostCurve) : blowerPeak;
+  const apple = isApplePlatform();
   const induction = turboOn ? 'Turbo' : blower ? 'Supercharged' : 'N/A';
 
   return (
@@ -284,10 +286,16 @@ export function StatusStrip({ onTutorial, onRepair, onSearch }) {
         {/* Icon-only, so the label has to be spelled out: `title` alone leaves a
             button whose accessible name depends on the tooltip surviving. Note the
             lower-case names — the start screen's TUTORIAL button is queried by exact
-            name and must stay the only match. Moved here verbatim from the header
-            this strip replaced. */}
+            name and must stay the only match. Tutorial and Repair engine were moved
+            here verbatim from the header this strip replaced; Search came with the
+            command palette (issue 63), its tooltip naming the shortcut this platform
+            uses (see the Cmd-K handler in EcuLab.jsx). */}
         <div className={styles.actions}>
-          <Button variant="ghost" size="sm" title="Search (⌘K)" aria-label="Search pages and actions" onClick={onSearch}>
+          <Button
+            variant="ghost" size="sm" title={`Search (${apple ? '⌘K' : 'Ctrl+K'})`}
+            aria-label="Search pages and actions" aria-keyshortcuts={apple ? 'Meta+K' : 'Control+K'}
+            onClick={onSearch}
+          >
             <Search size={16} aria-hidden="true" />
           </Button>
           <Button variant="ghost" size="sm" title="Tutorial" aria-label="Tutorial" onClick={onTutorial}>

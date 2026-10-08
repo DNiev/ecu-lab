@@ -130,6 +130,19 @@ export function pageCommands(flags, go) {
   return out;
 }
 
+/**
+ * Whether the player is on an Apple device, where the palette's shortcut is Cmd-K and
+ * only Cmd-K: in a macOS text field Ctrl-K deletes to the end of the line, and the
+ * shortcut works from inside fields. iPadOS reports itself as a Mac, which is right here.
+ * @param {Navigator} [nav]
+ * @returns {boolean}
+ */
+export function isApplePlatform(nav = globalThis.navigator) {
+  // `userAgentData` where the browser has it (Chromium says "macOS"), `platform` otherwise.
+  const p = /** @type {any} */ (nav)?.userAgentData?.platform || nav?.platform || '';
+  return /mac|iphone|ipad|ipod/i.test(p);
+}
+
 /** @param {string} s lower-cased @returns {string[]} */
 const words = (s) => s.split(/[^a-z0-9]+/).filter(Boolean);
 

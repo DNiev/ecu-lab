@@ -155,6 +155,15 @@ describe('the palette', () => {
     expect(options()).toHaveLength(3);
   });
 
+  it('is already empty once closed, before it is opened again', () => {
+    make();
+    type('spa');
+    key('Escape');
+    expect(dialog().open).toBe(false);
+    // Closed, the dialog's contents are out of the accessibility tree.
+    expect(dialog().querySelector('input').value).toBe('');
+  });
+
   it('keeps the parent in step when the browser closes it', () => {
     make();
     act(() => { dialog().close(); });
@@ -187,6 +196,23 @@ describe('the palette', () => {
 
       key('ArrowDown');
       expect(spy.mock.calls.length).toBe(afterOpen + 1);
+    } finally {
+      spy.mockRestore();
+      if (!hadScrollIntoView) delete window.Element.prototype.scrollIntoView;
+    }
+  });
+
+  it('scrolls the first result back into view when typing, even when it was already first', () => {
+    const hadScrollIntoView = 'scrollIntoView' in window.Element.prototype;
+    if (!hadScrollIntoView) window.Element.prototype.scrollIntoView = () => {};
+    const spy = vi.spyOn(window.Element.prototype, 'scrollIntoView').mockImplementation(() => {});
+    try {
+      make();
+      // Index 0 is active on open; a list scrolled by the wheel does not change that.
+      const afterOpen = spy.mock.calls.length;
+      type('s');
+      expect(spy.mock.calls.length).toBe(afterOpen + 1);
+      expect(spy.mock.contexts.at(-1)).toBe(options()[0]);
     } finally {
       spy.mockRestore();
       if (!hadScrollIntoView) delete window.Element.prototype.scrollIntoView;
@@ -276,6 +302,55 @@ describe('the palette in the app', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'SANDBOX' }));
     expect(isOpen()).toBe(false);
+  });
+
+  it('stays put while K is held down, and still swallows the repeats', () => {
+    launch();
+    cmdK();
+    const repeat = new window.KeyboardEvent('keydown', { key: 'k', code: 'KeyK', metaKey: true, repeat: true, cancelable: true });
+    act(() => { window.dispatchEvent(repeat); });
+    expect(isOpen()).toBe(true);
+    expect(repeat.defaultPrevented).toBe(true);
+  });
+
+  describe('by platform', () => {
+    /** @param {string} platform */
+    const onPlatform = (platform) => Object.defineProperty(window.navigator, 'platform', { value: platform, configurable: true });
+    afterEach(() => { delete (/** @type {any} */ (window.navigator)).platform; });
+
+    it('opens on a Mac on Cmd-K only, leaving Ctrl-K to the text field it was typed in', () => {
+      onPlatform('MacIntel');
+      launch();
+      const field = document.createElement('input');
+      document.body.append(field);
+      try {
+        // Ctrl-K is a macOS text field's delete-to-end-of-line.
+        const ctrlK = new window.KeyboardEvent('keydown', { key: 'k', code: 'KeyK', ctrlKey: true, bubbles: true, cancelable: true });
+        act(() => { field.dispatchEvent(ctrlK); });
+        expect(isOpen()).toBe(false);
+        expect(ctrlK.defaultPrevented).toBe(false);
+        cmdK();
+        expect(isOpen()).toBe(true);
+      } finally {
+        field.remove();
+      }
+    });
+
+    it('names Cmd-K on the strip button on a Mac', () => {
+      onPlatform('MacIntel');
+      launch();
+      const button = screen.getByRole('button', { name: 'Search pages and actions' });
+      expect(button.title).toBe('Search (⌘K)');
+      expect(button.getAttribute('aria-keyshortcuts')).toBe('Meta+K');
+    });
+
+    it('names Ctrl-K on the strip button anywhere else', () => {
+      onPlatform('Win32');
+      launch();
+      const button = screen.getByRole('button', { name: 'Search pages and actions' });
+      expect(button.title).toBe('Search (Ctrl+K)');
+      expect(button.getAttribute('aria-keyshortcuts')).toBe('Control+K');
+    });
   });
 
   it('opens from the status strip button', () => {

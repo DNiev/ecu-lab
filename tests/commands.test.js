@@ -5,7 +5,7 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import {
-  SECTION_LABELS, TAB_KEYWORDS, matchCommands, pageCommands, sectionAvailable,
+  SECTION_LABELS, TAB_KEYWORDS, isApplePlatform, matchCommands, pageCommands, sectionAvailable,
 } from '../src/ui/commands.js';
 import { ROUTES, TAB_NAMES } from '../src/ui/routing.js';
 
@@ -152,5 +152,22 @@ describe('matchCommands', () => {
 
   it('with no query lists actions first, then pages, each in input order', () => {
     expect(ids(matchCommands('', [spark, start, pullLog]))).toEqual(['a', 's', 'l']);
+  });
+});
+
+describe('isApplePlatform', () => {
+  it('is true on a Mac, an iPhone and an iPad, by userAgentData where there is one', () => {
+    expect(isApplePlatform(/** @type {any} */ ({ platform: 'MacIntel' }))).toBe(true);
+    expect(isApplePlatform(/** @type {any} */ ({ platform: 'iPhone' }))).toBe(true);
+    expect(isApplePlatform(/** @type {any} */ ({ platform: 'iPad' }))).toBe(true);
+    expect(isApplePlatform(/** @type {any} */ ({ userAgentData: { platform: 'macOS' }, platform: '' }))).toBe(true);
+  });
+
+  it('is false on Windows, Linux, Android, and when nothing is known', () => {
+    expect(isApplePlatform(/** @type {any} */ ({ platform: 'Win32' }))).toBe(false);
+    expect(isApplePlatform(/** @type {any} */ ({ platform: 'Linux x86_64' }))).toBe(false);
+    expect(isApplePlatform(/** @type {any} */ ({ userAgentData: { platform: 'Android' }, platform: 'Linux armv8l' }))).toBe(false);
+    expect(isApplePlatform(/** @type {any} */ ({}))).toBe(false);
+    expect(isApplePlatform(/** @type {any} */ (null))).toBe(false);
   });
 });

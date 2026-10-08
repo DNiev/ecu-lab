@@ -54,14 +54,17 @@ export function CommandPalette({ open, onClose, commands }) {
     const d = dialogRef.current;
     if (!d) return;
     if (open && !d.open) {
-      setQuery('');
-      setActiveId(null);
       d.showModal();
       // showModal() would focus the field on its own in a real browser; the explicit
       // call is for environments whose <dialog> does not do that (the test stub).
       inputRef.current?.focus();
-    } else if (!open && d.open) {
-      d.close();
+    } else if (!open) {
+      // Emptied on the way out, not the way in: cleared at open, the dialog was already
+      // showing the last query when the reset landed, and a frame of it could paint.
+      // Whatever closed it (Esc, a command, the browser), `open` ends up false here.
+      if (d.open) d.close();
+      setQuery('');
+      setActiveId(null);
     }
   }, [open]);
 
@@ -77,13 +80,16 @@ export function CommandPalette({ open, onClose, commands }) {
   // `commands` (and so `results`) on every one of its own renders — at 20 Hz while the
   // engine is running. That scrolled the list back to the active option every 50 ms,
   // fighting anyone trying to scroll it by hand. `current >= 0 ? optionId(current) :
-  // null` changes only on open and on a real change of which option is active.
+  // null` changes only on open and on a real change of which option is active. `query`
+  // is here too: typing puts the first result back in charge, which is usually already
+  // index 0, so the id alone would not change and a list scrolled by hand would leave
+  // the result Enter runs out of sight.
   const activeOptionId = current >= 0 ? optionId(current) : null;
   React.useEffect(() => {
     if (!open || !activeOptionId) return;
     // Optional call: jsdom has no scrollIntoView.
     document.getElementById(activeOptionId)?.scrollIntoView?.({ block: 'nearest' });
-  }, [open, activeOptionId]);
+  }, [open, activeOptionId, query]);
 
   /** @param {number} i */
   const runAt = (i) => {

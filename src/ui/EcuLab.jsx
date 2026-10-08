@@ -64,7 +64,7 @@ import { Toggle } from './primitives/Toggle.jsx';
 import { DialMark } from './components/DialMark.jsx';
 import { eventBands } from './components/eventBands.js';
 import { tuneAttention } from './components/fixLinks.js';
-import { pageCommands, sectionAvailable } from './commands.js';
+import { isApplePlatform, pageCommands, sectionAvailable } from './commands.js';
 import { CommandPalette } from './components/CommandPalette.jsx';
 import { EngineScreen } from './screens/build/EngineScreen.jsx';
 import { ExhaustScreen } from './screens/build/ExhaustScreen.jsx';
@@ -1073,20 +1073,26 @@ export function EcuLabApp() {
     if (appView !== 'app') setPaletteOpen(false);
   }, [appView]);
 
-  // Cmd/Ctrl-K toggles it, in the app view only. Unlike undo it is not held back from
-  // text fields: Cmd-K means nothing to an input, and the palette's own field is one.
+  // Cmd-K on an Apple device, Ctrl-K elsewhere, toggles it, in the app view only. Unlike
+  // undo it is not held back from text fields: Cmd-K means nothing to an input, nor
+  // Ctrl-K off a Mac, and the palette's own field is one. On a Mac Ctrl-K is a text
+  // field's delete-to-end-of-line, so it is left alone there (see `isApplePlatform`).
   useEffect(() => {
     if (appView !== 'app') return undefined;
+    const ctrlOpens = !isApplePlatform();
     /** @param {KeyboardEvent} e */
     const onKey = (e) => {
       // Alt excluded for the same AltGr reason as the undo handler above.
-      if (!(e.metaKey || e.ctrlKey) || e.altKey) return;
+      if (!(e.metaKey || (e.ctrlKey && ctrlOpens)) || e.altKey) return;
       // By the character where it is a Latin letter, so Dvorak's K is the K; by the
       // physical key otherwise, so Ctrl-K still opens it on a Cyrillic or Greek layout,
       // whose `key` is 'л' or 'κ'.
       const k = e.key?.toLowerCase() ?? '';
       if (/^[a-z]$/.test(k) ? k !== 'k' : e.code !== 'KeyK') return;
       e.preventDefault();
+      // A held K auto-repeats: without this the palette flickers open and shut at the
+      // key-repeat rate. The repeats are still swallowed above.
+      if (e.repeat) return;
       setPaletteOpen((o) => !o);
     };
     window.addEventListener('keydown', onKey);

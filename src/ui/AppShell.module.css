@@ -251,9 +251,9 @@
   grid-area: 1 / 1;
 }
 
-/* The strip's two icon buttons (Tutorial, Repair engine). 6px is off the spacing
-   ramp on purpose: it is the header's original gap, carried over verbatim rather
-   than snapped to --sp-xs (3px) or --sp-sm (7px). */
+/* The strip's three icon buttons (Search, Tutorial, Repair engine). 6px is off the
+   spacing ramp on purpose: it is the header's original gap, carried over verbatim
+   rather than snapped to --sp-xs (3px) or --sp-sm (7px). */
 .actions {
   display: flex;
   flex-shrink: 0;
@@ -325,14 +325,15 @@
 }
 
 /* Back in DOM order, sized to its content, beside the build line: the one-line strip a
-   wide display has always had. 880px is everything on that line at its widest, with
+   wide display has always had. 924px is everything on that line at its widest, with
    the desktop spacing: the brand, the build line at 14em, every readout
    (boost and last pull at their longest, the health bar, the run light's reserved
-   slot) and both buttons. Narrower than that and `.readouts` stays on its own line
-   below, so the buttons never wrap and the build line never shrinks under 14em.
-   Measured at 840px in the browser with the system fonts on macOS; the rest is
-   headroom for wider fallback fonts. Re-measure if anything on the strip gets wider. */
-@container strip (min-width: 880px) {
+   slot) and all three buttons. Narrower than that and `.readouts` stays on its own
+   line below, so the buttons never wrap and the build line never shrinks under 14em.
+   Measured at 884px in the browser with the system fonts on macOS (840px before the
+   Search button); the rest is headroom for wider fallback fonts. Re-measure if
+   anything on the strip gets wider. */
+@container strip (min-width: 924px) {
   .readouts {
     flex: 0 0 auto;
     order: 0;
