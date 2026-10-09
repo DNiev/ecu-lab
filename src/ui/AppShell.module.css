@@ -143,9 +143,9 @@
 /* 11px is off the font-size ramp deliberately: this is the header's build line moved
    here verbatim, and 10.5px (--fs-xs) is a re-size of an existing element rather than
    the adoption of a token. It takes whatever the first line leaves between the brand
-   and the buttons (about 13em at 375px). The readouts only join that line once the
-   container query at the end of this file has left it at least 14em, so it is never
-   squeezed to nothing. A non-zero basis here would wrap the buttons off the first
+   and the buttons (about 12em, 133px, at 375px). The readouts only join that line once
+   the container query at the end of this file has left it at least 14em, so it is
+   never squeezed to nothing. A non-zero basis here would wrap the buttons off the first
    line on a phone instead. */
 .engine {
   flex: 1 1 0;
@@ -251,13 +251,26 @@
   grid-area: 1 / 1;
 }
 
-/* The strip's three icon buttons (Search, Tutorial, Repair engine). 6px is off the
-   spacing ramp on purpose: it is the header's original gap, carried over verbatim
-   rather than snapped to --sp-xs (3px) or --sp-sm (7px). */
+/* The strip's three icon buttons (Search, Tutorial, Repair engine). On a phone they
+   share the first line with the brand and the build line, and every pixel they take
+   comes off the build line: at Button's own `sm` padding the three left it about 103px
+   at 375px, cutting preset names mid-word ("Nissan VQ35DE R…"). So below the
+   breakpoint they are trimmed to 30px wide (6px a side around the 16px icon, off the
+   spacing ramp because --sp-xs makes 24px and --sp-sm 32px, and 30px is what gives
+   the build line back a 20-character name) and packed --sp-xs apart, which hands the
+   build line about 30px back. 30px still clears WCAG 2.2's 24px target minimum. The
+   breakpoint below restores both. */
 .actions {
   display: flex;
   flex-shrink: 0;
-  gap: 6px;
+  gap: var(--sp-xs);
+}
+
+/* Child selector, so it outranks Button's single-class `.sm` padding whichever
+   stylesheet loads first. */
+.actions > button {
+  padding-right: 6px;
+  padding-left: 6px;
 }
 
 /* ---------- The content column ---------- */
@@ -321,6 +334,16 @@
   .stripInner {
     gap: var(--sp-xs) var(--sp-lg);
     padding: var(--sp-sm) var(--sp-xl);
+  }
+
+  /* 6px is off the spacing ramp on purpose: it is the header's original gap, carried
+     over verbatim rather than snapped to --sp-xs (3px) or --sp-sm (7px). */
+  .actions { gap: 6px; }
+
+  /* Button's own `sm` side padding, back from the phone's trim above. */
+  .actions > button {
+    padding-right: var(--sp-md);
+    padding-left: var(--sp-md);
   }
 }
 
