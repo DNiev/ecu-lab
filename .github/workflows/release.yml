@@ -132,9 +132,34 @@ jobs:
       # `issues: write` above — unlike opening a pull request.
       - name: File the release issue
         if: steps.unreleased.outputs.count != '0'
+        id: issue
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh issue create \
+          # `gh issue create` prints the new issue's URL on stdout. Keep it, so the
+          # ping below can link straight to the notes, and still echo it to the log.
+          ISSUE_URL=$(gh issue create \
             --title "Release ${{ steps.bump.outputs.version }} is ready to open" \
-            --body-file notes.md
+            --body-file notes.md)
+          echo "$ISSUE_URL"
+          echo "url=$ISSUE_URL" >> "$GITHUB_OUTPUT"
+
+      # The issue is easy to miss in a busy notification stream; a message in the
+      # maintainers channel is not. Same guard as the steps above, so a quiet week
+      # stays silent. The script never fails the job, and does nothing at all when the
+      # webhook secret is absent.
+      - name: Ping maintainers
+        if: steps.unreleased.outputs.count != '0'
+        timeout-minutes: 5
+        env:
+          DISCORD_WEBHOOK: ${{ secrets.DISCORD_MAINTAINERS_WEBHOOK }}
+          TITLE: Release ${{ steps.bump.outputs.version }} is ready to open
+          # The title links to the one-click "open pull request" page, the next thing
+          # a maintainer has to do.
+          URL: ${{ steps.notes.outputs.compare }}
+          DESCRIPTION: |
+            The release branch is pushed. Open the pull request, approve and merge it, then tag the merge commit.
+            Unreleased commits: ${{ steps.unreleased.outputs.count }}
+            Notes and steps: ${{ steps.issue.outputs.url }}
+          COLOR: '0x3498db'
+        run: node scripts/discord-notify.js
