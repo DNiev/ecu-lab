@@ -56,3 +56,10 @@ each mount one above their grid. It takes no props and reads `history` from the 
 itself, because the stacks are global — undoing a spark edit from the FUEL screen is
 correct behaviour, not a bug. What is undoable lives in `src/ui/state/reducer.js`
 (`UNDOABLE`); what a snapshot carries lives in `src/ui/state/history.js`.
+
+`CommandPalette` is the one file here with a stylesheet, and the reason is the
+opposite of its neighbours': they were lifted out of `EcuLab.jsx` with inline styles
+already on them, and it was written new (issue 63), so it was written the way a
+primitive is. It is not in `primitives/` because it is not general — it knows what a
+command is. It knows nothing else: `commands.js` beside the shell builds and ranks
+the list, and EcuLab owns when it is open.

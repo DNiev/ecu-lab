@@ -26,3 +26,17 @@ beforeEach(() => {
   // Location#hash setter), which is what `parseRoute` reads as the start screen.
   window.location.hash = '';
 });
+
+/**
+ * jsdom 25 has `HTMLDialogElement` but not `showModal`/`close`. These do the part a
+ * test can observe — the `open` flag and the `close` event — and none of the modal
+ * behaviour (top layer, inert page, focus return), which is checked in a browser.
+ */
+if (typeof window !== 'undefined' && window.HTMLDialogElement && !window.HTMLDialogElement.prototype.showModal) {
+  window.HTMLDialogElement.prototype.showModal = function showModal() { this.open = true; };
+  window.HTMLDialogElement.prototype.close = function close() {
+    if (!this.open) return;
+    this.open = false;
+    this.dispatchEvent(new window.Event('close'));
+  };
+}

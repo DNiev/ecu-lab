@@ -358,6 +358,17 @@ describe('the status strip at every width', () => {
     expect(decls(shellCss, '.engine')).toMatch(decl('flex', '1 1 0'));
   });
 
+  it('trims the action buttons on a phone, where their width comes off the build line', () => {
+    // At Button's own `sm` padding the three buttons left the build line ~103px at
+    // 375px, cutting preset names mid-word. Trimmed, it is ~133px.
+    expect(decls(phoneCss, '.actions')).toMatch(decl('gap', 'var(--sp-xs)'));
+    expect(decls(phoneCss, '.actions > button')).toMatch(decl('padding-left', '6px'));
+    expect(decls(phoneCss, '.actions > button')).toMatch(decl('padding-right', '6px'));
+    expect(decls(breakpointCss, '.actions')).toMatch(decl('gap', '6px'));
+    expect(decls(breakpointCss, '.actions > button')).toMatch(decl('padding-left', 'var(--sp-md)'));
+    expect(decls(breakpointCss, '.actions > button')).toMatch(decl('padding-right', 'var(--sp-md)'));
+  });
+
   it('drops the health bar below the breakpoint only, keeping the percentage', () => {
     expect(decls(phoneCss, '.healthTrack')).toMatch(decl('display', 'none'));
     expect(decls(breakpointCss, '.healthTrack')).toMatch(decl('display', 'block'));

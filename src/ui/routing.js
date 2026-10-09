@@ -33,6 +33,22 @@ export const ROUTES = {
 };
 
 /**
+ * Each tab's name as the nav prints it. Here rather than in AppShell.jsx so the
+ * command palette's page list (`commands.js`, kept free of React) prints the same
+ * names the nav does instead of a copy that could drift.
+ *
+ * @type {Record<keyof typeof ROUTES, string>}
+ */
+export const TAB_NAMES = {
+  dash: 'HOME',
+  build: 'BUILD',
+  tune: 'TUNE',
+  live: 'LIVE',
+  dyno: 'DYNO',
+  drag: 'DRAG',
+};
+
+/**
  * @typedef {Object} Route
  * @property {'start'|'tutorial'|'app'} view - Which top-level screen is showing.
  * @property {string|null} tab - The active tab key (a key of `ROUTES`), or

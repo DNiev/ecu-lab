@@ -20,6 +20,7 @@ import { Redo2, Undo2 } from 'lucide-react';
 import React from 'react';
 
 import { ACTIONS } from '../state/reducer.js';
+import { redoLabel, undoLabel } from '../state/history.js';
 import { useHistory } from '../state/StoreProvider.jsx';
 
 import styles from './UndoControls.module.css';
@@ -28,20 +29,20 @@ import styles from './UndoControls.module.css';
 export function UndoControls() {
   const [history, dispatch] = useHistory();
   const { past, future } = history;
-  const undoLabel = past.length ? `Undo ${past[past.length - 1].label}` : 'Nothing to undo';
-  const redoLabel = future.length ? `Redo ${future[0].label}` : 'Nothing to redo';
+  const undoText = undoLabel(history) ?? 'Nothing to undo';
+  const redoText = redoLabel(history) ?? 'Nothing to redo';
   return (
     <div className={styles.row}>
       <button
         type="button" className={styles.btn} disabled={past.length === 0}
-        aria-label={undoLabel} title={undoLabel}
+        aria-label={undoText} title={undoText}
         onClick={() => dispatch({ type: ACTIONS.UNDO })}
       >
         <Undo2 size={14} />
       </button>
       <button
         type="button" className={styles.btn} disabled={future.length === 0}
-        aria-label={redoLabel} title={redoLabel}
+        aria-label={redoText} title={redoText}
         onClick={() => dispatch({ type: ACTIONS.REDO })}
       >
         <Redo2 size={14} />
