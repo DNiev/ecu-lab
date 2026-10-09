@@ -34,6 +34,8 @@
 
 /** @typedef {import('./initialState.js').StoreState} StoreState */
 /** @typedef {{build: object, tune: object}} Snapshot */
+/** @typedef {{label: string, before: Snapshot, scope: RestoreScope}} HistoryEntry */
+/** @typedef {{past: HistoryEntry[], future: HistoryEntry[]}} History */
 
 /**
  * How many undo steps are kept. A snapshot is roughly 1 KB (144 table numbers plus
@@ -157,4 +159,28 @@ export function restore(state, before, scope) {
       // state bug somewhere else entirely. Fail here, naming the scope.
       throw new Error(`restore: unknown scope "${scope}"`);
   }
+}
+
+/**
+ * The undo button's label, from the top of `past` — "Undo VE edit", "Undo Preset ·
+ * Stage 2 Turbo". `undefined` when `past` is empty, so an empty stack is the caller's
+ * to name ("Nothing to undo" in `UndoControls`, or to leave the command out entirely
+ * in the palette) rather than this file's.
+ * @param {Pick<History, 'past'>} history
+ * @returns {string|undefined}
+ */
+export function undoLabel({ past }) {
+  const top = past[past.length - 1];
+  return top && `Undo ${top.label}`;
+}
+
+/**
+ * The redo button's label, from the top of `future`. See {@link undoLabel}: same
+ * reasoning, mirrored stack.
+ * @param {Pick<History, 'future'>} history
+ * @returns {string|undefined}
+ */
+export function redoLabel({ future }) {
+  const top = future[0];
+  return top && `Redo ${top.label}`;
 }
