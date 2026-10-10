@@ -16,7 +16,7 @@
   font-size: var(--fs-micro);
   font-weight: 800;
   letter-spacing: 0.12em;
-  color: var(--ink3);
+  color: var(--ink2);
 }
 
 .slot {
@@ -38,8 +38,8 @@
   border-color: var(--acc);
 }
 
-/* An empty slot is quieter than one holding a tune. */
-.slot[data-state='empty'] { color: var(--ink3); border-style: dashed; }
+/* An empty slot is quieter than one holding a tune: dashed, not dimmer text (issue 79). */
+.slot[data-state='empty'] { color: var(--ink2); border-style: dashed; }
 
 /* A stored tune: the same dot the app uses everywhere for "something is here". */
 .stored {
@@ -57,7 +57,7 @@
   margin: 0;
   font-size: var(--fs-xs);
   line-height: 1.45;
-  color: var(--ink3);
+  color: var(--ink2);
 }
 
 .utils {

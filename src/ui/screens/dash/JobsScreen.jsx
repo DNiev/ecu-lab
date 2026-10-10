@@ -72,7 +72,7 @@ export function JobsScreen({ active, onToggle, onTakeJob, onAbandon }) {
               }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
                   <span style={{ fontWeight: 700, fontSize: 13, color: done ? T.ok : T.ink }}>{j.title}</span>
-                  <span style={{ fontSize: 10, fontWeight: 800, flexShrink: 0, color: done ? T.ok : current ? T.accInk : T.ink3 }}>
+                  <span style={{ fontSize: 10, fontWeight: 800, flexShrink: 0, color: done ? T.ok : current ? T.accInk : T.ink2 }}>
                     {done ? 'COMPLETE' : current ? 'ACTIVE' : 'TAKE JOB'}
                   </span>
                 </div>

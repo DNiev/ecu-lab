@@ -73,7 +73,7 @@
 .pullValue {
   font-family: var(--mono);
   font-weight: 800;
-  color: var(--ink3);
+  color: var(--ink2);
 }
 
 .pullValue[data-have='true'] { color: var(--acc-ink); }
@@ -82,7 +82,7 @@
   margin-top: 7px;
   font-size: var(--fs-xs);
   line-height: 1.5;
-  color: var(--ink3);
+  color: var(--ink2);
 }
 
 /* The stale-VE banner and the preset-overwrite prompt are the same box: an
@@ -121,19 +121,19 @@
   justify-content: space-between;
   margin-top: 2px;
   font-size: 9.5px;
-  color: var(--ink3);
+  color: var(--ink2);
 }
 
 .overlapNote {
   font-weight: 400;
-  color: var(--ink3);
+  color: var(--ink2);
 }
 
 /* Valve spring rate is the one control on this screen whose default accent isn't
    the app accent — cyan, matching the "float at N RPM" caption beside it — because
    it is reporting a physical limit (float speed), not just taking a hardware input.
    Danger replaces both the moment the springs float below redline. */
-.floatCaption { font-weight: 400; color: var(--ink3); }
+.floatCaption { font-weight: 400; color: var(--ink2); }
 .floatCaption[data-float='true'] { color: var(--danger); }
 
 .springSlider { width: 100%; accent-color: var(--cyan); }

@@ -29,7 +29,7 @@ export function ExpandableInfo({ title, children }) {
         <span style={{ display: 'flex', alignItems: 'center', gap: 9, color: T.ink, fontSize: 12.5, fontWeight: 700, textAlign: 'left' }}>
           <Info size={14} style={{ color: T.acc, flexShrink: 0 }} />{title}
         </span>
-        <ChevronDown size={15} style={{ color: T.ink3, flexShrink: 0, marginLeft: 8, transform: open ? 'rotate(180deg)' : 'none', transition: 'transform .2s' }} />
+        <ChevronDown size={15} style={{ color: T.ink2, flexShrink: 0, marginLeft: 8, transform: open ? 'rotate(180deg)' : 'none', transition: 'transform .2s' }} />
       </button>
       {/* Grid rows, not max-height: `1fr` animates to the content's own height, where a
           max-height cap clipped any article taller than it (four Learn articles ran past

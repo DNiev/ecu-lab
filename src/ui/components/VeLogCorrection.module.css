@@ -13,7 +13,7 @@
   font-size: var(--fs-micro);
   font-weight: 800;
   letter-spacing: 0.12em;
-  color: var(--ink3);
+  color: var(--ink2);
 }
 
 .summary {
@@ -28,7 +28,7 @@
   margin: 8px 0 0;
   font-size: var(--fs-xs);
   line-height: 1.5;
-  color: var(--ink3);
+  color: var(--ink2);
 }
 
 .scroll {
@@ -47,14 +47,14 @@
 .grid th {
   padding: 4px 3px;
   font-weight: 700;
-  color: var(--ink3);
+  color: var(--ink2);
   background: var(--panel);
 }
 
 .grid td {
   padding: 5px 2px;
   text-align: center;
-  color: var(--ink3);
+  color: var(--ink2);
   border-top: 1px solid var(--line);
 }
 

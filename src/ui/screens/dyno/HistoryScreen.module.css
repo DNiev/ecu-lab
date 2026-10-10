@@ -41,12 +41,12 @@
 
 .when {
   font-size: 10px;
-  color: var(--ink3);
+  color: var(--ink2);
 }
 
 .label {
   font-size: 10px;
-  color: var(--ink3);
+  color: var(--ink2);
 }
 
 .spark {

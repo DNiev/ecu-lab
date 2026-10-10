@@ -18,7 +18,7 @@
   font-family: var(--mono);
   font-size: 9px;
   letter-spacing: 0.6px;
-  color: var(--ink3);
+  color: var(--ink2);
 }
 
 .row {
@@ -108,7 +108,7 @@
   top: 34px;
   font-family: var(--mono);
   font-size: 8px;
-  color: var(--ink3);
+  color: var(--ink2);
 }
 
 .finish {
@@ -177,7 +177,7 @@
 
 .unit {
   font-size: var(--fs-micro);
-  color: var(--ink3);
+  color: var(--ink2);
 }
 
 /* Playback moves the car every 40ms and spawns smoke while the tyre is lit. Neither
