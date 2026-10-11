@@ -3,7 +3,8 @@
  * Opened by Cmd/Ctrl-K or the status strip's search button; both live in EcuLab.
  *
  * A native `<dialog>` opened with `showModal()`, so the browser puts it in the top
- * layer, makes the page behind it inert, and hands focus back to whatever opened it.
+ * layer, makes the page behind it inert, and hands focus back to whatever opened it
+ * (or, when a command shut the section holding that, to the section's header).
  * Esc is handled here as well as natively so the parent's `open` flag always follows.
  *
  * The ARIA combobox pattern: focus never leaves the input; the arrows move
@@ -19,6 +20,7 @@ import React from 'react';
 import { matchCommands } from '../commands.js';
 
 import styles from './CommandPalette.module.css';
+import { headerHiding } from './inert.js';
 
 /** @typedef {import('../commands.js').Command} Command */
 
@@ -42,6 +44,8 @@ export function CommandPalette({ open, onClose, commands }) {
   const listId = React.useId();
   // Whether the press that began the current click landed on the backdrop.
   const pressedBackdrop = React.useRef(false);
+  // Whatever had focus when the palette opened: where close() hands it back.
+  const opener = React.useRef(/** @type {Element|null} */ (null));
 
   const results = matchCommands(query, commands);
   const activeIndex = results.findIndex((c) => c.id === activeId);
@@ -54,6 +58,7 @@ export function CommandPalette({ open, onClose, commands }) {
     const d = dialogRef.current;
     if (!d) return;
     if (open && !d.open) {
+      opener.current = document.activeElement;
       d.showModal();
       // showModal() would focus the field on its own in a real browser; the explicit
       // call is for environments whose <dialog> does not do that (the test stub).
@@ -63,6 +68,11 @@ export function CommandPalette({ open, onClose, commands }) {
       // showing the last query when the reset landed, and a frame of it could paint.
       // Whatever closed it (Esc, a command, the browser), `open` ends up false here.
       if (d.open) d.close();
+      // close() hands focus back to the opener, unless the command just run shut the
+      // section holding it: that body is inert now, so focus would drop to <body>. The
+      // section's own header is the nearest place still on screen.
+      headerHiding(opener.current)?.focus();
+      opener.current = null;
       setQuery('');
       setActiveId(null);
     }

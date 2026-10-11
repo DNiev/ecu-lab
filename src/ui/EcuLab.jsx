@@ -1541,40 +1541,44 @@ export function EcuLabApp() {
                 adder's own controller. Five to a row at 60px basis so each row stays one
                 row on a phone. A number on a page is how many of the last pull's log
                 entries send you there — shown only while that pull still describes this
-                setup. */}
-            {[0, 1, 2].filter((rowIdx) => tuneViews.some((v) => v.row === rowIdx)).map((rowIdx) => (
-              <div key={rowIdx}>
-                <div style={{ fontSize: 9, fontWeight: 800, letterSpacing: '0.12em', color: T.ink3, margin: '4px 0 5px' }}>
-                  {TUNE_GROUPS[rowIdx]}
+                setup. The open page is aria-current "true", not "page": the side nav
+                already says "page" for TUNE, and two of them read as two current pages. */}
+            <nav aria-label="TUNE pages" style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              {[0, 1, 2].filter((rowIdx) => tuneViews.some((v) => v.row === rowIdx)).map((rowIdx) => (
+                <div key={rowIdx}>
+                  <div style={{ fontSize: 9, fontWeight: 800, letterSpacing: '0.12em', color: T.ink3, margin: '4px 0 5px' }}>
+                    {TUNE_GROUPS[rowIdx]}
+                  </div>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                    {tuneViews.filter((v) => v.row === rowIdx).map((v) => {
+                      const on = tuneView === v.id;
+                      const Icon = v.icon;
+                      const flagged = attention[v.id] ?? 0;
+                      return (
+                        <button key={v.id} onClick={() => { goSection('tune', v.id); setSelection(null); }}
+                          aria-current={on ? 'true' : undefined}
+                          aria-label={flagged ? `${v.label}, named by ${flagged} ${flagged === 1 ? 'entry' : 'entries'} in the last pull's log` : undefined}
+                          style={{
+                            position: 'relative', flex: '1 1 60px', padding: '9px 0 8px', borderRadius: 10, display: 'flex', flexDirection: 'column',
+                            alignItems: 'center', gap: 4, fontWeight: 800, fontSize: 9.5, letterSpacing: 0.3,
+                            border: `1px solid ${on ? T.acc : T.line}`, background: on ? T.accBg : rowIdx ? T.panel : T.panel2,
+                            color: on ? T.accInk : T.ink2,
+                          }}>
+                          <Icon size={15} />{v.label}
+                          {flagged > 0 && (
+                            <span aria-hidden="true" style={{
+                              position: 'absolute', top: 3, right: 4, minWidth: 15, height: 15, padding: '0 4px', borderRadius: 8,
+                              background: T.warnBg, border: `1px solid ${T.warn}`, color: T.warnInk,
+                              fontSize: 9, fontFamily: T.mono, lineHeight: '13px', textAlign: 'center',
+                            }}>{flagged}</span>
+                          )}
+                        </button>
+                      );
+                    })}
+                  </div>
                 </div>
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                  {tuneViews.filter((v) => v.row === rowIdx).map((v) => {
-                    const on = tuneView === v.id;
-                    const Icon = v.icon;
-                    const flagged = attention[v.id] ?? 0;
-                    return (
-                      <button key={v.id} onClick={() => { goSection('tune', v.id); setSelection(null); }}
-                        aria-label={flagged ? `${v.label}, named by ${flagged} ${flagged === 1 ? 'entry' : 'entries'} in the last pull's log` : undefined}
-                        style={{
-                          position: 'relative', flex: '1 1 60px', padding: '9px 0 8px', borderRadius: 10, display: 'flex', flexDirection: 'column',
-                          alignItems: 'center', gap: 4, fontWeight: 800, fontSize: 9.5, letterSpacing: 0.3,
-                          border: `1px solid ${on ? T.acc : T.line}`, background: on ? T.accBg : rowIdx ? T.panel : T.panel2,
-                          color: on ? T.accInk : T.ink2,
-                        }}>
-                        <Icon size={15} />{v.label}
-                        {flagged > 0 && (
-                          <span aria-hidden="true" style={{
-                            position: 'absolute', top: 3, right: 4, minWidth: 15, height: 15, padding: '0 4px', borderRadius: 8,
-                            background: T.warnBg, border: `1px solid ${T.warn}`, color: T.warnInk,
-                            fontSize: 9, fontFamily: T.mono, lineHeight: '13px', textAlign: 'center',
-                          }}>{flagged}</span>
-                        )}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-            ))}
+              ))}
+            </nav>
             {Object.keys(attention).length > 0 && (
               <div style={{ fontSize: 10.5, color: T.ink3, marginTop: 2 }}>
                 Numbered pages are where the last pull&apos;s log sends you — DYNO › PULL LOG has the details.
@@ -1732,26 +1736,30 @@ export function EcuLabApp() {
                 `result` is not persisted and is cleared by APPLY_PRESET — so it is the
                 first DYNO section for which that is true. When there is no result yet,
                 the switcher below shows ONLY the history entry, since the other four
-                lead to sections that render nothing without one. */}
+                lead to sections that render nothing without one. aria-current is "true",
+                not "page", for the same reason as TUNE's switcher. */}
             {!running && (result || runs.length > 0) && (
-              <div style={{ display: 'flex', gap: 6, marginBottom: 14 }}>
+              <nav aria-label="DYNO pages" style={{ display: 'flex', gap: 6, marginBottom: 14 }}>
                 {[['result', 'CURVES'], ['log', 'PULL LOG'], ['data', 'DATALOG'], ['score', 'SCORE'], ['history', 'HISTORY']]
                   .filter(([id]) => sectionAvailable(`dyno/${id}`, sectionFlags))
                   .map(([id, label]) => {
                   const on = dynoView === id;
-                  const flag = id === 'log' && result && result.events.length > 0;
+                  const entries = id === 'log' && result ? result.events.length : 0;
                   return (
-                    <button key={id} onClick={() => goSection('dyno', id)} style={{
-                      flex: 1, padding: '9px 0', borderRadius: 9, fontWeight: 800, fontSize: 10, letterSpacing: 0.3,
-                      border: `1px solid ${on ? T.acc : T.line}`, background: on ? T.accBg : T.panel2,
-                      color: on ? T.accInk : T.ink2, position: 'relative',
-                    }}>
+                    <button key={id} onClick={() => goSection('dyno', id)}
+                      aria-current={on ? 'true' : undefined}
+                      aria-label={entries ? `${label}, ${entries} ${entries === 1 ? 'entry' : 'entries'}` : undefined}
+                      style={{
+                        flex: 1, padding: '9px 0', borderRadius: 9, fontWeight: 800, fontSize: 10, letterSpacing: 0.3,
+                        border: `1px solid ${on ? T.acc : T.line}`, background: on ? T.accBg : T.panel2,
+                        color: on ? T.accInk : T.ink2, position: 'relative',
+                      }}>
                       {label}
-                      {flag && <span style={{ position: 'absolute', top: 5, right: 7, width: 5, height: 5, borderRadius: 3, background: T.danger }} />}
+                      {entries > 0 && <span aria-hidden="true" style={{ position: 'absolute', top: 5, right: 7, width: 5, height: 5, borderRadius: 3, background: T.danger }} />}
                     </button>
                   );
                 })}
-              </div>
+              </nav>
             )}
 
             {result && (
