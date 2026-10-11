@@ -9,8 +9,9 @@ then the section nav (sidebar and bottom bar) gained `aria-current="page"`, and
 **TUNE and DYNO page switchers** (`src/ui/EcuLab.jsx`). Both now write the URL, so they
 are navigation, not segmented controls. Each strip of buttons is wrapped in a
 `<nav aria-label="TUNE pages">` / `<nav aria-label="DYNO pages">`, and the active button
-carries `aria-current="page"` — absent, not `"false"`, on the others, the same rule
-`SideNav` follows. `MapSlots` and the explanatory footer stay outside TUNE's `<nav>`.
+carries `aria-current="true"` — absent, not `"false"`, on the others, the same rule
+`SideNav` follows. `"true"`, not `"page"`: the side nav already marks TUNE or DYNO
+`"page"`, and a second `"page"` reads as two current pages. `MapSlots` and the explanatory footer stay outside TUNE's `<nav>`.
 The issue's "adopt `Seg`" proposal is dropped: `Seg` is `aria-pressed`, which says
 "toggle", and these are links between pages.
 
@@ -22,7 +23,10 @@ the button is named `PULL LOG, N entries` (`1 entry` singular) from
 `aria-expanded` and `aria-controls` pointing at the body's `useId()` id. The collapsed
 body stays mounted (both animate open) but gets `inert` while shut, so a screen reader
 skips it and Tab cannot land on a control inside a section nobody can see. React 18
-passes `inert` through only as a string, so it is `inert={open ? undefined : ''}`. The
+passes `inert` through only as a string, so it is `''`, set through
+`src/ui/components/inert.js`'s `inertWhen`. A section that shuts with focus inside hands
+focus to its header, and so does the command palette when the command it ran shut the
+section its opener sits in. The
 body stays the header button's next sibling — `tests/ui/routing-shell.test.jsx`'s
 `sectionIsOpen` depends on that. Changed in place rather than through a new
 `Disclosure` primitive: `claude/tutorial-learn` edits both files, and a primitive
@@ -35,7 +39,7 @@ updated to say so.
 
 ## Testing
 
-- TUNE and DYNO: exactly one button in each `<nav>` has `aria-current="page"`, it is the
+- TUNE and DYNO: exactly one button in each `<nav>` has `aria-current="true"`, it is the
   routed page, and navigating moves it (`tests/ui/routing-shell.test.jsx`).
 - PULL LOG is named with its entry count after a pull with events, and the dot is
   `aria-hidden` (`tests/ui/dyno-screens.test.jsx`).

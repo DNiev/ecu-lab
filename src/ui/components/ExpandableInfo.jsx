@@ -16,6 +16,8 @@ import React, { useId, useState } from 'react';
 
 import { T } from '../theme.js';
 
+import { inertWhen } from './inert.js';
+
 /**
  * @param {object} props
  * @param {string} props.title the always-visible summary line
@@ -27,7 +29,7 @@ export function ExpandableInfo({ title, children }) {
   const bodyId = useId();
   return (
     <div style={{ margin: '10px 0', border: `1px solid ${T.line}`, borderRadius: 10, overflow: 'hidden', background: T.panel }}>
-      <button type="button" aria-expanded={open ? 'true' : 'false'} aria-controls={bodyId} onClick={() => setOpen((o) => !o)} style={{ width: '100%', display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '11px 13px', background: 'none', border: 'none' }}>
+      <button type="button" aria-expanded={open} aria-controls={bodyId} onClick={() => setOpen((o) => !o)} style={{ width: '100%', display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '11px 13px', background: 'none', border: 'none' }}>
         <span style={{ display: 'flex', alignItems: 'center', gap: 9, color: T.ink, fontSize: 12.5, fontWeight: 700, textAlign: 'left' }}>
           <Info size={14} style={{ color: T.acc, flexShrink: 0 }} />{title}
         </span>
@@ -36,11 +38,8 @@ export function ExpandableInfo({ title, children }) {
       {/* Grid rows, not max-height: `1fr` animates to the content's own height, where a
           max-height cap clipped any article taller than it (four Learn articles ran past
           the old 900px on a phone, and their endings could not be read). */}
-      {/* inert while shut, as in BuildSection. React 18 drops a boolean `inert`, so it has
-          to be the string ''; @types/react 18 types `inert` only as experimental, hence
-          the cast. On React 19 this must become `inert={!open}` (the hasAttribute check in
-          disclosures.test.jsx would catch it). */}
-      <div id={bodyId} {...(/** @type {object} */ (open ? {} : { inert: '' }))} style={{ display: 'grid', gridTemplateRows: open ? '1fr' : '0fr', opacity: open ? 1 : 0, transition: 'grid-template-rows .3s ease, opacity .2s ease' }}>
+      {/* inert while shut, as in BuildSection. */}
+      <div id={bodyId} {...inertWhen(!open)} style={{ display: 'grid', gridTemplateRows: open ? '1fr' : '0fr', opacity: open ? 1 : 0, transition: 'grid-template-rows .3s ease, opacity .2s ease' }}>
         <div style={{ overflow: 'hidden', minHeight: 0 }}>
           <div style={{ padding: '0 13px 13px', fontSize: 12.5, color: T.ink2, lineHeight: 1.65 }}>{children}</div>
         </div>

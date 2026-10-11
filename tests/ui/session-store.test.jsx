@@ -726,6 +726,7 @@ describe('the engine-sound toggle', () => {
 
     fireEvent.click(toggle());
     expect(toggle().getAttribute('aria-pressed')).toBe('true');
+    expect(toggle().textContent).toBe('♪');
   });
 });
 

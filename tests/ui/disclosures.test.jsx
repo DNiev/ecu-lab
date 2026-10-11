@@ -47,6 +47,33 @@ describe('BuildSection', () => {
     expect(bodyOf(header).contains(screen.getByText('inside'))).toBe(true);
   });
 
+  it('hands focus to its header when it shuts with focus inside', () => {
+    const view = (active) => (
+      <BuildSection active={active} onClick={() => {}} icon={Wrench} label="Engine">
+        <button type="button">inside</button>
+      </BuildSection>
+    );
+    const { rerender } = render(view(true));
+    screen.getByText('inside').focus();
+    rerender(view(false));
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: /Engine/ }));
+  });
+
+  it('leaves focus alone when it shuts with focus elsewhere', () => {
+    const view = (active) => (
+      <>
+        <button type="button">outside</button>
+        <BuildSection active={active} onClick={() => {}} icon={Wrench} label="Engine">
+          <button type="button">inside</button>
+        </BuildSection>
+      </>
+    );
+    const { rerender } = render(view(true));
+    screen.getByText('outside').focus();
+    rerender(view(false));
+    expect(document.activeElement).toBe(screen.getByText('outside'));
+  });
+
   it('keeps the body as the header button\'s next sibling', () => {
     render(<Section />);
     const header = screen.getByRole('button', { name: /Engine/ });

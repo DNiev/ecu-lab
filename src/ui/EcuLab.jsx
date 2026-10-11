@@ -1541,7 +1541,8 @@ export function EcuLabApp() {
                 adder's own controller. Five to a row at 60px basis so each row stays one
                 row on a phone. A number on a page is how many of the last pull's log
                 entries send you there — shown only while that pull still describes this
-                setup. */}
+                setup. The open page is aria-current "true", not "page": the side nav
+                already says "page" for TUNE, and two of them read as two current pages. */}
             <nav aria-label="TUNE pages" style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
               {[0, 1, 2].filter((rowIdx) => tuneViews.some((v) => v.row === rowIdx)).map((rowIdx) => (
                 <div key={rowIdx}>
@@ -1555,7 +1556,7 @@ export function EcuLabApp() {
                       const flagged = attention[v.id] ?? 0;
                       return (
                         <button key={v.id} onClick={() => { goSection('tune', v.id); setSelection(null); }}
-                          aria-current={on ? 'page' : undefined}
+                          aria-current={on ? 'true' : undefined}
                           aria-label={flagged ? `${v.label}, named by ${flagged} ${flagged === 1 ? 'entry' : 'entries'} in the last pull's log` : undefined}
                           style={{
                             position: 'relative', flex: '1 1 60px', padding: '9px 0 8px', borderRadius: 10, display: 'flex', flexDirection: 'column',
@@ -1735,7 +1736,8 @@ export function EcuLabApp() {
                 `result` is not persisted and is cleared by APPLY_PRESET — so it is the
                 first DYNO section for which that is true. When there is no result yet,
                 the switcher below shows ONLY the history entry, since the other four
-                lead to sections that render nothing without one. */}
+                lead to sections that render nothing without one. aria-current is "true",
+                not "page", for the same reason as TUNE's switcher. */}
             {!running && (result || runs.length > 0) && (
               <nav aria-label="DYNO pages" style={{ display: 'flex', gap: 6, marginBottom: 14 }}>
                 {[['result', 'CURVES'], ['log', 'PULL LOG'], ['data', 'DATALOG'], ['score', 'SCORE'], ['history', 'HISTORY']]
@@ -1745,7 +1747,7 @@ export function EcuLabApp() {
                   const entries = id === 'log' && result ? result.events.length : 0;
                   return (
                     <button key={id} onClick={() => goSection('dyno', id)}
-                      aria-current={on ? 'page' : undefined}
+                      aria-current={on ? 'true' : undefined}
                       aria-label={entries ? `${label}, ${entries} ${entries === 1 ? 'entry' : 'entries'}` : undefined}
                       style={{
                         flex: 1, padding: '9px 0', borderRadius: 9, fontWeight: 800, fontSize: 10, letterSpacing: 0.3,

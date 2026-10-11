@@ -18,16 +18,20 @@
  *
  * The shut body is `inert`: it stays mounted so it can animate, so jsdom and Testing
  * Library can still reach controls in it (build-store.test.jsx relies on that), but a
- * real user cannot read or Tab into it.
+ * real user cannot read or Tab into it. A section that shuts with focus inside (the
+ * back button, a route change) hands focus to its own header, or the browser would drop
+ * it to <body>.
  *
  * Relocated from EcuLab.jsx by the screen split; it has since gained
  * aria-expanded, aria-controls and inert (issue 81).
  */
 
 import { ChevronDown } from 'lucide-react';
-import React, { useId } from 'react';
+import React, { useId, useLayoutEffect, useRef } from 'react';
 
 import { T, accAlpha } from '../theme.js';
+
+import { inertWhen } from './inert.js';
 
 /**
  * @param {object} props
@@ -41,9 +45,16 @@ import { T, accAlpha } from '../theme.js';
  */
 export function BuildSection({ active, onClick, icon: Icon, label, sub, children }) {
   const bodyId = useId();
+  const headerRef = useRef(/** @type {HTMLButtonElement|null} */ (null));
+  const bodyRef = useRef(/** @type {HTMLDivElement|null} */ (null));
+  // Layout, not passive: it has to run before the browser's focus fixup notices the
+  // focused control went inert.
+  useLayoutEffect(() => {
+    if (!active && bodyRef.current?.contains(document.activeElement)) headerRef.current?.focus();
+  }, [active]);
   return (
     <div style={{ marginBottom: 9 }}>
-      <button type="button" aria-expanded={active ? 'true' : 'false'} aria-controls={bodyId} onClick={onClick} style={{
+      <button ref={headerRef} type="button" aria-expanded={active} aria-controls={bodyId} onClick={onClick} style={{
         width: '100%', display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '13px 14px',
         borderRadius: 11, border: `1px solid ${active ? T.acc : T.line}`, background: active ? T.accBg : T.panel2,
       }}>
@@ -62,11 +73,8 @@ export function BuildSection({ active, onClick, icon: Icon, label, sub, children
           Learn How It Works (2400px of titles before any article opens) cut off whatever
           was opened past it. The easing differs by direction so a close still starts
           at once instead of spending most of its time above the content's real height. */}
-      {/* inert while shut: still mounted so it can animate, but neither read nor tabbable.
-          React 18 drops a boolean `inert`, so it has to be the string ''; @types/react 18
-          types `inert` only as experimental, hence the cast. On React 19 this must become
-          `inert={!active}` (the hasAttribute check in disclosures.test.jsx would catch it). */}
-      <div id={bodyId} {...(/** @type {object} */ (active ? {} : { inert: '' }))} style={{ maxHeight: active ? 20000 : 0, opacity: active ? 1 : 0, overflow: 'hidden', transition: active ? 'max-height .6s ease-in, opacity .25s ease' : 'max-height .35s cubic-bezier(0, 1, 0, 1), opacity .25s ease' }}>
+      {/* inert while shut: still mounted so it can animate, but neither read nor tabbable. */}
+      <div ref={bodyRef} id={bodyId} {...inertWhen(!active)} style={{ maxHeight: active ? 20000 : 0, opacity: active ? 1 : 0, overflow: 'hidden', transition: active ? 'max-height .6s ease-in, opacity .25s ease' : 'max-height .35s cubic-bezier(0, 1, 0, 1), opacity .25s ease' }}>
         <div style={{ padding: '13px 2px 2px' }}>{children}</div>
       </div>
     </div>

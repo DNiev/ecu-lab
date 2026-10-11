@@ -13,8 +13,9 @@ location, and the next person adding one would have no way to tell which kind th
 looking at.
 
 `BuildSection` and `ExpandableInfo` are both hand-rolled disclosures. Both now carry
-`aria-expanded`, `aria-controls` and an `inert` collapsed body (issue 81); a shared
-`Disclosure` primitive was left for later because a branch in flight edits both files.
+`aria-expanded`, `aria-controls` and an `inert` collapsed body (issue 81), the last
+through `inert.js`; a shared `Disclosure` primitive was left for later because a branch
+in flight edits both files.
 
 `BuildSection` keeps its inline `maxHeight` deliberately: `tests/ui/routing-shell.test.jsx`
 reads it to tell an open section from a collapsed one, which is how the fully-collapsed

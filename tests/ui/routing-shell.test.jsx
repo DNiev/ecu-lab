@@ -158,17 +158,20 @@ describe('clicking a tab', () => {
   });
 
   it('marks the open TUNE page aria-current, and moves it on navigation', () => {
+    // "true", not "page": the side nav's TUNE already says "page".
     launch();
     /** @param {string} name @returns {string[]} labels of the current buttons in that nav */
     const current = (name) => within(screen.getByRole('navigation', { name }))
       .getAllByRole('button')
-      .filter((b) => b.getAttribute('aria-current') === 'page')
+      .filter((b) => b.getAttribute('aria-current') === 'true')
       .map((b) => b.textContent);
 
     fireEvent.click(screen.getByRole('button', { name: 'TUNE' }));
     expect(current('TUNE pages')).toEqual(['AIRFLOW']);
     fireEvent.click(screen.getByRole('button', { name: 'SPARK' }));
     expect(current('TUNE pages')).toEqual(['SPARK']);
+    expect(within(screen.getByRole('navigation', { name: 'Sections' }))
+      .getByRole('button', { name: 'TUNE' }).getAttribute('aria-current')).toBe('page');
     // Absent, not "false", on every other page.
     const others = within(screen.getByRole('navigation', { name: 'TUNE pages' }))
       .getAllByRole('button').filter((b) => b.textContent !== 'SPARK');
