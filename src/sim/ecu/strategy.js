@@ -19,9 +19,10 @@
 import { BARO_KPA, DRIVETRAIN_EFF, KELVIN_OFFSET, PSI_TO_KPA } from '../constants.js';
 import { trappedAirGrams } from '../cycle.js';
 import { OCTANE_OPTS } from '../hardware.js';
-import { clamp, interp2 } from '../math.js';
+import { needsAirmass, readEcuTable } from '../layouts.js';
+import { clamp } from '../math.js';
 import { evaluatePoint } from '../point.js';
-import { RPM } from '../tables.js';
+import { CURVE_RPM, RPM } from '../tables.js';
 import { chargeTempK, INDUCTION_REF_EXHAUST_K } from '../thermo.js';
 import { solveInduction } from '../turbo.js';
 import { boostTarget, steadyGate } from './boost.js';
@@ -145,7 +146,7 @@ export function cylinderDistribution(derived, configuration) {
  * @param {object} input.cal the calibration
  * @param {EcuHardware} input.hw
  * @param {EcuConditions} input.cond
- * @param {{ve: number[][], timing: number[][], afr: number[][]}} input.tables
+ * @param {{ve: number[][], timing: number[][], afr: number[][], layout?: import('../layouts.js').Layout|null}} input.tables
  * @param {number} input.rpm
  * @param {number} input.mapKpa true manifold pressure
  * @param {number} input.boostPsi
@@ -196,12 +197,17 @@ export function resolveEcuPoint({
     })
     : null;
 
-  // ---- BASE TABLES, read at the load the ECU believes.
-  const veBase = interp2(tables.ve, rpm, sMap);
+  // ---- BASE TABLES, read at the load the ECU believes: manifold pressure, or (on a
+  // layout that reads spark by air per cylinder, layouts.js) the air its own VE table
+  // and sensors work out.
+  const veBase = readEcuTable(tables, 've', rpm, { mapKpa: sMap });
   const camVe = read2(cal.airflow.camVeCorr, rpm, cam.intakeAdvDeg);
   const veVal = veBase * (1 + camVe / 100);
-  const timingBase = interp2(tables.timing, rpm, sMap);
-  const afrBase = interp2(tables.afr, rpm, sMap);
+  const ecuAirG = needsAirmass(tables.layout)
+    ? trappedAirGrams({ veActual: veVal, mapKpa: sMap, chargeK: sIatC + KELVIN_OFFSET, sweptM3: (hw.derived.displacementL / hw.derived.cyl) / 1000 })
+    : 0;
+  const timingBase = readEcuTable(tables, 'timing', rpm, { mapKpa: sMap, airmassG: ecuAirG });
+  const afrBase = readEcuTable(tables, 'afr', rpm, { mapKpa: sMap, airmassG: ecuAirG });
 
   // ---- SPARK: base, then every correction in the order the ECU stacks them.
   const timingSteps = [{ label: 'Base table', value: timingBase }];
@@ -456,7 +462,7 @@ export function evaluateEcu(args) {
  * @param {object} input.cal
  * @param {EcuHardware} input.hw
  * @param {EcuConditions} input.cond
- * @param {{ve: number[][], timing: number[][], afr: number[][]}} input.tables
+ * @param {{ve: number[][], timing: number[][], afr: number[][], layout?: import('../layouts.js').Layout|null}} input.tables
  * @param {number} input.rpm
  * @param {number} input.loadKpa the dyno's throttle, as sea-level kPa
  * @returns {object} the datalog record, with ECU channels and the correction breakdown
@@ -466,6 +472,10 @@ export function ecuSteadyPoint({ cal, hw, cond, tables, rpm, loadKpa }) {
   const throttlePct = throttleFrac * 100;
   const gear = cond.gear ?? DYNO_GEAR;
   const protect = new Set();
+  // What the wideband read when a lean protection tripped. The logged point is the state
+  // AFTER the protection acted — boost out, so richer — and reporting that reading made
+  // the log say "λ 0.96, leaner than the λ 1.02 limit".
+  let leanTripLambda = 0;
   const mod = { boostCutPsi: 0, extraFuelPct: 0, extraRetardDeg: 0, cutFrac: 0, cutType: 'fuel', loadScale: 1, highDet: false, nitrousFrac: 0 };
 
   // Nitrous: the controller's window and, on the dyno, its progressive ramp in RPM — the
@@ -513,6 +523,7 @@ export function ecuSteadyPoint({ cal, hw, cond, tables, rpm, loadKpa }) {
     // the likeliest cause, and the one that melts pistons.
     if (mod.nitrousFrac > 0 && cal.nitrous.leanCutEnabled && sensedLambda > cal.nitrous.leanCutLambda) {
       protect.add('nitrous lean');
+      leanTripLambda = Math.max(leanTripLambda, sensedLambda);
       mod.nitrousFrac = 0;
       changed = true;
     }
@@ -522,6 +533,7 @@ export function ecuSteadyPoint({ cal, hw, cond, tables, rpm, loadKpa }) {
     }
     if (P.leanEnabled && sensedLambda > P.leanLambda && resolved.sensed.mapKpa > P.leanMinKpa && mod.cutFrac < 1) {
       protect.add('lean');
+      leanTripLambda = Math.max(leanTripLambda, sensedLambda);
       changed = applyAction(P.leanAction, mod, P.boostCutPsi, hw.turboOn) || changed;
     }
     if (P.egtEnabled && pt.egt > P.egtLimitC) {
@@ -582,6 +594,7 @@ export function ecuSteadyPoint({ cal, hw, cond, tables, rpm, loadKpa }) {
     ecuStoich: Number(resolved.sensed.ecuFuel.stoich.toFixed(2)),
     torqueLimitNm: Math.round(Math.min(read1(cal.torque.limitByGear, gear), read1(cal.torque.limitByRpm, rpm))),
     protect: [...protect],
+    ...(leanTripLambda > 0 ? { leanTripLambda: Number(leanTripLambda.toFixed(3)) } : {}),
     breakdown: { ...resolved.breakdown, boost: solved.steps },
   };
 }
@@ -618,7 +631,7 @@ export function solveOperatingPoint({ cal, hw, cond, rpm, loadKpa, throttlePct, 
   // The target is decided before the turbo has answered, on the IAT the ECU reads now.
   const iatGuessC = chargeTempK(hw.turboOn ? Math.max(...hw.boostCurve) * E.IAT_GUESS_BOOST_SHARE : 0, hw.mods.intercooler, env) - KELVIN_OFFSET;
   const bt = hw.turboOn
-    ? boostTarget({ cal: cal.boost, baseCurve: hw.boostCurve, rpmAxis: RPM, rpm, throttlePct, gear, iatC: iatGuessC })
+    ? boostTarget({ cal: cal.boost, baseCurve: hw.boostCurve, rpmAxis: hw.boostCurve.length === CURVE_RPM.length ? CURVE_RPM : RPM, rpm, throttlePct, gear, iatC: iatGuessC })
     : { target: 0, steps: [] };
   let target = bt.target;
   const steps = [...bt.steps];

@@ -528,6 +528,13 @@ describe('LogScreen', () => {
     expect(screen.getByText(/Clean pull/)).toBeTruthy();
   });
 
+  it('says so when TUNE flags cells the pull did not run, instead of leaving a bare "Clean pull"', () => {
+    mountWithResult(<LogScreen flagged={[{ ri: 4, ci: 3 }, { ri: 4, ci: 4 }, { ri: 3, ci: 1 }]} />, { result: { ...FAKE_RESULT, events: [] } });
+    expect(screen.getByText(/Clean pull/)).toBeTruthy();
+    const note = screen.getByTestId('log-flagged-elsewhere').textContent;
+    expect(note).toMatch(/3 spark cells past the knock limit at 70 and 40 kPa/);
+  });
+
   it('tones an unrecognised event type by its severity, not by a hardcoded name list', () => {
     // The exact regression this screen exists to prevent: a real event type
     // (`bearing`) once matched no name in a hand-kept list and fell through to the

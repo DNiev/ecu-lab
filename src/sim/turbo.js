@@ -32,6 +32,7 @@ import { COEFF } from './coefficients.js';
 import { clamp } from './math.js';
 import { solveBlower } from './blower.js';
 import { compressorMap } from './compressorMap.js';
+import { INDUCTION_REF_EXHAUST_K } from './thermo.js';
 
 export { compressorMap };
 
@@ -56,6 +57,19 @@ export function turbineBackPressureKpa(exhaustFlowKgS, exhaustK, effectiveAreaM2
 }
 
 /**
+ * Cylinder pressure when the exhaust valve opens at full load, kPa: what the blowdown pulse
+ * starts from. A line through what the crank-angle cycle itself gives on the factory turbo
+ * engines at full load (cycle.js, `evoPressurePa`): about 4.1 x manifold pressure at 1500
+ * RPM, 4.6 x at 2000 and 5.5 x at 3000, levelling near 6 x as the burn runs later.
+ *
+ * @param {number} mapKpa
+ * @param {number} rpm
+ */
+export function exhaustPulsePressureKpa(mapKpa, rpm) {
+  return mapKpa * clamp(COEFF.EVO_PRESSURE_RATIO_AT_0 + COEFF.EVO_PRESSURE_RATIO_PER_RPM * rpm, 3.5, 6.2);
+}
+
+/**
  * Boost the hardware can actually make, from the turbine/compressor power balance.
  *
  * @param {object} input
@@ -68,17 +82,38 @@ export function turbineBackPressureKpa(exhaustFlowKgS, exhaustK, effectiveAreaM2
  * @param {object} input.compressor a COMPRESSOR_OPTS entry, read through {@link compressorMap}
  * @param {number} [input.currentPr] pressure ratio to evaluate the map at
  * @param {number} [input.baroKpa] ambient pressure both wheels work against
+ * @param {number|null} [input.rpm] engine speed, for the blowdown pulse; without it the
+ *   turbine sees steady flow only
  * @returns {{boostPsi: number, map: ReturnType<typeof compressorMap>}}
  */
 export function achievableBoostPsi({
   airFlowKgS, fuelFlowKgS, exhaustK, intakeK, empKpa, turbine, compressor, currentPr = 1,
-  baroKpa = BARO_KPA,
+  baroKpa = BARO_KPA, rpm = null,
 }) {
   const exhaustFlowKgS = airFlowKgS + fuelFlowKgS;
   const expansionRatio = Math.max(1, empKpa / baroKpa);
-  // Work the turbine can pull out of that expansion.
+  // Work the turbine can pull out of that expansion, as if the exhaust arrived steadily.
+  const steadyShare = 1 - Math.pow(expansionRatio, -GAMMA_EXP);
+  // ...plus what the BLOWDOWN PULSE brings. It does not arrive steadily: when the exhaust
+  // valve opens the cylinder is at several bar (the cycle gives 3.5-6 x manifold pressure,
+  // `exhaustPulsePressureKpa`), and the share of the charge that escapes on that pressure
+  // reaches the turbine as a pulse carrying far more than the mean manifold pressure says.
+  // A close-coupled, divided or twin-scroll manifold keeps part of it (Watson & Janota,
+  // Turbocharging the Internal Combustion Engine, 1982, ch. 7; Heywood 1988, section 6.8).
+  // At low speed, where the mean expansion ratio is barely above one, that is most of what
+  // spins the turbine; at high flow the manifold pressure rises toward the pulse and the
+  // extra shrinks of its own accord.
+  let pulseShare = 0;
+  if (rpm != null && COEFF.TURBINE_PULSE_RECOVERY > 0) {
+    const pEvo = exhaustPulsePressureKpa(currentPr * baroKpa, rpm);
+    if (pEvo > empKpa) {
+      const blowdownMass = 1 - Math.pow(empKpa / pEvo, 1 / COEFF.GAMMA_BURNED);
+      const pulseExpansion = 1 - Math.pow(baroKpa / pEvo, GAMMA_EXP);
+      pulseShare = COEFF.TURBINE_PULSE_RECOVERY * blowdownMass * Math.max(0, pulseExpansion - steadyShare);
+    }
+  }
   const turbineW = exhaustFlowKgS * COEFF.CP_EXHAUST * exhaustK
-    * (1 - Math.pow(expansionRatio, -GAMMA_EXP)) * turbine.turbineEff
+    * (steadyShare + pulseShare) * turbine.turbineEff
     * COEFF.TURBO_MECH_EFF;
   if (turbineW <= 0 || airFlowKgS <= 0) return { boostPsi: 0, map: compressorMap(compressor, airFlowKgS, currentPr) };
   // Efficiency comes off the MAP at where this point actually sits, not from a constant.
@@ -186,7 +221,7 @@ export function solveInduction({
     const empKpa = turbineBackPressureKpa(airFlowKgS + fuelFlowKgS, exhaustK, turbine.effectiveAreaM2, baroKpa);
     const solved = achievableBoostPsi({
       airFlowKgS, fuelFlowKgS, exhaustK, intakeK: intakeKAt(boostPsi),
-      empKpa, turbine, compressor, currentPr: mapKpa / baroKpa, baroKpa,
+      empKpa, turbine, compressor, currentPr: mapKpa / baroKpa, baroKpa, rpm,
     });
     // CHOKE IS A MASS FLOW LIMIT, not merely an efficiency penalty. Once the inducer is
     // at Mach 1 no more air goes through it at any shaft speed, so a boost that would
@@ -213,7 +248,7 @@ export function solveInduction({
   // is monotone by construction: asking for more never gives less.
   let boostPsi = 0;
   if (target > 0) {
-    const step = Math.max(COEFF.INDUCTION_SPOOL_STEP_PSI, target / COEFF.INDUCTION_SPOOL_MAX_STEPS);
+    const step = COEFF.INDUCTION_SPOOL_STEP_PSI;
     let failed = null;
     for (let b = Math.min(step, target); ; b = Math.min(b + step, target)) {
       if (stateAt(b).canMake >= b) {
@@ -270,4 +305,47 @@ export function solveInduction({
     choke: mapState.choke,
     mapMargin: mapState.margin,
   };
+}
+
+/**
+ * The induction state that puts a turbo engine's manifold at a given pressure, below what
+ * full throttle makes at this speed: the throttle opening that gets there, found the way
+ * the dyno and LIVE get there (`solveInduction`), and the compressor pressure and exhaust
+ * backpressure that come with it. A spooled turbo at part throttle still compresses, and
+ * heats, the air upstream of the plate, so a spark cell cannot be judged as if it were
+ * drawn straight from ambient. At the pressure full throttle tops out at, the full-throttle
+ * state; above it, null, and the caller's own rule applies.
+ *
+ * @param {object} input
+ * @param {number} input.rpm
+ * @param {number} input.mapKpa the manifold pressure to reach, kPa
+ * @param {number} input.boostTargetPsi the boost curve's target at this speed
+ * @param {object} input.turbine
+ * @param {object} input.compressor
+ * @param {(mapKpa: number) => number} input.veAt
+ * @param {import('./engine.js').DerivedEngine} input.derived
+ * @param {(boostPsi: number) => number} input.intakeKAt
+ * @returns {{boostPsi: number, empKpa: number}|null}
+ */
+/** How close to the full-throttle pressure counts as full throttle, kPa. */
+const INDUCTION_MATCH_KPA = 0.5;
+
+export function inductionAtMap({ rpm, mapKpa, boostTargetPsi, turbine, compressor, veAt, derived, intakeKAt }) {
+  const at = (loadKpa) => solveInduction({
+    rpm, loadKpa, turboOn: true, boostTargetPsi, turbine, compressor, veAt, derived, intakeKAt,
+    lambda: 1, exhaustK: INDUCTION_REF_EXHAUST_K,
+  });
+  const full = at(BARO_KPA);
+  // The pressure full throttle tops out at is reached there, with that state's own
+  // backpressure; above it, nothing reaches it.
+  if (mapKpa > full.mapKpa + INDUCTION_MATCH_KPA) return null;
+  if (mapKpa >= full.mapKpa - INDUCTION_MATCH_KPA) return { boostPsi: full.boostPsi, empKpa: full.empKpa };
+  let lo = 0;
+  let hi = BARO_KPA;
+  for (let i = 0; i < 20; i += 1) {
+    const mid = (lo + hi) / 2;
+    if (at(mid).mapKpa < mapKpa) lo = mid; else hi = mid;
+  }
+  const s = at((lo + hi) / 2);
+  return { boostPsi: s.boostPsi, empKpa: s.empKpa };
 }

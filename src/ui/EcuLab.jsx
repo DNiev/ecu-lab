@@ -10,9 +10,9 @@
  * LAYOUT
  * This used to be one large single-component app; it has been split into
  * `ui/primitives/`, `ui/screens/` and `ui/AppShell.jsx`. What remains here is the
- * store setup, the pieces still shared across more than one screen (`JourneyBanner`,
- * `Tach`, the tutorial content), and the top-level component that reads the route and
- * renders the right screen into the shell.
+ * store setup, the one piece still shared across more than one screen (`Tach`), and
+ * the top-level component that reads the route and renders the right screen into the
+ * shell.
  *
  * TYPE CHECKING
  * No longer opts out. This file used to carry `@ts-nocheck` while it was one large
@@ -23,20 +23,20 @@
 import React, { useMemo, useEffect, useRef, useCallback, useDeferredValue, useState } from 'react';
 import {
   Grid3x3, Zap, Droplets, Activity, Play,
-  Settings, TrendingUp, Fuel, Gauge, RotateCw, Timer, ShieldAlert, Crosshair, Wind, Flame,
+  Settings, TrendingUp, Fuel, Gauge, RotateCw, Timer, ShieldAlert, Crosshair, Wind, Flame, Lock,
 } from 'lucide-react';
 
 import {
-  BARO_KPA, COMPRESSOR_OPTS,
-  DEFAULT_MODS, EXHAUST_DIA_OPTS, GEARBOX_OPTS,
+  BARO_KPA, COMPRESSOR_OPTS, compressorWithCount,
+  EXHAUST_DIA_OPTS, GEARBOX_OPTS,
   INJ_DEADTIME_MS, INJECTOR_OPTS,
   PSI_TO_KPA,
   R_AIR, RPM, TURBINE_OPTS, acousticDrive, blowerCurve, blowerOf, blowerSpeedRpm, calibrationAdvice, chargeTempK, clamp,
-  computeEngineerScore, computeHardwareVE, computePullScore, computeTuningScore,
-  deriveEngine, exhaustGeometry, idealExhaustDiameter, interp1, interp2, isLocatable, presetById,
+  computeEngineerScore, computePullScore, computeTuningScore,
+  applyPreset, cellsNotRunBy, stockCalibrationFor, deriveEngine, exhaustGeometry, idealExhaustDiameter, interp1, isLocatable, layoutById, presetById, readEcuTable,
   simulateDragRun, simulateSweep, torqueCurveFromSweep, turbineWithCount,
   veRecommendations, defaultEcuCalibration, dynoConditions, ecuHardwareOf, tankFuel,
-  veTruthByPhaseFor, read1, applyVeCorrections, veCorrections, veSamplesFromLive, veSamplesFromPull,
+  veTruthByPhaseFor, read1, applyVeCorrections, intakeCamAt, scheduledVeAt, veCorrections, veSamplesFromLive, veSamplesFromPull,
 } from '../sim/index.js';
 import {
   beepEngineAudio, converterEngineAudio, createEngineAudio, setEngineAudioActive,
@@ -44,11 +44,21 @@ import {
 } from './audio/engineAudio.js';
 import { T, utilisationColor } from './theme.js';
 import { BUILD_VERSION } from '../version.js';
-import { loadCareer, saveCareer } from '../storage.js';
+import { loadCareer, loadShop, saveCareer, saveShop } from '../storage.js';
 import { AppShell } from './AppShell.jsx';
+import { CareerBar } from './career/CareerBar.jsx';
+import { evaluateJob } from './career/evaluate.js';
+import { jobById } from './career/jobs.js';
+import { deliver, pageUnlocked, reviveCareer, sectionUnlocked, storeCar, trainingFor } from './career/shop.js';
+import { ShopScreen } from './career/ShopScreen.jsx';
+import { BuildLocked } from './components/BuildSection.jsx';
 import { StartScreen } from './screens/StartScreen.jsx';
 import { TutorialScreen } from './screens/TutorialScreen.jsx';
-import { StoreProvider, useBuild, useHistory, useSession, useTune } from './state/StoreProvider.jsx';
+import { COURSE } from './tutorial/books.js';
+import { MissionCoach } from './tutorial/MissionCoach.jsx';
+import { markOf } from './tutorial/missions.js';
+import { StoreProvider, useBuild, useCareer, useHistory, useRoadTest, useSandboxStash, useSession, useTune } from './state/StoreProvider.jsx';
+import { PullTraceContext } from './components/surface/TableSurface.jsx';
 import { ROUTES } from './routing.js';
 import { useRoute } from './useRoute.js';
 import { ACTIONS } from './state/reducer.js';
@@ -70,10 +80,8 @@ import { EngineScreen } from './screens/build/EngineScreen.jsx';
 import { ExhaustScreen } from './screens/build/ExhaustScreen.jsx';
 import { FuelSystemScreen } from './screens/build/FuelSystemScreen.jsx';
 import { InductionScreen } from './screens/build/InductionScreen.jsx';
-import { CAREER_JOBS, jobCar } from './career.js';
 import { DragScreen, dragSignature } from './screens/drag/DragScreen.jsx';
 import { HealthScreen } from './screens/dash/HealthScreen.jsx';
-import { JobsScreen } from './screens/dash/JobsScreen.jsx';
 import { LearnScreen } from './screens/dash/LearnScreen.jsx';
 import { RealCarScreen } from './screens/dash/RealCarScreen.jsx';
 import { LiveScreen } from './screens/dash/LiveScreen.jsx';
@@ -89,55 +97,33 @@ import { SparkScreen } from './screens/tune/SparkScreen.jsx';
 import { DataScreen } from './screens/dyno/DataScreen.jsx';
 import { HistoryScreen } from './screens/dyno/HistoryScreen.jsx';
 import { LogScreen } from './screens/dyno/LogScreen.jsx';
+import { EngineStart } from './screens/build/EngineStart.jsx';
 import { ResultScreen } from './screens/dyno/ResultScreen.jsx';
 import { ScoreScreen } from './screens/dyno/ScoreScreen.jsx';
 
-// Guided first run. Walks a new player through the actual working order a tuner
-// uses — build the engine, calibrate it, hear it run, then measure it — and then
-// gets out of the way. Purely navigational: it never changes the simulation.
-const JOURNEY = [
-  { tab: 'build', title: 'Step 1 · Build the engine',
-    body: 'Open Engine Architecture and design a short block: bore, stroke, compression, cam, springs. Then fit parts under Induction and Exhaust. Nothing here is cosmetic — every choice changes how the engine breathes.',
-    cta: 'Done building — go tune it', next: 'tune' },
-  { tab: 'tune', title: 'Step 2 · Calibrate it',
-    body: 'Start with the three tables. AIR is how well the engine breathes: after a build change, run a pull and correct it from the log. SPARK sets ignition timing and FUEL sets the mixture; the advisories say what your hardware will tolerate. The second row of pages (BOOST, VVT, IDLE, PROTECT, TORQUE) is already set up at factory, so leave it for now. A NITROUS page joins them once a nitrous kit is fitted.',
-    cta: 'Calibration set — start the engine', next: 'live' },
-  { tab: 'live', title: 'Step 3 · Start it and listen',
-    body: 'Press START. Watch it idle, hold the throttle to rev it, and watch the sensors and fuel trims respond in real time. This is your calibration actually running.',
-    cta: 'Sounds good — put it on the dyno', next: 'dyno' },
-  { tab: 'dyno', title: 'Step 4 · Measure it',
-    body: 'Run a pull. Then read the Pull Log before you look at the power number — it explains anything that went wrong and what to change. From here the loop is: adjust, pull again, compare.',
-    cta: 'Measured — now race it', next: 'drag' },
-  { tab: 'drag', title: 'Step 5 · Race it',
-    body: 'Put that torque curve in a car and run a quarter mile. Body, gearing, tyres and driven wheels all change the time without touching the engine — because a torque curve is only half of acceleration. Read the 60-foot time for traction and the trap speed for power.',
-    cta: 'Finish — let me explore freely', next: null },
-];
+/** The tabs that need an engine; HOME (stats, health, Learn) does not. */
+const ENGINE_TABS = ['build', 'tune', 'live', 'dyno', 'drag'];
 
-function JourneyBanner({ step, onAdvance, onDismiss }) {
-  const j = JOURNEY[step];
-  if (!j) return null;
+/** The engine a practice mission is built around, put on the bench when the player has none yet. */
+const MISSION_ENGINE = 'vq35de-revup';
+
+/** Where each practice mission starts: the screen its first step is about. */
+const MISSION_START = {
+  'first-pull': ['build', 'engine'],
+  'knock-limit': ['tune', 'spark'],
+  'bolt-on': ['build', 'induction'],
+};
+
+/**
+ * CAREER: an ECU settings block the shop has not trained for, in place of the block.
+ * @param {{section: string}} props
+ */
+function LockedSettings({ section }) {
+  const course = trainingFor(section, 'section');
   return (
-    <div style={{ background: T.accBg, border: `1px solid ${T.acc}`, borderRadius: 12, padding: '13px 14px', margin: '0 0 14px' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 10 }}>
-        <div style={{ fontSize: 11, letterSpacing: 1, color: T.accInk, fontWeight: 800 }}>{j.title.toUpperCase()}</div>
-        <Button variant="quiet" size="sm" style={{ flexShrink: 0 }} onClick={onDismiss}>SKIP GUIDE</Button>
-      </div>
-      <div style={{ fontSize: 12.5, color: T.inkSoft, lineHeight: 1.55, marginTop: 7 }}>{j.body}</div>
-      <div style={{ display: 'flex', gap: 5, marginTop: 11, marginBottom: 10 }}>
-        {JOURNEY.map((_, i) => (
-          <div key={i} style={{ flex: 1, height: 3, borderRadius: 2, background: i <= step ? T.acc : T.line }} />
-        ))}
-      </div>
-      {/* The closest thing this file has to a justified `block`, and still not one.
-          The card looks bounded, but nothing bounds it: index.html lays the app out
-          mobile-first and neither the shell nor any tab body sets a max-width, so
-          this banner is as wide as the window. `block` here would put a 2500px-wide
-          "Done building — go tune it" on a desktop monitor, which is the complaint
-          this PR exists to answer. Give the app a max-width first; `block` becomes
-          honest the moment a container is genuinely narrow. */}
-      <Button onClick={onAdvance}>
-        {j.cta}
-      </Button>
+    <div style={{ margin: '4px 0 16px', padding: '10px 12px', borderRadius: 10, border: `1px dashed ${T.line}`, fontSize: 12, color: T.ink2, lineHeight: 1.55, display: 'flex', gap: 8, alignItems: 'flex-start' }}>
+      <Lock size={14} aria-hidden="true" style={{ flexShrink: 0, marginTop: 2 }} />
+      <span>The ECU&apos;s settings for this page are locked until the shop takes the <b style={{ color: T.ink }}>{course?.title ?? 'right'}</b> course.</span>
     </div>
   );
 }
@@ -173,43 +159,6 @@ function Tach({ rpm, cylinders, running, fullScaleRpm }) {
     </Panel>
   );
 }
-
-const TUTORIAL_STEPS = [
-  { title: 'This is an air pump',
-    body: 'An engine can only burn as much fuel as it has air for. So everything starts with air. The ECU works out the air, decides how much fuel to add, and picks the moment to light it.\n\nTuning is getting those last two decisions right at every speed and load.\n\n→ You will do that on three tables. The rest of this tutorial shows you which, and how to check your work.' },
-  { title: 'Air: how full the cylinder gets',
-    body: 'The ECU works out the air in each cylinder from pressure and temperature:\n\n    air in cylinder = VE × cylinder volume × MAP ÷ (R × T)\n\nVE, volumetric efficiency, is how completely the cylinder fills. It belongs to the hardware. Writing a bigger number in the table does not add air. It only makes the ECU fuel for air that is not there.\n\n→ The AIRFLOW table should match what the engine really breathes. Nobody can see that directly: after a hardware change, log a pull and TUNE › AIRFLOW works out the correction for each cell from the wideband, showing the maths.' },
-  { title: 'Fuel: follows from the air',
-    body: 'Once the air is known, fuel is arithmetic:\n\n    fuel = air ÷ (λ × 14.7 for gasoline)\n\nλ (lambda) is the mixture you ask for on the FUEL table. 1.00 is exactly enough air to burn the fuel. About 0.87 makes the most power, and a boosted engine runs richer, about 0.83, to keep the charge and the turbo cool.\n\nThe injectors can only be open so long: past about 90% duty there is no time left, and no table can fix that.\n\n→ Set the FUEL table. If the log says the injectors are maxed, you need bigger injectors or less boost.' },
-  { title: 'Spark: when to light it',
-    body: 'The mixture takes a few milliseconds to burn, so the spark fires before the piston reaches the top. Fire too late and the burn chases a piston that is already leaving. Fire too early and the pressure pushes against a piston still coming up.\n\nThe best point is called MBT. Past it, extra advance makes no more power.\n\n→ On SPARK, find the timing where power stops rising. Stop there, or earlier if the engine knocks.' },
-  { title: 'Knock: the limit on everything',
-    body: 'Too much advance, heat or pressure and the last of the mixture explodes on its own instead of burning smoothly. That is knock, and it breaks pistons.\n\nThe ECU listens for it and takes timing out. The datalog shows it as commanded timing and actual timing drifting apart.\n\n→ Aim for zero knock. If the log shows knock, take timing out of those cells, or add fuel there, or use better fuel.' },
-  { title: 'Where the power number comes from',
-    body: 'Nothing here adds horsepower directly. The simulator follows the pressure inside one cylinder through the whole cycle, two crank degrees at a time, and adds up the work it does on the piston. Friction and breathing losses come off. What is left is torque.\n\n    hp = lb-ft × RPM ÷ 5252\n\nSo power only changes when something real changes: more air, the right fuel, better-timed spark.' },
-  { title: 'Design it on BUILD',
-    body: 'Bore, stroke, compression, cam, springs, turbo, exhaust, fuel system. None of it is cosmetic. Every part changes how the engine breathes or what it can survive.\n\n→ Change the cam and watch the AIRFLOW table on TUNE redraw itself. That is what a cam really does.' },
-  { title: 'Three tables, three jobs',
-    body: 'On TUNE:\n\nAIRFLOW — how well each cylinder fills (VE).\nSPARK — when the plug fires, in degrees before top dead centre.\nFUEL — the mixture you want, as air-fuel ratio.\n\nColumns are RPM, rows are manifold pressure: the same layout real tuning software uses.\n\n→ These three are the tune. Most sessions never need anything else.' },
-  { title: 'Everything else is already set',
-    body: 'Real ECUs have far more: corrections for temperature and altitude, and controllers for boost, cams, idle, knock and protection. They are all on TUNE, under the tables and in the second row of buttons.\n\nEvery one starts at a working factory setting. You do not need to touch them to make a great tune. Change one and an amber dot marks it. The Factory button puts a page back.\n\n→ Leave them alone until a log tells you to go there. Each page says when that is.' },
-  { title: 'The ECU only knows what it measures',
-    body: 'The ECU never sees the truth. It sees sensors, read through the settings it was given. Fit a sensor on BUILD and tell the ECU a different one on TUNE › SENSORS, and it acts on a wrong number without knowing.\n\nThe classic: a 1-bar MAP sensor on a turbo engine. The ECU never sees boost, and fuels too little under it.\n\n→ When you change a sensor on BUILD, match it on TUNE › SENSORS. The page warns you when they differ.' },
-  { title: 'Nothing is known until you pull',
-    body: 'There is no preview. Press RUN DYNO PULL on DYNO and the engine sweeps from 1500 RPM to its redline and records a full datalog. That is the only way to find out what a change did, exactly like a real dyno day.\n\n→ Pull after every change.' },
-  { title: 'Read the log, change one thing, pull again',
-    body: 'Every pull writes a Pull Log. Each problem comes with a plain Why (what caused it) and a Try (what to change).\n\nThen: change one thing, pull, compare. The next pull draws the last one dashed behind it, so you can see whether it helped, and where. Change three things at once and you will not know which one worked.\n\n→ Read the Pull Log before you look at the power number.' },
-  { title: 'Know what you cannot tune away',
-    body: 'Knock, a wrong mixture and a mis-read airflow sensor are calibration faults. The tables and the ECU\'s settings fix them completely.\n\nInjectors out of time, valves floating, a turbo past its limit: those are hardware limits. No table touches them, and the log says so.\n\n→ When the log names a hardware limit, change the part or ask less of it.' },
-  { title: 'Hear it, and watch it run',
-    body: 'The sound is built from the same numbers as the dyno, not recorded. Retard the spark and it turns raspy. Richen it and it softens. A big cam lopes.\n\nOn LIVE the ECU runs in real time. Its log records every channel. Switch on the A/C and watch idle hold. Try launch control. Break a sensor on purpose and see what the protections do.\n\n→ Start the engine on LIVE and rev it before your first pull.' },
-  { title: 'Where this physics comes from',
-    body: 'Every relation here is published engineering, checked against its source. The cycle uses the ratio of specific heats, γ, of the gas at each stage: 1.35 for fresh charge falling to 1.235 as it burns. That brackets the ~1.3 average textbooks use, which gives the ideal 10:1 engine its 50% efficiency.\n\nAir density comes out at 1.185 kg/m³ at sea level and 25 °C, matching the published figure.\n\n→ The sources are under Learn on HOME. If a number looks wrong, check it. That has fixed real errors here.' },
-  { title: 'Chase the score, then race it',
-    body: 'Every pull is graded on Tuning (how clean the calibration is) and Engineer (how sound the build is), then combined with real output into a Pull Score with no ceiling.\n\nOn DRAG the engine goes into a car. Trap speed measures power, the 60-foot time measures traction, and the fastest engine does not always win.' },
-  { title: 'Ready',
-    body: 'Sandbox: build and tune anything, no objectives. Career: customer cars with real faults to find.\n\nThe loop is always the same: build it, set the three tables, listen to it, pull it, read the log, change one thing.\n\n→ If you are unsure what to do next, run a pull and read the Pull Log. It always tells you.' },
-];
 
 /**
  * How long the christmas tree takes to go green, ms.
@@ -333,6 +282,9 @@ export function EcuLabApp() {
   // so it is not re-bound here.
   const [tune] = useTune();
   const { ve, timing, afr } = tune;
+  // The engine computer whose breakpoints the tables sit on (sim/layouts.js), or null
+  // for the ECU Lab grid. Every pull and the live engine read the tables through it.
+  const layout = useMemo(() => (tune.layout ? layoutById(tune.layout) : null), [tune.layout]);
   // `tablesDirty` is read from the store directly by EngineScreen now (it is
   // `hasTuningWork()`'s one input) — nothing else in the shell reads it.
   // `selection` itself is read from the store directly by AirflowScreen/SparkScreen/
@@ -347,11 +299,23 @@ export function EcuLabApp() {
   // and `route.section`, narrowed per tab, just below.
   const [session] = useSession();
   const {
-    loadKpa, soundOn, volume, dynoPhase, dynoRpm, journeyStep, throttleInput, health,
+    loadKpa, soundOn, volume, dynoPhase, dynoRpm, throttleInput, health,
     result, runs, pinnedRunId, pullScores, running, revealCount, bestScore, totalScore, pullCount,
     live, car, dragResult, dragRunning, dragT, treePhase,
-    mode, activeJob, completedJobs, jobResult, env, liveAux, faults,
+    mode, env, liveAux, faults,
   } = session;
+  // CAREER: the shop's save, and whether the bench holds a customer's car. The screens
+  // are the same ones SANDBOX uses; what changes is whose car is in them and which
+  // parts of the ECU the shop has learned to use.
+  const [career] = useCareer();
+  const inCareer = mode === 'career' && career != null;
+  // SANDBOX opens with no engine: the engine screens ask for one (EngineStart) until it is chosen.
+  const engineMissing = !inCareer && build.engineReady === false;
+  // An engine-building job opens BUILD: the customer pays for parts. Every other job's
+  // car is the customer's as it came in, and BUILD is for looking.
+  const jobOnBay = inCareer && career.working ? jobById(career.working) : null;
+  const buildOpen = !!jobOnBay?.build;
+  const sandboxStash = useSandboxStash();
   // One `route.section` serves all four tabs, narrowed per tab so every call site below
   // keeps reading the name it always read — and so a later task can move a tab's markup
   // into a screen file without renaming anything. The narrowing is not decorative:
@@ -442,6 +406,11 @@ export function EcuLabApp() {
     () => turbineWithCount(TURBINE_OPTS[turbineIdx], turbineCount),
     [turbineIdx, turbineCount],
   );
+  // One compressor per turbo: a twin-turbo engine has two, side by side.
+  const compressor = useMemo(
+    () => compressorWithCount(COMPRESSOR_OPTS[compressorIdx], turbineCount),
+    [compressorIdx, turbineCount],
+  );
 
   // A supercharger, if one is fitted instead of a turbo, and what it will make across the
   // rev range at full throttle on this engine — the header, the injector-duty preview
@@ -462,9 +431,11 @@ export function EcuLabApp() {
   // TRUE cylinder filling for the hardware as currently built. The player's `ve` table
   // is only the ECU's BELIEF about this; the gap between the two is what makes the
   // mixture drift off target and what the fuel-trim histogram measures and corrects.
+  // With cam phasers, that is the filling at the phase the calibration puts the cam at.
+  const vvtCal = tune.ecu?.vvt;
   const veTruth = useMemo(
-    () => computeHardwareVE(engineConfig, mods, hwForVe),
-    [engineConfig, mods, hwForVe],
+    () => scheduledVeAt(engineConfig, mods, hwForVe, vvtCal),
+    [engineConfig, mods, hwForVe, vvtCal],
   );
 
   // The engine management's world: the parts it reads and drives, and the day. The
@@ -485,27 +456,9 @@ export function EcuLabApp() {
     [tune.ecu, ecuHw, env, faults, nitrous, nitrousArmed],
   );
 
-  /**
-   * Takes on a career job: resets the car to stock, then applies that customer's fault.
-   *
-   * @param {number} i index into {@link CAREER_JOBS}
-   */
-  const takeJob = (i) => {
-    // ONE action, not a write per field. A half-applied job is a car with the customer's
-    // fault fitted and the previous job's tables still loaded, which is not a car anyone
-    // was handed — see TAKE_JOB in reducer.js. The stock timing and fuel tables, full
-    // health and the cleared bench are the reducer's to set; the car and its VE table
-    // come from `jobCar`, which is pure so tests/career.test.js can hold every job to
-    // failing as delivered and passing once fixed.
-    dispatch({ type: ACTIONS.TAKE_JOB, index: i, ...jobCar(CAREER_JOBS[i]) });
-    changeTab('dyno');
-  };
-
-  /** Puts the active job down without grading it. */
-  const abandonJob = () => {
-    dispatch({ type: ACTIONS.SET_SESSION_FIELD, field: 'activeJob', value: null });
-    dispatch({ type: ACTIONS.SET_SESSION_FIELD, field: 'jobResult', value: null });
-  };
+  // `recalcVE` moved into AirflowScreen — its one caller — where it dispatches off this
+  // same `veTruth`, passed down as a prop since it also feeds `calAdvice` below and
+  // the dyno payload.
 
   // THE ADVISOR AND THE DYNO MUST NEVER DISAGREE. The advisor judges the spark table
   // against a full-throttle pull of this exact engine — same physics, same ECU, same
@@ -513,27 +466,31 @@ export function EcuLabApp() {
   // is one a pull knocks on, and one it calls clean is one a pull does not. Deferred, so
   // editing a table never waits on the pull; both read the same deferred tables, so they
   // always describe the same calibration.
-  const advisorTables = useMemo(() => ({ ve, timing, afr }), [ve, timing, afr]);
+  // The layout defers WITH its tables: a deferred 8 × 6 read through a fresh GM layout
+  // (or the reverse) is a table read off the wrong breakpoints.
+  const advisorTables = useMemo(() => ({ ve, timing, afr, layout }), [ve, timing, afr, layout]);
   const deferredTables = useDeferredValue(advisorTables);
   const advisorPull = useMemo(() => simulateSweep({
     loadKpa: 100, ve: deferredTables.ve, veTruth, timing: deferredTables.timing, afr: deferredTables.afr,
     turboOn, boostCurve, octaneBonus, octaneLabel: fuel.label, fuel, injectorCc, ecuInjectorCc,
     injectorLabel: INJECTOR_OPTS[injIdx].label, mods, mafScalar, derived: engineDerived,
-    turbine, compressor: COMPRESSOR_OPTS[compressorIdx], ecu: ecuBundle,
+    turbine, compressor, ecu: ecuBundle, layout: deferredTables.layout,
     ...(blower ? { blower, blowerRatio } : {}), ...(nitrous ? { nitrous } : {}),
   }), [deferredTables, veTruth, turboOn, boostCurve, octaneBonus, fuel, injectorCc, ecuInjectorCc,
-       injIdx, mods, mafScalar, engineDerived, turbine, compressorIdx, ecuBundle, blower, blowerRatio, nitrous]);
+       injIdx, mods, mafScalar, engineDerived, turbine, compressor, ecuBundle, blower, blowerRatio, nitrous]);
+  // Judged on the tables' own breakpoints, at the cam phase the VVT calibration holds.
+  const camAt = useMemo(() => intakeCamAt(engineConfig, vvtCal), [engineConfig, vvtCal]);
   const calAdvice = useMemo(() => calibrationAdvice({
-    ve: deferredTables.ve, veTruth, timing: deferredTables.timing, afr: deferredTables.afr,
+    ve: deferredTables.ve, veTruth, timing: deferredTables.timing, afr: deferredTables.afr, layout: deferredTables.layout,
     derived: engineDerived, octaneBonus, fuel, mods, turboOn, boostCurve,
-    compressor: COMPRESSOR_OPTS[compressorIdx], turbine,
+    compressor, turbine, camAt,
     injectorCc, ecuInjectorCc, mafScalar, mafErrorBase, pull: advisorPull,
   }), [deferredTables, veTruth, engineDerived, octaneBonus, fuel, mods, turboOn, boostCurve,
-       compressorIdx, turbine, injectorCc, ecuInjectorCc, mafScalar, mafErrorBase, advisorPull]);
+       compressor, turbine, camAt, injectorCc, ecuInjectorCc, mafScalar, mafErrorBase, advisorPull]);
 
   const veAdvice = useMemo(
-    () => veRecommendations(ve, engineConfig, mods, hwForVe),
-    [ve, engineConfig, mods, hwForVe]
+    () => veRecommendations(ve, engineConfig, mods, veTruth, (layout ?? layoutById(null)).ve),
+    [ve, engineConfig, mods, veTruth, layout]
   );
 
   // Same real-units chain the sim uses, evaluated at WOT / 6500 RPM as a preview.
@@ -545,12 +502,12 @@ export function EcuLabApp() {
     const chargeK = chargeTempK(boostPsi, mods.intercooler);
     const vCylM3 = (engineDerived.displacementL / engineDerived.cyl) / 1000;
     const airDensity = (mapKpa * 1000) / (R_AIR * chargeK);
-    const airChargeG = (interp2(ve, rpm, mapKpa) / 100) * vCylM3 * airDensity * 1000;
-    const lambda = interp2(afr, rpm, mapKpa) / 14.7;
+    const airChargeG = (readEcuTable({ ve, timing, afr, layout }, 've', rpm, { mapKpa }) / 100) * vCylM3 * airDensity * 1000;
+    const lambda = readEcuTable({ ve, timing, afr, layout }, 'afr', rpm, { mapKpa, airmassG: airChargeG }) / 14.7;
     const fuelMassG = airChargeG / (lambda * fuel.stoich);
     const pw = fuelMassG / ((ecuInjectorCc * fuel.density) / 60000) + INJ_DEADTIME_MS;
     return clamp((pw / (120000 / rpm)) * 100, 0, 220);
-  }, [ve, afr, turboOn, boostCurve, ecuInjectorCc, fuel, mods.intercooler, engineDerived, blowerWot]);
+  }, [ve, timing, afr, layout, turboOn, boostCurve, ecuInjectorCc, fuel, mods.intercooler, engineDerived, blowerWot]);
   // `dutyDangerous` moved into InjectorsScreen — its one reader — computed there off
   // this same `dutyPreview`, which stays here because the score breakdown and dyno
   // payload below also read it.
@@ -597,6 +554,24 @@ export function EcuLabApp() {
   const toggleBuildSection = makeToggleSection('build');
   const toggleDragSection = makeToggleSection('drag');
   const goTutorial = () => navigate({ view: 'tutorial', tab: null, section: null });
+  const goCourse = () => navigate({ view: 'course', tab: null, section: null });
+  const goMenu = () => navigate({ view: 'start', tab: null, section: null });
+  const roadTest = useRoadTest();
+
+  /**
+   * CAREER: the car goes back to its owner. It is graded on the simulator exactly as it
+   * stands (evaluate.js), the shop is paid or not, and the shop shows what happened.
+   * A car that is not fixed stays on its lift for another go.
+   */
+  const handBack = () => {
+    const job = career?.working ? jobById(career.working) : null;
+    if (!job || running) return;
+    const v = evaluateJob(job, { build, tune, session });
+    const boosted = build.turboOn || !!build.blowerId || !!build.nitrous;
+    const next = deliver(storeCar(career, job.id, { build, tune }), job.id, v, { boosted });
+    dispatch({ type: ACTIONS.CAREER_UPDATE, career: next });
+    navigate({ view: 'shop', tab: null, section: null });
+  };
   // `AppShell`'s `SideNav` is `React.memo`'d and reads no store, so at 20 Hz it only
   // stays skipped if `onNavigate` is referentially stable — see AppShell.jsx's header.
   // `goTab`/`setSelection` above are plain closures rebuilt every render, so calling
@@ -606,13 +581,6 @@ export function EcuLabApp() {
   // `[navigate]` notes elsewhere in this file), so this closure is genuinely stable
   // for the component's life, the same guarantee `makeToggleSection` gives its
   // per-tab closures above.
-  // HOME opens on the jobs board in CAREER and on the stats in free play, which has no
-  // jobs board. A ref, so `changeTab` below keeps the referential stability its note
-  // depends on instead of changing identity whenever a job is taken.
-  const homeFirstSectionRef = useRef('jobs');
-  // Whether HOME has a jobs board at all: CAREER's, or free play with a job underway.
-  const showJobs = mode === 'career' || activeJob != null;
-  homeFirstSectionRef.current = showJobs ? 'jobs' : 'stats';
   const changeTab = useCallback((t) => {
     // Browsers only let audio start from inside a user gesture, so take every tap on the
     // nav as another chance to unlock it. Without this a player who never presses START
@@ -620,7 +588,10 @@ export function EcuLabApp() {
     // it here costs this closure none of the stability the note above depends on.
     const a = audioRef.current;
     if (a && a.ctx.state === 'suspended') a.ctx.resume();
-    navigate({ view: 'app', tab: t, section: t === 'dash' ? homeFirstSectionRef.current : ROUTES[t][0] });
+    // CAREER's SHOP is a view of its own rather than a tab: it has no status strip and
+    // no nav, because it is where the day is run from, not a screen of the car.
+    if (t === 'shop') navigate({ view: 'shop', tab: null, section: null });
+    else navigate({ view: 'app', tab: t, section: ROUTES[t][0] });
     dispatch({ type: ACTIONS.SET_TUNE_FIELD, field: 'selection', value: null });
   }, [navigate, dispatch]);
 
@@ -631,14 +602,22 @@ export function EcuLabApp() {
     // pass: a reset baseline is not unsaved player work.
     //
     // The reducer does NOT compute the stock VE table; the caller does, and the mix of
-    // arguments is the point: DEFAULT_MODS (the bolt-ons come off) against the CURRENT
+    // arguments is the point: the stock parts (`stockModsOf`: the bolt-ons come off, an
+    // intercooler stays with its turbo) against the CURRENT
     // `hwForVe` (the turbo does not — resetting the calibration is not uninstalling the
     // hardware). Either half swapped for the other yields a perfectly plausible table
     // that is wrong.
-    const stockVe = computeHardwareVE(engineConfig, DEFAULT_MODS, hwForVe);
+    //
+    // The spark and fuel tables are generated for this engine, fuel and boost
+    // (`stockCalibrationFor`), as a factory's are: the Nissan V6 tables this used to write
+    // knock on every other engine in the catalogue.
+    // All three on breakpoints sized to this engine as it stands (its redline, its boost),
+    // with the cam-phaser schedule they were written for.
+    const stock = stockCalibrationFor(build);
     dispatch({
-      type: ACTIONS.RESET_TO_STOCK, ve: stockVe,
-      ecu: defaultEcuCalibration({ derived: engineDerived, gate: ecuHw.gate }),
+      type: ACTIONS.RESET_TO_STOCK, ve: stock.ve, timing: stock.timing, afr: stock.afr, mafScalar: stock.mafScalar,
+      layout: stock.layout,
+      ecu: { ...defaultEcuCalibration({ derived: engineDerived, gate: ecuHw.gate, axes: stock.layout.timing }), vvt: stock.ecu.vvt },
     });
   };
   // The REPAIR button's only handler. Before the extraction this wrote a local
@@ -701,11 +680,13 @@ export function EcuLabApp() {
   const sweepArgs = (load, ecu) => ({
     loadKpa: load, ve, veTruth, timing, afr, turboOn, boostCurve, octaneBonus, octaneLabel: fuel.label,
     fuel, injectorCc, ecuInjectorCc, injectorLabel: INJECTOR_OPTS[injIdx].label, mods, mafScalar, derived: engineDerived,
-    turbine, compressor: COMPRESSOR_OPTS[compressorIdx], ecu,
+    turbine, compressor, ecu, layout,
     ...(blower ? { blower, blowerRatio } : {}), ...(nitrous ? { nitrous } : {}),
   });
 
   const doRun = () => {
+    // No engine chosen: there is nothing to pull, and the placeholder figures behind the gate are nobody's.
+    if (engineMissing) return;
     const a = ensureAudio();
     if (a && a.ctx.state === 'suspended') a.ctx.resume();
     // The reveal animation's own state: `running` gates the RUN button's label and the
@@ -715,22 +696,18 @@ export function EcuLabApp() {
     dispatch({ type: ACTIONS.SET_SESSION_FIELD, field: 'running', value: true });
     dispatch({ type: ACTIONS.SET_SESSION_FIELD, field: 'revealCount', value: 0 });
     const r = simulateSweep(sweepArgs(loadKpa, ecuBundle));
-    const ts = computeTuningScore(r);
+    // Cells TUNE says are past the knock limit that THIS pull did not run: its log cannot
+    // show them, so they cost the score here instead of leaving it at "Dialed In". Judged
+    // against this pull, at whatever load it ran, not TUNE's own full-throttle one: a cell
+    // this pull did run is already charged by its log, and charging it again would count
+    // one knocking cell twice.
+    const ts = computeTuningScore(r, cellsNotRunBy(calAdvice.overAdvanced, r, (layout ?? layoutById(null)).timing));
     const es = computeEngineerScore({
       engineConfig, turboOn, peakBoostPsi: turboOn ? Math.max(...boostCurve) : blowerPeakPsi,
-      supercharged: !!blower, turbine, compressor: COMPRESSOR_OPTS[compressorIdx],
+      supercharged: !!blower, turbine, compressor,
       exhaustDiaError, dutyPreview, displacementL: engineDerived.displacementL, fuel, mods,
     });
     const pull = computePullScore({ peakHp: r.peakHp, peakTq: r.peakTq, tuningScore: ts.score, engineerScore: es.score });
-    // A career job is graded against the pull that was just measured, not against the
-    // build as it stands — same rule as the scores themselves.
-    if (activeJob != null) {
-      const passed = CAREER_JOBS[activeJob].goal(r, { tuningScore: ts.score, engineerScore: es.score });
-      dispatch({ type: ACTIONS.SET_SESSION_FIELD, field: 'jobResult', value: passed ? 'pass' : 'fail' });
-      if (passed && !completedJobs.includes(activeJob)) {
-        dispatch({ type: ACTIONS.SET_SESSION_FIELD, field: 'completedJobs', value: [...completedJobs, activeJob] });
-      }
-    }
     // Banking the pull — result, wear, scores, pull count, run log — lands in the
     // store in one pass. `result` and `pullScore` are precomputed here because the
     // reducer has no access to the useMemo-derived hardware `computePullScore` needs.
@@ -752,10 +729,7 @@ export function EcuLabApp() {
         // `engineDerived` carries no name — it is displacement, cylinder count and
         // redline. The build's name is the loaded preset's, and a build with no preset
         // is exactly what "Custom build" means everywhere else in this app.
-        // A customer's car is named for its job, so the run log says which car a pull
-        // was on — TAKE_JOB keeps the log, and it holds the player's own builds too.
-        label: activeJob != null ? `Job · ${CAREER_JOBS[activeJob].title}`
-          : presetById(presetId)?.name ?? 'Custom build',
+        label: presetById(presetId)?.name ?? 'Custom build',
         result: r, scores: { tuning: ts, engineer: es }, pullScore: pull,
         inputs: measuredInputs(build, tune, loadKpa, { env, faults }),
       }),
@@ -848,7 +822,7 @@ export function EcuLabApp() {
    * seconds of physics running against a repaint.
    */
   const runDrag = () => {
-    if (!torqueCurveNm || dragRunning) return;
+    if (engineMissing || !torqueCurveNm || dragRunning) return;
     const a = ensureAudio();
     if (a && a.ctx.state === 'suspended') a.ctx.resume();
 
@@ -923,7 +897,7 @@ export function EcuLabApp() {
   liveCfgRef.current = {
     ve, veTruth, timing, afr, derived: engineDerived, fuel, injectorCc, ecuInjectorCc, mods, mafScalar, mafErrorBase,
     turboOn, boostCurve, octaneBonus, turbine,
-    compressor: COMPRESSOR_OPTS[compressorIdx], exhaustDiaError,
+    compressor, exhaustDiaError, layout,
     ...(blower ? { blower, blowerRatio } : {}), ...(nitrous ? { nitrous } : {}),
     // The live engine runs its own ECU controllers against the same calibration, with
     // whatever accessories are switched on.
@@ -973,6 +947,7 @@ export function EcuLabApp() {
   // gas temperature — and `audio/engineAudio.js` renders them.
   // These two functions only start and stop the engine.
   const startEngine = () => {
+    if (engineMissing) return;
     const a = ensureAudio();
     if (a && a.ctx.state === 'suspended') a.ctx.resume();
     dispatch({ type: ACTIONS.LIVE_PATCH, patch: { cranking: true } });
@@ -1026,10 +1001,44 @@ export function EcuLabApp() {
   // Career state is written back whenever it moves. This replaces a save call inside
   // `doRun`, which could not cover the pin: pinning is a dispatch like any other and
   // has no natural "and now save" call site. An effect over the persisted fields does.
+  // SANDBOX's only: in CAREER these fields are the customer car's bench, and SANDBOX's
+  // own are set aside until it comes back (see ENTER_CAREER in reducer.js).
   useEffect(() => {
-    if (!careerLoaded.current) return;
+    if (!careerLoaded.current || mode !== 'sandbox') return;
     saveCareer({ best: bestScore, total: totalScore, pulls: pullCount, runs, pinnedRunId });
-  }, [bestScore, totalScore, pullCount, runs, pinnedRunId]);
+  }, [bestScore, totalScore, pullCount, runs, pinnedRunId, mode]);
+
+  // The shop's save, written whenever it changes, and the work on the car on the bay
+  // with it: written into its lift, so closing the tab halfway through a job loses
+  // nothing. Debounced, because a table edit is a stream of changes.
+  const carOnBay = inCareer && career.working ? build : null;
+  const tuneOnBay = inCareer && career.working ? tune : null;
+  useEffect(() => {
+    if (!career) return undefined;
+    const t = setTimeout(() => {
+      saveShop(carOnBay && career.working ? storeCar(career, career.working, { build: carOnBay, tune: tuneOnBay }) : career);
+    }, 400);
+    return () => clearTimeout(t);
+  }, [career, carOnBay, tuneOnBay]);
+
+  // Opening the shop, from the start screen or straight from a `#/shop` link: load the
+  // save (or start one) and put its car on the bay. SANDBOX's car is set aside, whole,
+  // until the player goes back to it. A CAREER screen reached any other way (a link
+  // to HOME or DRAG, which the career has no use for) goes to the shop instead.
+  useEffect(() => {
+    if (appView === 'shop' && mode !== 'career') {
+      let cancelled = false;
+      (async () => {
+        const c = career ?? reviveCareer(await loadShop());
+        if (!cancelled) dispatch({ type: ACTIONS.ENTER_CAREER, career: c });
+      })();
+      return () => { cancelled = true; };
+    }
+    if (appView === 'app' && mode === 'career' && (tab === 'dash' || tab === 'drag')) {
+      navigate({ view: 'shop', tab: null, section: null });
+    }
+    return undefined;
+  }, [appView, mode, tab, career, dispatch, navigate]);
 
   // Cmd/Ctrl+Z and Cmd+Shift+Z / Ctrl+Y. This lives here rather than in AppShell,
   // whose header is explicit that the shell owns chrome only and never dispatches to
@@ -1215,7 +1224,7 @@ export function EcuLabApp() {
 
     const drive = acousticDrive({
       rpm, derived: engineDerived, point, turboOn,
-      compressor: COMPRESSOR_OPTS[compressorIdx],
+      compressor,
       // The sweep only ever measures wide-open points, so the idle and overrun either
       // side of it — and every point of a drag pass — borrow one and scale it by throttle.
       throttle: onDyno || onDrag ? load : 1,
@@ -1282,7 +1291,7 @@ export function EcuLabApp() {
   }, [live.rpm, live.running, live.cranking, live.effThrottle, live.fuelCut, live.live, soundOn,
       blower, blowerRatio,
       engineDerived, engineConfig.configuration, engineConfig.bore, engineConfig.compression,
-      exhaustDiaIdx, compressorIdx,
+      exhaustDiaIdx, compressor,
       mods.intake, mods.exhaust, mods.headers, turboOn, volume, dynoPhase,
       running, currentRpm, revealCount, result, tab, dragRunning, dragResult, dragT, car.boxIdx]);
 
@@ -1333,13 +1342,21 @@ export function EcuLabApp() {
     // nitrous tables once nitrous is enabled.
     { id: 'nitrous', label: 'NITROUS', icon: Flame, row: 2 },
   ];
+  // CAREER: the TUNE pages and ECU settings a shop can use grow with its training. A
+  // locked page still shows in the nav, with a padlock, so the player can see what
+  // there is to learn; opening one says which course opens it.
+  const tuneOpen = tab === 'tune' && !engineMissing && (!inCareer || !!career.working);
+  const lockedPage = inCareer && tuneView != null && !pageUnlocked(career, tuneView) ? tuneView : null;
+  const tunePage = tuneOpen && !lockedPage;
+  /** @param {string} sec */
+  const ecuOpen = (sec) => !inCareer || sectionUnlocked(career, sec);
   // The VE table corrected from what was logged: the last pull while it still matches
   // the tune on screen, and the LIVE datalog. Only worked out while AIRFLOW is open.
   const veLogOpen = tab === 'tune' && tuneView === 'airflow';
   const pullFresh = !!result && !!pullScores && pullScores.signature === buildSignature;
   const veLogPull = useMemo(() => (veLogOpen && pullFresh ? veSamplesFromPull(result.points) : []), [veLogOpen, pullFresh, result]);
   const liveLog = live?.ecu?.log;
-  const veLogLive = useMemo(() => (veLogOpen ? veSamplesFromLive(liveLog, ve) : []), [veLogOpen, liveLog, ve]);
+  const veLogLive = useMemo(() => (veLogOpen ? veSamplesFromLive(liveLog, ve, layout?.ve) : []), [veLogOpen, liveLog, ve, layout]);
   // Why the last pull is, or is not, in the numbers — a log only describes the tune it
   // was taken on, and a part-throttle pull is closed loop, where the trims set the mixture.
   /** @type {{state: 'none'|'stale'|'part-load'|'unused'|'ok', changed?: string[]}} */
@@ -1350,7 +1367,7 @@ export function EcuLabApp() {
   const veLog = veLogOpen ? {
     pull: veLogPull, live: veLogLive, airModel: tune.ecu?.config?.airModel ?? 'blend', pullInfo,
     onApply: (share) => {
-      const { ratio } = veCorrections([...veLogPull, ...veLogLive]);
+      const { ratio } = veCorrections([...veLogPull, ...veLogLive], layout?.ve);
       dispatch({ type: ACTIONS.SET_TABLE, table: 've', value: applyVeCorrections(ve, ratio, share), label: `VE from logs (${share === 1 ? 'all' : 'half'})` });
       // The long-term trim had been covering the error just moved into the table.
       dispatch({ type: ACTIONS.SET_SESSION_FIELD, field: 'liveAux', value: { ...liveAux, trimResets: (liveAux.trimResets ?? 0) + 1 } });
@@ -1361,7 +1378,7 @@ export function EcuLabApp() {
   // palette all read it through `sectionAvailable`, so none offers a page the others hide.
   /** @type {import('./commands.js').SectionFlags} */
   const sectionFlags = {
-    showJobs, hasResult: result != null, hasHistory: runs.length > 0, hasNitrous: !!nitrous, running,
+    career: inCareer, hasResult: result != null, hasHistory: runs.length > 0, hasNitrous: !!nitrous, running,
   };
   const tuneViews = TUNE_VIEWS.filter((v) => sectionAvailable(`tune/${v.id}`, sectionFlags));
   // Which TUNE pages the last pull's log points at — only while that pull still
@@ -1385,12 +1402,13 @@ export function EcuLabApp() {
     const engineOn = live.running || live.cranking;
     /** @type {(Omit<import('./commands.js').Command, 'kind'>|false)[]} */
     const actions = [
-      engineOn
+      engineMissing ? false
+      : engineOn
         ? { id: 'act:stop', label: 'Stop engine', keywords: ['engine', 'off'], run: stopEngine }
         // To LIVE first, as a pull goes to DYNO: the engine is only heard and seen there,
         // so started from any other page it would seem to do nothing.
         : { id: 'act:start', label: 'Start engine', keywords: ['engine', 'crank'], run: () => { changeTab('live'); startEngine(); } },
-      !running && {
+      !running && !engineMissing && {
         id: 'act:pull', label: 'Run dyno pull', keywords: ['dyno', 'sweep', 'power'],
         run: () => { goSection('dyno', 'result'); doRun(); },
       },
@@ -1417,15 +1435,12 @@ export function EcuLabApp() {
   if (appView === 'start') {
     return (
       <StartScreen
-        onCareer={() => {
-          // Career skips the guided build: its jobs hand the player a car that already
-          // exists, with a fault in it, and the jobs board is where that starts.
-          dispatch({ type: ACTIONS.SET_SESSION_FIELD, field: 'mode', value: 'career' });
-          dispatch({ type: ACTIONS.SET_SESSION_FIELD, field: 'journeyStep', value: 99 });
-          goSection('dash', 'jobs');
-        }}
+        // CAREER opens the shop, which loads the save (see the effect over `appView`).
+        onCareer={() => navigate({ view: 'shop', tab: null, section: null })}
+        // SANDBOX comes back exactly as it was left: ENTER_SANDBOX puts the shop's car
+        // back on its lift and SANDBOX's own car back on the bench.
         onStart={() => {
-          dispatch({ type: ACTIONS.SET_SESSION_FIELD, field: 'mode', value: 'sandbox' });
+          dispatch({ type: ACTIONS.ENTER_SANDBOX });
           goTab('build');
         }}
         onTutorial={goTutorial}
@@ -1434,11 +1449,56 @@ export function EcuLabApp() {
       />
     );
   }
+  if (appView === 'shop') {
+    // Until ENTER_CAREER has landed the bench still holds SANDBOX's car, so the shop
+    // waits for it rather than offering to work on the wrong one.
+    if (!inCareer) return <div style={{ minHeight: '100dvh', background: T.bg }} />;
+    return (
+      <ShopScreen
+        onWork={() => goTab('tune')}
+        onMenu={goMenu}
+        onLearn={goCourse}
+      />
+    );
+  }
   if (appView === 'tutorial') {
     return (
+      // Keyed per book: the tutorial and the course are the same component at the same
+      // place in the tree, and without a key the course would open on whatever page
+      // the tutorial was showing.
       <TutorialScreen
-        steps={TUTORIAL_STEPS}
-        onDone={() => { goTab('build'); dispatch({ type: ACTIONS.SET_SESSION_FIELD, field: 'journeyStep', value: 0 }); }}
+        key="tutorial"
+        // From CAREER the tutorial was a detour: back to the shop.
+        onDone={() => (inCareer ? changeTab('shop') : goTab('build'))}
+        onCourse={goCourse}
+      />
+    );
+  }
+  if (appView === 'course') {
+    return (
+      <TutorialScreen
+        key="course"
+        book={COURSE}
+        onDone={() => goSection('dash', 'learn')}
+        onPractice={(id) => {
+          // Practice is SANDBOX's: from CAREER, the customer's car goes back on its lift
+          // first (a no-op in SANDBOX).
+          dispatch({ type: ACTIONS.ENTER_SANDBOX });
+          // Marked against SANDBOX's car, which is the one on the bench from here on.
+          let start = sandboxStash ?? { session, tune };
+          // The missions are written for a stock engine on the bench. A player who has not
+          // chosen one yet (SANDBOX's own car: from CAREER, the stashed one) gets the Nissan
+          // VQ35DE Rev-Up they were written around, and the mission is marked against ITS
+          // tables, not the placeholders behind the start screen.
+          if ((sandboxStash?.build ?? build).engineReady === false) {
+            const engine = applyPreset(presetById(MISSION_ENGINE));
+            dispatch({ type: ACTIONS.APPLY_PRESET, preset: engine });
+            start = { session: start.session, tune: { ...start.tune, ve: engine.ve, timing: engine.timing } };
+          }
+          dispatch({ type: ACTIONS.SET_SESSION_FIELD, field: 'mission', value: { id, step: 0, marks: [markOf(start)] } });
+          const where = MISSION_START[id] ?? ['build', 'engine'];
+          goSection(where[0], where[1]);
+        }}
       />
     );
   }
@@ -1449,21 +1509,30 @@ export function EcuLabApp() {
           now — see AppShell.jsx for what each owns and why. This outer div stays: it
           is the 100dvh/overflow:hidden frame the shell's own `flex: 1` needs to fill,
           not chrome AppShell has any opinion about. */}
-      <AppShell route={route} onNavigate={changeTab} onTutorial={goTutorial} onRepair={repairEngine} onSearch={openPalette}>
-        {/* ---------- HOME: customer jobs, career stats, health, learning ---------- */}
+      <PullTraceContext.Provider value={advisorPull.points}>
+      <AppShell
+        route={route} onNavigate={changeTab} onTutorial={goTutorial} onRepair={repairEngine} onSearch={openPalette} onMenu={goMenu}
+        career={inCareer}
+        banner={inCareer ? <CareerBar career={career} onShop={() => changeTab('shop')} onHandBack={handBack} /> : null}
+      >
+        {!inCareer && <MissionCoach route={route} onCourse={goCourse} />}
+        {inCareer && !career.working && tab !== 'shop' && (
+          <div style={{ padding: 16 }}>
+            <Panel>
+              <div style={{ fontSize: 13.5, fontWeight: 800, marginBottom: 6 }}>The bay is empty</div>
+              <div style={{ fontSize: 12.5, color: T.ink2, lineHeight: 1.6, marginBottom: 12 }}>
+                There is no customer car to work on. Take one in from the shop&apos;s CUSTOMERS board.
+              </div>
+              <Button size="sm" onClick={() => changeTab('shop')}>GO TO THE SHOP</Button>
+            </Panel>
+          </div>
+        )}
+        {/* ---------- HOME: stats, health, learning (SANDBOX; CAREER's home is the shop) ---------- */}
         {/* One component per section, each reading the store for itself. `live` is read
             ONLY inside LiveScreen: the 20 Hz LIVE_STEP re-render stops there rather than
             passing through a HOME-level parent that would drag the other three with it. */}
-        {tab === 'dash' && (
+        {tab === 'dash' && !inCareer && (
           <div style={{ padding: 16 }}>
-            {/* Customer jobs are CAREER's. Free play has no objectives, so it has no
-                jobs board — unless a job is already underway, which must stay reachable. */}
-            {showJobs && (
-              <JobsScreen
-                active={dashSection === 'jobs'} onToggle={toggleDashSection}
-                onTakeJob={takeJob} onAbandon={abandonJob}
-              />
-            )}
             <StatsScreen
               active={dashSection === 'stats'} onToggle={toggleDashSection}
               scores={scores} scoresStale={scoresStale}
@@ -1482,9 +1551,11 @@ export function EcuLabApp() {
             design it, calibrate it, HEAR IT RUN, then measure it. It was a collapsed
             section on HOME, several taps down and easy never to find. It is a page, not
             an accordion card, so nothing about it reads as a HOME section. */}
-        {tab === 'live' && (
+        {/* SANDBOX with no engine yet: the engine screens have nothing true to show. */}
+        {engineMissing && ENGINE_TABS.includes(tab) && <EngineStart />}
+
+        {tab === 'live' && !engineMissing && (!inCareer || career.working) && (
           <div style={{ padding: 16 }}>
-            {journeyStep === 2 && <JourneyBanner step={2} onAdvance={() => { dispatch({ type: ACTIONS.SET_SESSION_FIELD, field: 'journeyStep', value: 3 }); changeTab('dyno'); }} onDismiss={() => dispatch({ type: ACTIONS.SET_SESSION_FIELD, field: 'journeyStep', value: 99 })} />}
             <LiveScreen
               tachFullScaleRpm={tachFullScaleRpm}
               onStart={startEngine} onStop={stopEngine}
@@ -1501,13 +1572,26 @@ export function EcuLabApp() {
             advisory), so they stay here and are passed down rather than recomputed.
             `idealExhaustDia` stays for the same reason — it is the input to
             `exhaustDiaError`, which the score breakdown and the dyno payload also read. */}
-        {tab === 'build' && (
+        {tab === 'build' && !engineMissing && (!inCareer || career.working) && (
           <div style={{ padding: 16 }}>
-            {journeyStep === 0 && <JourneyBanner step={0} onAdvance={() => { dispatch({ type: ACTIONS.SET_SESSION_FIELD, field: 'journeyStep', value: 1 }); changeTab('tune'); }} onDismiss={() => dispatch({ type: ACTIONS.SET_SESSION_FIELD, field: 'journeyStep', value: 99 })} />}
+            {inCareer && (
+              <Panel tight style={{ marginBottom: 14, fontSize: 12.5, color: T.ink2, lineHeight: 1.6 }}>
+                {buildOpen ? (
+                  <><b style={{ color: T.ink }}>Build it.</b> This is an engine-building job: every part here is yours to choose, and the
+                    customer pays for them. Build to their list on the job ticket, then log and tune what you built.</>
+                ) : (
+                  <><b style={{ color: T.ink }}>The customer&apos;s car.</b> Open any section to see what is fitted. The parts are theirs:
+                    the job is the calibration, so nothing here can be changed.</>
+                )}
+              </Panel>
+            )}
+            <BuildLocked.Provider value={inCareer && !buildOpen}>
             <Eyebrow icon={Settings}>Garage</Eyebrow>
-            <p style={{ fontSize: 12.5, color: T.ink2, lineHeight: 1.6, marginTop: 0, marginBottom: 14 }}>
-              Design the car before you tune it. Tap a section to open it — every choice inside changes real physics elsewhere in the sandbox.
-            </p>
+            {!inCareer && (
+              <p style={{ fontSize: 12.5, color: T.ink2, lineHeight: 1.6, marginTop: 0, marginBottom: 14 }}>
+                Design the car before you tune it. Tap a section to open it — every choice inside changes real physics elsewhere in the sandbox.
+              </p>
+            )}
 
             <EngineScreen
               active={buildSection === 'engine'} onToggle={toggleBuildSection}
@@ -1524,11 +1608,12 @@ export function EcuLabApp() {
               active={buildSection === 'exhaust'} onToggle={toggleBuildSection}
               idealExhaustDia={idealExhaustDia}
             />
+            </BuildLocked.Provider>
           </div>
         )}
 
         {/* ---------- TUNE: sub-view switcher for the calibration tables ---------- */}
-        {tab === 'tune' && (
+        {tuneOpen && (
           // flexWrap + a real flex-basis (rather than the old `flex: 1` /
           // flex-basis:0%) so five items wrap to a second row on narrow
           // viewports instead of shrinking below their min-content width and
@@ -1550,16 +1635,18 @@ export function EcuLabApp() {
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
                   {tuneViews.filter((v) => v.row === rowIdx).map((v) => {
                     const on = tuneView === v.id;
-                    const Icon = v.icon;
+                    const locked = inCareer && !pageUnlocked(career, v.id);
+                    const Icon = locked ? Lock : v.icon;
                     const flagged = attention[v.id] ?? 0;
                     return (
                       <button key={v.id} onClick={() => { goSection('tune', v.id); setSelection(null); }}
-                        aria-label={flagged ? `${v.label}, named by ${flagged} ${flagged === 1 ? 'entry' : 'entries'} in the last pull's log` : undefined}
+                        aria-label={locked ? `${v.label}, locked until the shop trains for it`
+                          : flagged ? `${v.label}, named by ${flagged} ${flagged === 1 ? 'entry' : 'entries'} in the last pull's log` : undefined}
                         style={{
                           position: 'relative', flex: '1 1 60px', padding: '9px 0 8px', borderRadius: 10, display: 'flex', flexDirection: 'column',
                           alignItems: 'center', gap: 4, fontWeight: 800, fontSize: 9.5, letterSpacing: 0.3,
                           border: `1px solid ${on ? T.acc : T.line}`, background: on ? T.accBg : rowIdx ? T.panel : T.panel2,
-                          color: on ? T.accInk : T.ink2,
+                          color: on ? T.accInk : locked ? T.ink3 : T.ink2,
                         }}>
                         <Icon size={15} />{v.label}
                         {flagged > 0 && (
@@ -1583,32 +1670,42 @@ export function EcuLabApp() {
           </div>
         )}
 
-        {tab === 'tune' && journeyStep === 1 && (
-          <div style={{ padding: '14px 16px 0' }}>
-            {/* Step 2 is LIVE, which this branch gives its own tab. */}
-            <JourneyBanner step={1} onAdvance={() => { dispatch({ type: ACTIONS.SET_SESSION_FIELD, field: 'journeyStep', value: 2 }); changeTab('live'); }} onDismiss={() => dispatch({ type: ACTIONS.SET_SESSION_FIELD, field: 'journeyStep', value: 99 })} />
-          </div>
-        )}
+        {tuneOpen && lockedPage && (() => {
+          const course = trainingFor(lockedPage);
+          return (
+            <div style={{ padding: 16 }}>
+              <Panel>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13.5, fontWeight: 800, marginBottom: 6 }}>
+                  <Lock size={15} aria-hidden="true" /> Your shop has not learned this yet
+                </div>
+                <div style={{ fontSize: 12.5, color: T.ink2, lineHeight: 1.6, marginBottom: 12 }}>
+                  {course ? <>The <b style={{ color: T.ink }}>{course.title}</b> course opens this page. It is on the shop&apos;s TRAINING board.</> : 'Training opens this page.'}
+                </div>
+                <Button size="sm" onClick={() => changeTab('shop')}>GO TO THE SHOP</Button>
+              </Panel>
+            </div>
+          );
+        })()}
 
-        {tab === 'tune' && tuneView === 'airflow' && (
+        {tunePage && tuneView === 'airflow' && (
           <AirflowScreen veLog={veLog}>
-            <EcuSection embedded section="airflow" title="Air model" icon={Wind} liveVars={liveVars} />
+            {ecuOpen('airflow') ? <EcuSection embedded section="airflow" title="Air model" icon={Wind} liveVars={liveVars} /> : <LockedSettings section="airflow" />}
           </AirflowScreen>
         )}
 
-        {tab === 'tune' && tuneView === 'spark' && (
+        {tunePage && tuneView === 'spark' && (
           <SparkScreen calAdvice={calAdvice}>
-            <EcuSection embedded section="spark" title="Spark corrections & knock control" icon={Zap} liveVars={liveVars} />
+            {ecuOpen('spark') ? <EcuSection embedded section="spark" title="Spark corrections & knock control" icon={Zap} liveVars={liveVars} /> : <LockedSettings section="spark" />}
           </SparkScreen>
         )}
 
-        {tab === 'tune' && tuneView === 'fuel' && (
+        {tunePage && tuneView === 'fuel' && (
           <FuelScreen calAdvice={calAdvice}>
-            <EcuSection embedded section="fuel" title="Fuel strategy & enrichment" icon={Droplets} liveVars={liveVars} />
+            {ecuOpen('fuel') ? <EcuSection embedded section="fuel" title="Fuel strategy & enrichment" icon={Droplets} liveVars={liveVars} /> : <LockedSettings section="fuel" />}
           </FuelScreen>
         )}
 
-        {tab === 'tune' && tuneView === 'injectors' && (
+        {tunePage && tuneView === 'injectors' && (
           <InjectorsScreen dutyPreview={dutyPreview} injectorCc={injectorCc}>
             <div style={{ padding: '0 16px' }}>
               <EcuSection embedded section="injectors" title="Injector settings" icon={Fuel} liveVars={liveVars} />
@@ -1616,7 +1713,7 @@ export function EcuLabApp() {
           </InjectorsScreen>
         )}
 
-        {tab === 'tune' && tuneView === 'sensors' && (
+        {tunePage && tuneView === 'sensors' && (
           <SensorsScreen needsMafRecal={needsMafRecal} chartData={chartData} result={result}>
             <div style={{ padding: '0 16px' }}>
               <EcuSection embedded section="sensors" title="Sensor calibration" icon={Activity} liveVars={liveVars} />
@@ -1624,43 +1721,22 @@ export function EcuLabApp() {
           </SensorsScreen>
         )}
 
-        {tab === 'tune' && ['boost', 'vvt', 'idle', 'protect', 'torque', 'nitrous'].includes(tuneView) && (() => {
+        {tunePage && ['boost', 'vvt', 'idle', 'protect', 'torque', 'nitrous'].includes(tuneView) && (() => {
           const v = TUNE_VIEWS.find((x) => x.id === tuneView);
           const titles = { boost: 'Boost control', vvt: 'Variable cam timing', idle: 'Idle control', protect: 'Engine protection', torque: 'Torque management', nitrous: 'Nitrous control' };
           return <EcuControlScreen section={/** @type {any} */ (tuneView)} title={titles[tuneView]} icon={v.icon} liveVars={liveVars} />;
         })()}
 
         {/* ---------- DYNO: run a pull, then curves / log / datalog / score ---------- */}
-        {tab === 'dyno' && (
+        {tab === 'dyno' && !engineMissing && (!inCareer || career.working) && (
           <div style={{ padding: 16 }}>
-            {journeyStep === 3 && <JourneyBanner step={3} onAdvance={() => { dispatch({ type: ACTIONS.SET_SESSION_FIELD, field: 'journeyStep', value: 4 }); changeTab('drag'); }} onDismiss={() => dispatch({ type: ACTIONS.SET_SESSION_FIELD, field: 'journeyStep', value: 99 })} />}
-            {activeJob != null && (
-              <div style={{
-                background: jobResult === 'pass' ? T.okBg : jobResult === 'fail' ? T.dangerBg : T.panel2,
-                border: `1px solid ${jobResult === 'pass' ? T.okLine : jobResult === 'fail' ? T.dangerLine : T.line}`,
-                borderRadius: 11, padding: '12px 13px', marginBottom: 14,
-              }}>
-                <div style={{
-                  fontSize: 10, letterSpacing: 1, fontWeight: 800,
-                  color: jobResult === 'pass' ? T.ok : jobResult === 'fail' ? T.danger : T.ink2,
-                }}>
-                  {jobResult === 'pass' ? 'JOB COMPLETE' : jobResult === 'fail' ? 'NOT THERE YET' : 'JOB IN PROGRESS'}
-                </div>
-                <div style={{ fontSize: 13, fontWeight: 700, color: T.ink, marginTop: 3 }}>{CAREER_JOBS[activeJob].title}</div>
-                <div style={{ fontSize: 11.5, color: T.ink2, marginTop: 5 }}>Target: {CAREER_JOBS[activeJob].target}</div>
-                {jobResult === 'pass' && (
-                  <div style={{ fontSize: 12, color: T.ink2, lineHeight: 1.5, marginTop: 8, paddingTop: 8, borderTop: `1px solid ${T.line}` }}>
-                    <b style={{ color: T.ok }}>What this job taught: </b>{CAREER_JOBS[activeJob].teaches}
-                  </div>
-                )}
-                {jobResult === 'fail' && (
-                  <div style={{ fontSize: 11.5, color: T.dangerInk, marginTop: 7 }}>
-                    Read the Pull Log below — it names the cause and what to change.
-                  </div>
-                )}
+            <Eyebrow icon={Activity}>{roadTest ? 'Road Test' : 'Dyno Cell'}</Eyebrow>
+            {roadTest && (
+              <div style={{ fontSize: 12, color: T.ink2, lineHeight: 1.55, marginBottom: 10 }}>
+                The shop has no dyno yet, so a pull is a run up through the gears on the road: the wideband and the ECU log
+                everything, but nothing measures power. The shop can buy a dyno.
               </div>
             )}
-            <Eyebrow icon={Activity}>Dyno Cell</Eyebrow>
             <div style={{ fontSize: 12, color: T.ink2, marginBottom: 8, fontWeight: 600 }}>Manifold pressure for the pull (load)</div>
             <Seg label="Manifold pressure for the pull (load)" options={[100, 70, 40].map((l) => ({ label: `${l} kPa`, id: l }))} value={loadKpa} onChange={(v) => dispatch({ type: ACTIONS.SET_SESSION_FIELD, field: 'loadKpa', value: v })} />
             <div style={{ fontSize: 10.5, color: T.ink3, marginTop: 4, marginBottom: 4 }}>
@@ -1691,7 +1767,7 @@ export function EcuLabApp() {
             <div style={{ marginBottom: 16 }}>
               <Button size="lg" onClick={doRun} disabled={running}>
                 <Play size={16} aria-hidden="true" />
-                {!running ? 'RUN DYNO PULL'
+                {!running ? (roadTest ? 'RUN A ROAD TEST' : 'RUN DYNO PULL')
                   : dynoPhase === 'settle' ? 'IDLING…'
                     : dynoPhase === 'sweep' ? 'SWEEPING…'
                       : dynoPhase === 'spooldown' ? 'COMING BACK DOWN…'
@@ -1701,12 +1777,14 @@ export function EcuLabApp() {
 
             {result && (
               <>
-                <div style={{ display: 'flex', gap: 10, marginBottom: 14 }}>
-                  <StatTile label="PEAK WHP" value={result.peakHp} tone="acc" />
-                  <StatTile label="PEAK TQ" value={result.peakTq} unit="lb-ft" tone="alt" />
-                </div>
+                {!roadTest && (
+                  <div style={{ display: 'flex', gap: 10, marginBottom: 14 }}>
+                    <StatTile label="PEAK WHP" value={result.peakHp} tone="acc" />
+                    <StatTile label="PEAK TQ" value={result.peakTq} unit="lb-ft" tone="alt" />
+                  </div>
+                )}
 
-                {runs[1] && !running && (() => {
+                {runs[1] && !running && !roadTest && (() => {
                   const prev = runs[1];
                   const dHp = result.peakHp - prev.peakHp;
                   const dTq = result.peakTq - prev.peakTq;
@@ -1787,7 +1865,7 @@ export function EcuLabApp() {
                 )}
 
                 {!running && dynoView === 'log' && (
-                  <LogScreen />
+                  <LogScreen flagged={result ? cellsNotRunBy(calAdvice.overAdvanced, result, (layout ?? layoutById(null)).timing) : []} />
                 )}
 
                 {!running && dynoView === 'score' && scores && (
@@ -1807,9 +1885,8 @@ export function EcuLabApp() {
             same reason the dyno reveal is: the run needs the audio context and a timer
             that outlives a render. The screen reads the solved run back out of the
             store and draws it. */}
-        {tab === 'drag' && (
+        {tab === 'drag' && !inCareer && !engineMissing && (
           <div style={{ padding: 16 }}>
-            {journeyStep === 4 && <JourneyBanner step={4} onAdvance={() => dispatch({ type: ACTIONS.SET_SESSION_FIELD, field: 'journeyStep', value: 99 })} onDismiss={() => dispatch({ type: ACTIONS.SET_SESSION_FIELD, field: 'journeyStep', value: 99 })} />}
             <DragScreen
               section={dragSection} onToggle={toggleDragSection}
               result={result} engineDerived={engineDerived} onRun={runDrag}
@@ -1820,6 +1897,7 @@ export function EcuLabApp() {
         {/* In the top layer when open, so where it sits in the tree does not matter. */}
         <CommandPalette open={paletteOpen} onClose={closePalette} commands={paletteCommands} />
       </AppShell>
+      </PullTraceContext.Provider>
     </div>
   );
 }
@@ -1835,11 +1913,16 @@ export function EcuLabApp() {
  * gets the same single store the browser does instead of having to reconstruct the
  * app's root providers by hand.
  *
+
+ * `blankStart` is the real app's first launch: SANDBOX opens with no engine chosen. Tests and
+ * the tutorial's demo starts from the Nissan VQ35DE Rev-Up as BUILD loads it.
+ *
+ * @param {{blankStart?: boolean}} props
  * @returns {React.ReactElement}
  */
-export default function EcuLab() {
+export default function EcuLab({ blankStart = false }) {
   return (
-    <StoreProvider>
+    <StoreProvider blank={blankStart}>
       <EcuLabApp />
     </StoreProvider>
   );

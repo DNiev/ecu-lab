@@ -58,10 +58,16 @@ export const DYNO_GEAR = 4;
  * @param {object} [input]
  * @param {{cyl?: number, springRate?: number, camDuration?: number, redline?: number}} [input.derived]
  * @param {{type: string, springPsi: number}} [input.gate]
+ * @param {import('../layouts.js').TableAxes|null} [input.axes] the main tables' breakpoints: the
+ *   RPM- and MAP-indexed tables here use the same engine speeds and (when it is manifold
+ *   pressure) the same load, so they reach as far up the rev range and the boost as the
+ *   main tables do. The old 8 × 6 grid's when absent
  * @returns {object}
  */
-export function defaultEcuCalibration({ derived = {}, gate = { type: 'electronic', springPsi: 7 } } = {}) {
+export function defaultEcuCalibration({ derived = {}, gate = { type: 'electronic', springPsi: 7 }, axes = null } = {}) {
   const cyl = derived.cyl ?? 6;
+  const rpmAx = axes?.rpm ?? RPM;
+  const mapAx = axes && axes.loadUnit === 'kPa' ? [...axes.load].reverse() : MAP_AXIS;
   return {
     version: ECU_CAL_VERSION,
     config: {
@@ -93,7 +99,7 @@ export function defaultEcuCalibration({ derived = {}, gate = { type: 'electronic
       dfcoMinEctC: 45,
       cylTrim: Array.from({ length: cyl }, () => 0),
       bankTrim: [0, 0],
-      comp: map2(RPM, MAP_AXIS, () => 100),
+      comp: map2(rpmAx, mapAx, () => 100),
       targetDelayS: 0,
       clStoichOnly: false,
     },
@@ -108,7 +114,7 @@ export function defaultEcuCalibration({ derived = {}, gate = { type: 'electronic
       iatCorr: curve(IAT_AXIS, () => 0),
       ectCorr: curve(ECT_AXIS, () => 0),
       baroCorr: curve(BARO_AXIS, () => 0),
-      flexAdd: map2(RPM, MAP_AXIS, () => 0),
+      flexAdd: map2(rpmAx, mapAx, () => 0),
       cylTrim: Array.from({ length: cyl }, () => 0),
       crankingDeg: 8,
       decelRetard: 0,
@@ -119,7 +125,7 @@ export function defaultEcuCalibration({ derived = {}, gate = { type: 'electronic
       knockRecoveryDegS: 1.5,
       knockRecoveryDelayS: 0.8,
       knockPerCylinder: true,
-      knockThreshold: curve(RPM, (r) => factoryKnockThresholdV(r, derived)),
+      knockThreshold: curve(rpmAx, (r) => factoryKnockThresholdV(r, derived)),
       knockMinRpm: 0,
       knockMinKpa: 0,
       oilCorr: curve(OIL_AXIS, () => 0),
@@ -128,7 +134,7 @@ export function defaultEcuCalibration({ derived = {}, gate = { type: 'electronic
     },
     airflow: {
       mafTrim: curve(MAF_AXIS, () => 0),
-      camVeCorr: map2(RPM, CAM_AXIS, () => 0),
+      camVeCorr: map2(rpmAx, CAM_AXIS, () => 0),
       pedalMap: curve(PCT_AXIS, (p) => p),
       etbRatePctS: 600,
     },
@@ -137,7 +143,7 @@ export function defaultEcuCalibration({ derived = {}, gate = { type: 'electronic
       throttleScale: curve(PCT_AXIS, (p) => (p * p) / 100),
       gearLimit: curve(GEAR_AXIS, () => 40),
       iatComp: curve(IAT_AXIS, () => 0),
-      baseDuty: map2(RPM, BOOST_AXIS, (_, psi) => dutyForHold(gate, psi).duty),
+      baseDuty: map2(rpmAx, BOOST_AXIS, (_, psi) => dutyForHold(gate, psi).duty),
       kp: 3,
       ki: 5,
       iWindowPsi: 4,
@@ -149,8 +155,8 @@ export function defaultEcuCalibration({ derived = {}, gate = { type: 'electronic
       overboostDelayS: 0.25,
     },
     vvt: {
-      intakeTarget: map2(RPM, MAP_AXIS, () => 0),
-      exhaustTarget: map2(RPM, MAP_AXIS, () => 0),
+      intakeTarget: map2(rpmAx, mapAx, () => 0),
+      exhaustTarget: map2(rpmAx, mapAx, () => 0),
       rateDegS: 150,
       gain: 6,
       minOilC: 20,
@@ -251,7 +257,7 @@ export function defaultEcuCalibration({ derived = {}, gate = { type: 'electronic
     },
     torque: {
       limitByGear: curve(GEAR_AXIS, () => 2000),
-      limitByRpm: curve(RPM, () => 2000),
+      limitByRpm: curve(rpmAx, () => 2000),
       method: 'spark',
       tcEnabled: false,
       tcSlipPct: 12,

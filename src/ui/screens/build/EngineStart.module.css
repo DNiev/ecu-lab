@@ -1,0 +1,36 @@
+/* The empty-sandbox start: prebuilt engines first, then the blank spec form. */
+
+.page { display: flex; flex-direction: column; gap: 18px; padding: 16px; max-width: 720px; margin: 0 auto; }
+
+.title { margin: 0; font-size: var(--fs-lg); font-weight: 800; color: var(--ink); }
+.lead { margin: 0; font-size: var(--fs-base); line-height: 1.6; color: var(--ink2); }
+
+.section { display: flex; flex-direction: column; gap: 12px; }
+.h3 { margin: 0; font-size: var(--fs-md); font-weight: 800; color: var(--ink-soft); }
+
+.group { display: flex; flex-direction: column; gap: 6px; }
+.maker { font-size: var(--fs-xs); font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink3); }
+
+.cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 8px; }
+
+.card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  align-items: flex-start;
+  text-align: left;
+  padding: 11px 13px;
+  color: var(--ink);
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  cursor: pointer;
+}
+
+.card:hover { border-color: var(--acc); background: var(--panel2); }
+.card:focus-visible { outline: 2px solid var(--acc); outline-offset: 2px; }
+
+.name { font-size: var(--fs-base); font-weight: 700; }
+.spec { font-size: var(--fs-xs); color: var(--ink2); }
+
+.formLead { margin: 0 0 12px; font-size: var(--fs-sm); line-height: 1.55; color: var(--ink2); }

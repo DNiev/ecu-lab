@@ -106,7 +106,9 @@ function TimingAdvisory({ report }) {
       return (
         <div className={styles.prose}>
           <CellStats cell={detail.cell} />
-          {detail.cell.knockingOnPull ? 'The engine knocked while it was reading this cell on a full-throttle pull. ' : ''}Past the knock limit the engine is damaging itself. Pull this cell back to the suggested value, or lower.
+          {detail.cell.knockingOnPull ? 'The engine knocked while it was reading this cell on a full-throttle pull. ' : ''}{detail.cell.sparkCannotFix
+            ? 'No spark setting is safe here: even the most retard the table can hold is past the knock limit at the boost this cell sees. Retard alone cannot fix it. Lower the boost at this speed (BOOST, or a torque limit), or run better fuel.'
+            : 'Past the knock limit the engine is damaging itself. Pull this cell back to the suggested value, or lower.'}
         </div>
       );
     case 'cell-past-mbt':
@@ -282,7 +284,7 @@ function VeMath({ cell }) {
   const f = (v) => v.toFixed(3);
   const newVe = cell.table * cell.ratio;
   return (
-    <div className={styles.veMath}>
+    <div className={styles.veMath} data-tour="ve-maths">
       <div className={styles.recTitle}>{cell.rpm} RPM · {cell.load} kPa — {cell.samples} samples</div>
       <dl className={styles.cellStats}>
         <dt>Table VE now</dt><dd>{cell.table.toFixed(1)}%</dd>

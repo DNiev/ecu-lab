@@ -18,14 +18,37 @@ export const RPM = [800, 1500, 2500, 3500, 4500, 5500, 6500, 7500];
  */
 export const LOAD = [200, 150, 100, 70, 40, 20];
 
-/** Stock volumetric efficiency table, percent. */
+/**
+ * The RPM axis per-RPM curves are written on: the boost target, and the airflow the
+ * bolt-ons add. The table grid's own columns, then on to 11,500 RPM, so an engine that
+ * revs past 7500 has a boost target and bolt-on gains of its own up there instead of
+ * the 7500 column's held flat. A curve may still be written on the 8 table columns
+ * alone (every factory curve below 7500 is): `curveAt` reads either.
+ */
+export const CURVE_RPM = [...RPM, 8500, 9500, 10500, 11500];
+
+/**
+ * Stock volumetric efficiency table, percent. Its full-load and boost rows are also the
+ * shape every engine's breathing curve is read from (airflow.js, `baseBreathing`, at speed
+ * scaled to the engine's own VE peak).
+ *
+ * The low-speed end is GM's measured one. Against the full-load rows of 7 distinct stock
+ * GM Gen III calibrations (LS1, LS6, LQ4, LM7, LR4; github.com/BoredTruckOwner/
+ * LS_Based_Engine_Repository, read on the intake-air basis as Pro's benchmark does), a real
+ * engine keeps about 0.76 of its peak VE at a sixth of its peak speed, 0.81 at a third and
+ * 0.83 at a little over half; this curve had 0.57, 0.68 and 0.81, reading 10-20 VE points
+ * low below 2000 RPM on every one of them. From three quarters of the peak speed up the two
+ * agreed and are unchanged. The boost rows carry the same factor at 800, 1500 and 2500 RPM;
+ * the 70, 40 and 20 kPa rows (the default engine's own table) carry it less the overlap
+ * backflow GM's part-load cells show at low speed (airflow.js, OVERLAP_BACKFLOW_LOSS).
+ */
 export const DEFAULT_VE = [
-  [60, 70, 84, 95, 104, 101, 94, 84],
-  [58, 68, 82, 93, 102, 99, 92, 82],
-  [55, 65, 78, 88, 96, 92, 85, 75],
-  [49, 58, 70, 80, 87, 84, 77, 68],
-  [38, 45, 55, 63, 69, 66, 61, 53],
-  [29, 34, 42, 48, 52, 50, 46, 40],
+  [80, 84, 86, 95, 104, 101, 94, 84],
+  [77, 82, 84, 93, 102, 99, 92, 82],
+  [73, 78, 80, 88, 96, 92, 85, 75],
+  [61, 68, 72, 80, 87, 84, 77, 68],
+  [46, 52, 56, 63, 69, 66, 61, 53],
+  [34, 39, 43, 48, 52, 50, 46, 40],
 ];
 
 /**
@@ -47,13 +70,39 @@ export const DEFAULT_VE = [
 export const SPARK_MIN_DEG = -5;
 export const SPARK_MAX_DEG = 50;
 
-/** Stock ignition timing table, degrees BTDC. */
+/**
+ * Stock ignition timing table, degrees BTDC.
+ *
+ * What a factory calibration for a port-injected 10.3:1 engine on 91 octane looks like:
+ * at full load it is KNOCK-limited, not MBT-limited, through the low and middle of the
+ * rev range. The model's own figures at wide open throttle, 1500 to 7500 RPM:
+ *   MBT (least advance for best torque)   19  21.5 23.5 25.5 26.5 28 29
+ *   knock limit on 91                     15  18   20.5 22.5 26.5 31 38
+ * so the full-load row sits about two degrees under the knock limit up to 5500 RPM, and
+ * a degree short of MBT above it, where the faster burn gives the end gas too little
+ * time to light itself. The 70 and 40 kPa rows are each cell's MBT, or the knock limit on
+ * 91 less TUNE's 1.5 degree safety margin where that is lower (rounded down to the half
+ * degree), as TUNE's advisor works them out: at lighter load the end gas runs hotter for
+ * each bar of pressure, where pump fuel's octane index is lower (see octaneIndexK in
+ * cycle.js), so the knock limit binds through the middle of the rev range at 70 kPa. An
+ * earlier 40 kPa row sat past the knock limit at 3500 to 5500 RPM and past MBT elsewhere,
+ * which TUNE flagged on a stock engine while a 100 kPa pull, which never runs that row,
+ * logged it clean. The idle column and the 20 kPa (overrun) row are left as they were. The
+ * boost rows copy the full-load row, as a naturally aspirated factory calibration does; a
+ * boost kit has to take spark out of them.
+ *
+ * October 2026: the breathing curve's low-speed end was corrected to GM's measured one
+ * (DEFAULT_VE), so the engine traps more charge at 800-2500 RPM and knocks sooner there.
+ * The same rule was reapplied and only ever took spark away: the 800 and 1500 RPM columns
+ * at 70 kPa and up, 2500 RPM at full load, and half a degree at 40 kPa where MBT moved.
+ * Lugging at 800 RPM wide open is knock-limited near TDC on 91, as a real 10.3:1 engine is.
+ */
 export const DEFAULT_TIMING = [
-  [10, 14, 20, 26, 30, 32, 33, 34],
-  [10, 14, 20, 26, 30, 32, 33, 34],
-  [10, 14, 20, 26, 30, 32, 33, 34],
-  [14, 22, 28, 33, 36, 37, 38, 39],
-  [16, 30, 36, 40, 42, 43, 43, 43],
+  [0.5, 7.5, 15, 18, 20, 24, 27, 28],
+  [0.5, 7.5, 15, 18, 20, 24, 27, 28],
+  [0.5, 7.5, 15, 18, 20, 24, 27, 28],
+  [-2.5, 8, 20.5, 22.5, 25, 29.5, 31, 32.5],
+  [16, 30, 31.5, 33, 34.5, 36, 37.5, 39],
   [14, 34, 40, 44, 46, 47, 47, 47],
 ];
 
@@ -98,6 +147,7 @@ export const DEFAULT_ENGINE_CONFIG = Object.freeze({
   compression: 10.3,
   blockMaterial: 'Aluminum',
   headMaterial: 'Aluminum',
+  injection: 'port',
   camDuration: 210,
   springRate: 50,
   redline: 7500,

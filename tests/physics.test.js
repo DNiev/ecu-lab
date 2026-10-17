@@ -353,7 +353,9 @@ describe('peak cylinder pressure', () => {
     expect(mild.peakPressure).toBeGreaterThan(0);
     expect(mild.pressureRisk).toBe(false);
     const brutal = point({
-      cfg: { ...STOCK, compression: 12.5 }, fuel: S.OCTANE_OPTS[3],
+      // Direct-injected, so E85's charge cooling holds knock off and pressure is the
+      // variable: port-injected E85 knocks here, and knock retard takes the peak away.
+      cfg: { ...STOCK, compression: 12.5, injection: 'direct' }, fuel: S.OCTANE_OPTS[3],
       mapKpa: S.BARO_KPA + 14 * S.PSI_TO_KPA, veVal: 110, timingVal: 20,
       mods: { ...NO_MODS, intercooler: true, turboFitted: true },
       // E85 at this airflow needs real injectors; the stock 315s would run out of pulse
@@ -443,10 +445,43 @@ describe('dyno sweep', () => {
   });
 
   it('charges the bearings for compression, not only for boost', () => {
+    // Knock-free on E85, so knock retard does not take the pressure peak away and
+    // compression is the only thing that differs.
     const boostCurve = [0, 2, 8, 12, 14, 14, 14, 14];
-    const low = stockPull({ cfg: { ...STOCK, compression: 9.0 }, turboOn: true, boostCurve });
-    const high = stockPull({ cfg: { ...STOCK, compression: 12.5 }, turboOn: true, boostCurve });
+    const common = {
+      mods: { ...S.DEFAULT_MODS, intercooler: true }, turboOn: true, boostCurve,
+      injectorCc: 850, ecuInjectorCc: 850, sweep: { fuel: S.OCTANE_OPTS[3], octaneLabel: 'E85' },
+    };
+    // Direct-injected: port-injected E85 does not get the charge cooling to stay
+    // knock-free at 12.5:1 on this boost.
+    const low = stockPull({ ...common, cfg: { ...STOCK, compression: 9.0, injection: 'direct' } });
+    const high = stockPull({ ...common, cfg: { ...STOCK, compression: 12.5, injection: 'direct' } });
+    expect(high.wear.bearing).toBeGreaterThan(0);
     expect(high.wear.bearing).toBeGreaterThan(low.wear.bearing);
+  });
+
+  it('carries a factory turbo engine on its factory tune, and charges it when tuned past that', () => {
+    // A bottom end is designed for its own service pressure: a stock B58 is not wearing
+    // itself out on its factory tune, and a naturally aspirated bottom end under the same
+    // boost is.
+    const b58 = S.presetById('b58-m1');
+    const p = S.applyPreset(b58);
+    const pull = (engineConfig, { boost = 0, spark = 0, fuel = S.OCTANE_OPTS[p.octaneIdx] } = {}) => stockPull({
+      cfg: engineConfig, turboOn: true, boostCurve: p.boostCurve.map((b) => b + boost),
+      mods: p.mods, injectorCc: 1000, ecuInjectorCc: 1000,
+      sweep: {
+        ve: p.ve, veTruth: p.ve, layout: p.layout, afr: p.afr, fuel, octaneLabel: fuel.label, octaneBonus: fuel.bonus,
+        timing: p.timing.map((row, ri) => row.map((v) => ((p.layout?.timing.load ?? S.LOAD)[ri] > 100 ? v + spark : v))),
+        mafScalar: p.mafScalar, turbine: S.presetTurbine(b58), compressor: S.presetCompressor(b58),
+      },
+    });
+    expect(pull(p.engineConfig).wear.bearing).toBe(0);
+    expect(pull(p.engineConfig).events.some((e) => e.type === 'bearing')).toBe(false);
+    const naBottomEnd = { ...p.engineConfig, boostRatedBottomEnd: false };
+    expect(pull(naBottomEnd).wear.bearing).toBeGreaterThan(0);
+    // Tuned past it the way a B58 is: more boost AND the spark to use it, on E85. Boost
+    // alone on the factory 93 spark table is held back by knock control.
+    expect(pull(p.engineConfig, { boost: 8, spark: 6, fuel: S.OCTANE_OPTS[3] }).wear.bearing).toBeGreaterThan(0);
   });
 
   it('leaves a stock naturally aspirated pull essentially free of bearing wear', () => {
@@ -456,8 +491,8 @@ describe('dyno sweep', () => {
   });
 
   it('raises the overload event only once the parts are actually over their limit', () => {
-    // Both builds run E85 through big injectors with an intercooler, so KNOCK is held
-    // roughly constant and compression-on-boost is the only variable. Without that the
+    // Both builds run E85, direct-injected, through big injectors with an intercooler,
+    // so KNOCK is held roughly constant and compression-on-boost is the only variable. Without that the
     // comparison is meaningless: the "sane" build on 91 octane knocks so hard that knock
     // wear swamps the pressure wear this test is about.
     const common = {
@@ -465,11 +500,11 @@ describe('dyno sweep', () => {
       turboOn: true, injectorCc: 850, ecuInjectorCc: 850,
       sweep: { fuel: S.OCTANE_OPTS[3], octaneLabel: 'E85' },
     };
-    const sane = stockPull({ ...common, boostCurve: [0, 2, 6, 8, 8, 8, 8, 8] });
+    const sane = stockPull({ ...common, cfg: { ...STOCK, injection: 'direct' }, boostCurve: [0, 2, 6, 8, 8, 8, 8, 8] });
     expect(sane.events.some((e) => e.type === 'pressure')).toBe(false);
     const overloaded = stockPull({
       ...common,
-      cfg: { ...STOCK, compression: 12.5 },
+      cfg: { ...STOCK, compression: 12.5, injection: 'direct' },
       boostCurve: [0, 4, 12, 16, 18, 18, 18, 18],
     });
     expect(overloaded.events.some((e) => e.type === 'pressure')).toBe(true);
@@ -529,7 +564,7 @@ describe('dyno sweep', () => {
       turboOn: true, boostCurve: [0, 2, 8, 12, 14, 14, 14, 14],
     }],
     ['pressure', (p) => p.pressureRisk, {
-      cfg: { ...STOCK, compression: 12.5 },
+      cfg: { ...STOCK, compression: 12.5, injection: 'direct' }, // E85's cooling needs DI to stay knock-free
       turboOn: true, boostCurve: [0, 4, 12, 18, 20, 20, 20, 20],
       injectorCc: 850, ecuInjectorCc: 850,
       mods: { ...S.DEFAULT_MODS, intercooler: true },
@@ -573,11 +608,51 @@ describe('dyno sweep', () => {
     expect(e.rpmEnd).toBe(run[run.length - 1].rpm);
   });
 
+  it('knock the ECU only imagined does not wear the pistons', () => {
+    // A big cam and stiff springs make valvetrain noise the factory knock threshold reads
+    // as knock, so the controller retards for nothing. That costs power; it hammers
+    // nothing. With the ECU in the loop and the mixture right, the only wear left should
+    // be the ordinary bearing load of a pull.
+    const cfg = { ...STOCK, camDuration: 268, springRate: 78 };
+    const derived = S.deriveEngine(cfg);
+    const veTruth = S.computeHardwareVE(cfg, S.DEFAULT_MODS, { turboOn: false, turbine: null, exhaustDia: 3.0, fuel: S.OCTANE_OPTS[0] });
+    const r = S.simulateSweep({
+      loadKpa: 100, ve: veTruth, veTruth, timing: S.clone2D(S.DEFAULT_TIMING), afr: S.clone2D(S.DEFAULT_AFR),
+      turboOn: false, boostCurve: [...S.DEFAULT_BOOST], octaneBonus: 0, octaneLabel: '91', fuel: S.OCTANE_OPTS[0],
+      injectorCc: 315, ecuInjectorCc: 315, injectorLabel: '315cc', mods: S.DEFAULT_MODS, mafScalar: 1.0, derived,
+      turbine: S.TURBINE_OPTS[1], compressor: S.COMPRESSOR_OPTS[1],
+      ecu: {
+        cal: S.defaultEcuCalibration({ derived: S.deriveEngine(STOCK) }),
+        hw: { ...S.ecuHardwareOf({ ...S.DEFAULT_ECU_HW, turboOn: false }), veTruthByPhase: S.veTruthByPhaseFor(cfg, S.DEFAULT_MODS, { turboOn: false, turbine: null, exhaustDia: 3.0, fuel: S.OCTANE_OPTS[0] }) },
+        cond: S.dynoConditions(),
+      },
+    });
+    expect(r.events.some((e) => e.type === 'falseknock')).toBe(true);
+    expect(r.events.some((e) => e.type === 'knock')).toBe(false);
+    expect(r.wear.piston).toBe(0);
+  });
+
+  it('a MAF that under-reads is reported as LEAN, with the scalar that cancels it', () => {
+    // A bigger intake housing makes the MAF read about 10% low. The ECU then fuels for
+    // less air than there is: the mixture goes lean, and the log has to say so.
+    const r = stockPull({ mods: { ...S.DEFAULT_MODS, intake: true } });
+    const e = r.events.find((ev) => ev.type === 'maf');
+    const p = r.points.find((q) => q.mafFlag);
+    expect(p.trimPct).toBeLessThan(0);
+    expect(p.afr / p.afrCommanded).toBeGreaterThan(1.05);
+    expect(e.msg).toMatch(/low .* running lean$/);
+    expect(e.fix).toMatch(/raise the MAF scalar from 1\.00 to about 1\.1\d, which cancels this/);
+  });
+
   it('leaves the three whole-pull findings unlocated', () => {
     // The other half of the pair. injscale, cam and bearing are true everywhere, so
     // a band for them would be a lie about where they apply.
     const r = stockPull({
-      cfg: { ...STOCK, camDuration: 290, springRate: 20, compression: 13.5 },
+      // Direct-injected and intercooled, for the same reason it runs E85 below: the
+      // pressure has to arrive. At 25 psi through no intercooler the charge is hot enough
+      // that knock control holds the average near 64 bar, under the 66 bar advisory.
+      cfg: { ...STOCK, camDuration: 290, springRate: 20, compression: 13.5, injection: 'direct' },
+      mods: { ...S.DEFAULT_MODS, intercooler: true },
       turboOn: true, boostCurve: [18, 25, 25, 25, 25, 25, 25, 25],
       // A LARGE turbine, because this fixture has to make bearing-threatening cylinder
       // pressure and a medium housing no longer does at 25 psi. Now that the VE model
@@ -587,6 +662,11 @@ describe('dyno sweep', () => {
       // that boost. The fixture matches what the build would actually be.
       turbine: S.TURBINE_OPTS[2],
       injectorCc: 400, ecuInjectorCc: 315,
+      // On E85, because on 91 the knock control pulls so much timing out of 13.5:1 at
+      // 25 psi that the pressure averages only 62 bar, under the bottom-end advisory's
+      // 66. The ethanol's knock margin lets the pressure the fixture exists to make
+      // arrive (about 75 bar).
+      sweep: { fuel: S.OCTANE_OPTS[3], octaneLabel: S.OCTANE_OPTS[3].label, octaneBonus: S.OCTANE_OPTS[3].bonus },
     });
     for (const type of ['injscale', 'cam', 'bearing']) {
       const e = r.events.find((ev) => ev.type === type);
@@ -732,6 +812,18 @@ describe('the engine cycle', () => {
       .toBeGreaterThan(cyc({ derived: S.deriveEngine({ ...STOCK, bore: 80 }) }).burnDeg);
   });
 
+  it('burns faster with a second spark plug, and leaves one-plug engines exactly as they were', () => {
+    const one = S.deriveEngine(STOCK);
+    const two = S.deriveEngine({ ...STOCK, sparkPlugs: 2 });
+    expect(S.deriveEngine({ ...STOCK, sparkPlugs: 1 }).boreFlameFactor).toBe(one.boreFlameFactor);
+    expect(two.boreFlameFactor / one.boreFlameFactor).toBeCloseTo(1 / Math.SQRT2, 10);
+    const burnOne = cyc({ derived: one });
+    const burnTwo = cyc({ derived: two });
+    expect(burnTwo.burnDeg).toBeLessThan(burnOne.burnDeg);
+    // A faster burn reaches best-torque phasing with less advance.
+    expect(S.mbtFromBurn(burnTwo.burnDeg)).toBeLessThan(S.mbtFromBurn(burnOne.burnDeg));
+  });
+
   it('finds a knock limit that falls as compression rises', () => {
     const low = S.knockLimitedSpark(cyc({ derived: S.deriveEngine({ ...STOCK, compression: 9.0 }) }));
     const high = S.knockLimitedSpark(cyc({ derived: S.deriveEngine({ ...STOCK, compression: 12.5 }) }));
@@ -860,11 +952,11 @@ describe('engine configuration and friction', () => {
     // Architectural fact, not a preference: I6 = 7 mains, V6 = 4.
     expect(S.MAIN_BEARINGS.I6).toBe(7);
     expect(S.MAIN_BEARINGS.V6).toBe(4);
-    expect(at('I6').bearingFmepPa).toBeGreaterThan(at('V6').bearingFmepPa);
+    const mains = (d) => S.rubbingFmepParts(6000, 0, d).parts.mainBearings;
+    expect(mains(at('I6'))).toBeGreaterThan(mains(at('V6')));
   });
 
-  it('leaves the V6 baseline at zero so existing builds do not move', () => {
-    expect(at('V6').bearingFmepPa).toBe(0);
+  it('charges no balance shafts on a V6', () => {
     expect(at('V6').balanceShaftFrac).toBe(0);
   });
 
@@ -878,23 +970,59 @@ describe('engine configuration and friction', () => {
     expect(S.hasBalanceShafts('I4', 1.2)).toBe(false);
   });
 
-  it('makes an inline six cost slightly more friction than a V6 of equal size', () => {
-    const i6 = at('I6');
-    const v6 = at('V6');
-    const arch = (d) => ({ bearingFmepPa: d.bearingFmepPa, balanceShaftFrac: d.balanceShaftFrac });
-    expect(S.rubbingFmepPa(6000, 0, arch(i6))).toBeGreaterThan(S.rubbingFmepPa(6000, 0, arch(v6)));
-  });
-
-  it('keeps the friction penalty small enough to be a trade-off, not a verdict', () => {
-    const i6 = at('I6');
-    const arch = { bearingFmepPa: i6.bearingFmepPa, balanceShaftFrac: i6.balanceShaftFrac };
-    const penalty = S.rubbingFmepPa(6000, 0, arch) / S.rubbingFmepPa(6000, 0) - 1;
-    expect(penalty).toBeGreaterThan(0.02);
+  it('makes an inline six cost slightly more friction than a V6 of equal size, a trade-off not a verdict', () => {
+    const penalty = S.rubbingFmepPa(6000, 0, at('I6')) / S.rubbingFmepPa(6000, 0, at('V6')) - 1;
+    expect(penalty).toBeGreaterThan(0);
     expect(penalty).toBeLessThan(0.20);
   });
 
-  it('defaults to no architecture penalty when none is supplied', () => {
-    expect(S.rubbingFmepPa(6000, 0)).toBe(S.rubbingFmepPa(6000, 0, { bearingFmepPa: 0, balanceShaftFrac: 0 }));
+  it('defaults to the reference V6 when no geometry is supplied', () => {
+    expect(S.rubbingFmepPa(6000, 0)).toBeCloseTo(S.rubbingFmepPa(6000, 0, at('V6')), 6);
+  });
+
+  it('rises with speed the way measured engines do, not as a nearly flat line', () => {
+    // GM's own friction model for its 2002 LM7 (OS 12212156) rises from about 134 kPa at
+    // 2000 rpm to 229 kPa at 5200: about 1.7 times. A straight 45 kPa + 6.5 Pa/rpm, the
+    // simulator's old figure, rose 1.3 times.
+    const d = at('V8', { bore: 96.01, stroke: 92, compression: 9.5, valvetrain: 'ohv', valvesPerCyl: 2, follower: 'roller' });
+    expect(S.rubbingFmepPa(5200, 0, d) / S.rubbingFmepPa(2000, 0, d)).toBeGreaterThan(1.5);
+  });
+
+  it('charges followers per valve, so a four-valve head pays twice a two-valve one', () => {
+    const f = (valvesPerCyl) => S.rubbingFmepParts(5000, 0, at('V8', { valvesPerCyl })).parts.follower;
+    expect(f(4) / f(2)).toBeCloseTo(2, 9);
+  });
+
+  it('gives a pushrod V8 fewer cam bearings than an overhead-cam one', () => {
+    const v8 = (valvetrain) => S.frictionGeometry(at('V8', { valvetrain })).camBearings;
+    expect(v8('ohv')).toBe(5);
+    expect(v8('dohc')).toBe(20);
+    expect(v8('sohc')).toBe(10);
+  });
+});
+
+describe('valve count and valve size', () => {
+  const at = (over = {}) => S.deriveEngine({ ...STOCK, ...over });
+
+  it('leaves a four-valve head with typical valves exactly where the breathing terms were fitted', () => {
+    expect(at().valveAreaRatio).toBeCloseTo(1, 9);
+    expect(at({ valvesPerCyl: 4 }).intakeValves).toBe(2);
+  });
+
+  it('gives a typical two-valve wedge less intake valve area, so it chokes at a lower piston speed', () => {
+    const two = at({ valvesPerCyl: 2, valvetrain: 'ohv' });
+    expect(two.intakeValves).toBe(1);
+    expect(two.valveAreaRatio).toBeLessThan(0.85);
+    const z4 = S.inletMachIndex(95.5, 81.4, 6500, undefined, at().valveAreaRatio);
+    const z2 = S.inletMachIndex(95.5, 81.4, 6500, undefined, two.valveAreaRatio);
+    expect(z2).toBeGreaterThan(z4);
+  });
+
+  it('credits a big single valve, as a GM LS head has, with nearly four-valve area', () => {
+    // LS1: one 50.8 mm intake valve in a 99 mm bore (GM).
+    const ls = at({ bore: 99, valvesPerCyl: 2, intakeValveMm: 50.8 });
+    expect(ls.valveAreaRatio).toBeGreaterThan(0.95);
+    expect(ls.valveAreaRatio).toBeLessThan(1.05);
   });
 });
 
@@ -961,13 +1089,13 @@ describe('the inlet Mach index', () => {
       if (p.turboOn) continue;                       // a boost curve places these itself
       const derived = S.deriveEngine(p.engineConfig);
       const r = S.simulateSweep({
-        loadKpa: 100, ve: p.ve, veTruth: p.ve, timing: p.timing, afr: p.afr,
+        loadKpa: 100, ve: p.ve, veTruth: p.ve, layout: p.layout, timing: p.timing, afr: p.afr,
         turboOn: false, boostCurve: p.boostCurve,
         octaneBonus: S.OCTANE_OPTS[p.octaneIdx].bonus, octaneLabel: 'x',
         fuel: S.OCTANE_OPTS[p.octaneIdx], injectorCc: S.INJECTOR_OPTS[p.injIdx].cc,
-        ecuInjectorCc: p.ecuInjectorCc, injectorLabel: 'x', mods: p.mods, mafScalar: 1,
+        ecuInjectorCc: p.ecuInjectorCc, injectorLabel: 'x', mods: p.mods, mafScalar: p.mafScalar,
         derived, turbine: S.presetTurbine(preset),
-        compressor: S.COMPRESSOR_OPTS[p.compressorIdx],
+        compressor: S.presetCompressor(preset),
       });
       const peakHp = Math.max(...r.points.map((x) => x.hp));
       const peakRpm = Math.max(...r.points.filter((x) => x.hp === peakHp).map((x) => x.rpm));
@@ -1060,9 +1188,11 @@ describe('the spark advisor', () => {
   });
 
   it('never recommends more advance than a production table could hold', () => {
+    // The table's own range (SPARK_MIN_DEG..SPARK_MAX_DEG). Lugging at 800 RPM wide open
+    // is knock-limited near TDC on 91, so the floor is the table's, not 5 degrees.
     for (const c of advice().spark) {
-      expect(c.suggested).toBeLessThanOrEqual(50);
-      expect(c.suggested).toBeGreaterThanOrEqual(5);
+      expect(c.suggested).toBeLessThanOrEqual(S.SPARK_MAX_DEG);
+      expect(c.suggested).toBeGreaterThanOrEqual(S.SPARK_MIN_DEG);
     }
   });
 
@@ -1095,15 +1225,19 @@ describe('the spark advisor', () => {
     expect(over.size + past.size).toBe(tooMuch.length);
   });
 
-  it('reports the stock light-load cells as past peak torque, not as knock risk', () => {
-    // The stock table runs 40-47 deg at 20 kPa where MBT is in the low 40s, so a few
-    // of those cells genuinely are past MBT — but the knock limit there is over 100,
-    // so none of them are dangerous.
+  it('reports light-load cells past peak torque as wasted advance, not as knock risk', () => {
+    // The stock table sits at or under MBT everywhere, so the cells are put past it here:
+    // 2.5 degrees over MBT wherever the knock limit leaves at least 4 degrees above MBT.
+    // There they genuinely are past MBT and nowhere near knock.
     //
     // Assert on `knocking`, which comes from the physics, NOT on how pastMbt was
     // built. An earlier version of this test asserted the classification flag against
     // itself and so could never fail, which hid a real inversion.
-    const a = advice();
+    const timing = S.DEFAULT_TIMING.map((row) => [...row]);
+    for (const c of advice().spark) {
+      if (!c.bracketOnly && c.knockCeiling - c.mbt >= 4) timing[c.ri][c.ci] = Math.round((c.mbt + 2.5) * 2) / 2;
+    }
+    const a = advice({ timing });
     expect(a.pastMbt.length).toBeGreaterThan(0);
     for (const c of a.pastMbt) expect(c.knocking).toBe(false);
   });
@@ -1125,13 +1259,13 @@ describe('the spark advisor', () => {
   function factoryAdvice(preset) {
     const p = S.applyPreset(preset);
     return S.calibrationAdvice({
-      ve: p.ve, veTruth: p.ve, timing: p.timing, afr: p.afr,
+      ve: p.ve, veTruth: p.ve, layout: p.layout, timing: p.timing, afr: p.afr,
       derived: S.deriveEngine(p.engineConfig), fuel: S.OCTANE_OPTS[p.octaneIdx],
       mods: p.mods, turboOn: p.turboOn, boostCurve: p.boostCurve,
-      compressor: S.COMPRESSOR_OPTS[p.compressorIdx],
+      compressor: S.presetCompressor(preset),
       turbine: S.presetTurbine(preset),
       injectorCc: S.INJECTOR_OPTS[p.injIdx].cc, ecuInjectorCc: p.ecuInjectorCc,
-      mafScalar: 1, mafErrorBase: S.mafErrorFactor(p.mods, p.turboOn),
+      mafScalar: p.mafScalar, mafErrorBase: S.mafErrorFactor(p.mods, p.turboOn),
     });
   }
 
@@ -1185,13 +1319,13 @@ describe('the spark advisor', () => {
     const preset = S.ENGINE_PRESETS.find((p) => p.id === 'vq35hr');
     const p = S.applyPreset(preset);
     const a = S.calibrationAdvice({
-      ve: p.ve, veTruth: p.ve, timing: p.timing,
+      ve: p.ve, veTruth: p.ve, layout: p.layout, timing: p.timing,
       afr: p.afr.map((row) => row.map((v) => v + 1.5)),
       derived: S.deriveEngine(p.engineConfig), fuel: S.OCTANE_OPTS[p.octaneIdx],
       mods: p.mods, turboOn: p.turboOn, boostCurve: p.boostCurve,
-      compressor: S.COMPRESSOR_OPTS[p.compressorIdx], turbine: S.presetTurbine(preset),
+      compressor: S.presetCompressor(preset), turbine: S.presetTurbine(preset),
       injectorCc: S.INJECTOR_OPTS[p.injIdx].cc, ecuInjectorCc: p.ecuInjectorCc,
-      mafScalar: 1, mafErrorBase: S.mafErrorFactor(p.mods, p.turboOn),
+      mafScalar: p.mafScalar, mafErrorBase: S.mafErrorFactor(p.mods, p.turboOn),
     });
     expect(a.wrongMix.length).toBeGreaterThan(0);
     for (const c of a.wrongMix) expect(c.delta).toBeCloseTo(-1.5, 1);
@@ -1257,7 +1391,11 @@ describe('spark advice survives interpolation', () => {
         for (const intercooler of [false, true]) {
           for (const loadKpa of [S.BARO_KPA, 70, 40]) {
             const r = followAdviceAndSweep({ psi, octIdx, intercooler, loadKpa });
-            const knocking = r.points.filter((p) => p.knock);
+            // Only where spark CAN answer it: a limit within the advisor's 1.5° of safety of
+            // the most retard a table holds needs cooling, octane or less boost instead (14
+            // psi on 91 through no intercooler puts this 10.3:1 engine's charge near 120 °C
+            // and its limit past TDC).
+            const knocking = r.points.filter((p) => p.knock && p.threshold >= S.SPARK_MIN_DEG + 1.5);
             expect(
               knocking.length,
               `following the spark advice still knocked at ${psi} psi on `
@@ -1302,12 +1440,12 @@ describe('spark advice survives interpolation', () => {
     for (const preset of S.ENGINE_PRESETS) {
       const p = S.applyPreset(preset);
       const a = S.calibrationAdvice({
-        ve: p.ve, veTruth: p.ve, timing: p.timing, afr: p.afr,
+        ve: p.ve, veTruth: p.ve, layout: p.layout, timing: p.timing, afr: p.afr,
         derived: S.deriveEngine(p.engineConfig), fuel: S.OCTANE_OPTS[p.octaneIdx],
         mods: p.mods, turboOn: p.turboOn, boostCurve: p.boostCurve,
-        compressor: S.COMPRESSOR_OPTS[p.compressorIdx], turbine: S.presetTurbine(preset),
+        compressor: S.presetCompressor(preset), turbine: S.presetTurbine(preset),
         injectorCc: S.INJECTOR_OPTS[p.injIdx].cc, ecuInjectorCc: p.ecuInjectorCc,
-        mafScalar: 1, mafErrorBase: S.mafErrorFactor(p.mods, p.turboOn),
+        mafScalar: p.mafScalar, mafErrorBase: S.mafErrorFactor(p.mods, p.turboOn),
       });
       expect(a.overAdvanced, `${preset.id} overAdvanced`).toHaveLength(0);
       expect(a.pastMbt, `${preset.id} pastMbt`).toHaveLength(0);
@@ -1341,11 +1479,11 @@ describe('exhaust gas temperature', () => {
     for (const preset of S.ENGINE_PRESETS) {
       const p = S.applyPreset(preset);
       const r = S.simulateSweep({
-        loadKpa: 100, ve: p.ve, veTruth: p.ve, timing: p.timing, afr: p.afr,
+        loadKpa: 100, ve: p.ve, veTruth: p.ve, layout: p.layout, timing: p.timing, afr: p.afr,
         turboOn: p.turboOn, boostCurve: p.boostCurve, fuel: S.OCTANE_OPTS[p.octaneIdx],
         injectorCc: S.INJECTOR_OPTS[p.injIdx].cc, ecuInjectorCc: p.ecuInjectorCc,
-        mods: p.mods, mafScalar: 1, derived: S.deriveEngine(p.engineConfig),
-        turbine: S.presetTurbine(preset), compressor: S.COMPRESSOR_OPTS[p.compressorIdx],
+        mods: p.mods, mafScalar: p.mafScalar, derived: S.deriveEngine(p.engineConfig),
+        turbine: S.presetTurbine(preset), compressor: S.presetCompressor(preset),
       });
       for (const pt of r.points) {
         expect(pt.egtRisk, `${preset.name} at ${pt.rpm} RPM reads ${pt.egt} C`).toBe(false);

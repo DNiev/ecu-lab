@@ -20,9 +20,16 @@
  */
 
 import { ChevronDown } from 'lucide-react';
-import React from 'react';
+import React, { createContext, useContext } from 'react';
 
 import { T, accAlpha } from '../theme.js';
+
+/**
+ * True while every section's controls are read-only: CAREER's BUILD, where the car is
+ * the customer's and the job is to inspect it, not to change it. The headers still
+ * open and close; only what is inside them is disabled (a `<fieldset disabled>`).
+ */
+export const BuildLocked = createContext(false);
 
 /**
  * @param {object} props
@@ -35,6 +42,7 @@ import { T, accAlpha } from '../theme.js';
  * @returns {React.ReactElement}
  */
 export function BuildSection({ active, onClick, icon: Icon, label, sub, children }) {
+  const locked = useContext(BuildLocked);
   return (
     <div style={{ marginBottom: 9 }}>
       <button onClick={onClick} style={{
@@ -57,7 +65,9 @@ export function BuildSection({ active, onClick, icon: Icon, label, sub, children
           was opened past it. The easing differs by direction so a close still starts
           at once instead of spending most of its time above the content's real height. */}
       <div style={{ maxHeight: active ? 20000 : 0, opacity: active ? 1 : 0, overflow: 'hidden', transition: active ? 'max-height .6s ease-in, opacity .25s ease' : 'max-height .35s cubic-bezier(0, 1, 0, 1), opacity .25s ease' }}>
-        <div style={{ padding: '13px 2px 2px' }}>{children}</div>
+        <div style={{ padding: '13px 2px 2px' }}>
+          {locked ? <fieldset disabled style={{ border: 0, margin: 0, padding: 0, minWidth: 0 }}>{children}</fieldset> : children}
+        </div>
       </div>
     </div>
   );

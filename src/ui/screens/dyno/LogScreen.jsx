@@ -9,17 +9,24 @@ import React, { useEffect, useRef } from 'react';
 
 import { AlertTriangle, ArrowUpRight } from 'lucide-react';
 
+import { LOAD } from '../../../sim/index.js';
 import { Eyebrow } from '../../primitives/Eyebrow.jsx';
 import { useSession } from '../../state/StoreProvider.jsx';
 import { coversRpm, eventTone } from '../../components/eventBands.js';
 import { fixLinks } from '../../components/fixLinks.js';
+import { fixStep, inFixOrder } from '../../components/fixOrder.js';
 
 import styles from './LogScreen.module.css';
 
 /**
+ * @param {object} props
+ * @param {{ri: number, ci: number}[]} [props.flagged] the cells TUNE's advisor says are past the
+ *   knock limit that this pull did not run (`cellsNotRunBy`). A pull only runs the tables along
+ *   its own load, so a clean pull and a flagged cell are both true; the log says so rather than
+ *   leaving the two screens to contradict.
  * @returns {React.ReactElement}
  */
-export function LogScreen() {
+export function LogScreen({ flagged = [] }) {
   const [session] = useSession();
   const { result, logFocusRpm } = session;
 
@@ -41,10 +48,26 @@ export function LogScreen() {
       {result.events.length === 0 ? (
         <div className={styles.clean}>
           Clean pull — no knock, fueling, or trim issues across the sweep.
+          {flagged.length > 0 && (() => {
+            const loads = [...new Set(flagged.map((c) => LOAD[c.ri]))].sort((a, b) => b - a);
+            return (
+              <div className={styles.cleanNote} data-testid="log-flagged-elsewhere">
+                This pull ran at {result.loadKpa ?? session.loadKpa} kPa. TUNE still flags {flagged.length} spark cell{flagged.length === 1 ? '' : 's'} past
+                the knock limit at {loads.join(' and ')} kPa, which a pull at that load will test.{' '}
+                {fixLinks('TUNE › SPARK').map((l) => <a key={l.href} href={l.href} className={styles.eventLink}>{l.label}</a>)}
+              </div>
+            );
+          })()}
         </div>
       ) : (
         <div className={styles.events}>
-          {result.events.map((e, i) => {
+          {result.events.length > 1 && (
+            <div className={styles.order} data-testid="log-order">
+              Listed in the order a tuner fixes them: setup, then fuel, then spark, then boost. Each step changes what the next one reads, so fix the top entry and pull again.
+            </div>
+          )}
+          {inFixOrder(result.events).map((e, i) => {
+            const step = fixStep(e.type);
             const tone = eventTone(e);
             const focused = coversRpm(e, logFocusRpm);
             let ref;
@@ -60,19 +83,22 @@ export function LogScreen() {
                 data-tone={tone}
                 data-focused={String(focused)}
               >
-                <div className={styles.eventHead}>
+                <div className={styles.eventHead} data-tour="log-title">
                   <div className={styles.eventTitle}>
                     <AlertTriangle size={14} className={styles.eventIcon} />
-                    <span>{e.msg}</span>
+                    <span>
+                      <span className={styles.eventStep} data-step={step.id}>{step.index} · {step.label}</span>
+                      {e.msg}
+                    </span>
                   </div>
                   {e.impact != null && <span className={styles.eventImpact}>-{e.impact}</span>}
                 </div>
-                {e.cause && <div className={styles.eventCause}><b className={styles.eventLabel}>Why: </b>{e.cause}</div>}
-                {e.fix && <div className={styles.eventFix}><b className={styles.eventLabel}>Try: </b>{e.fix}</div>}
+                {e.cause && <div className={styles.eventCause} data-tour="log-why"><b className={styles.eventLabel}>Why: </b>{e.cause}</div>}
+                {e.fix && <div className={styles.eventFix} data-tour="log-try"><b className={styles.eventLabel}>Try: </b>{e.fix}</div>}
                 {/* Crosslinks: the screens the fix names, one tap away rather than found
                     by name. */}
                 {fixLinks(e.fix).length > 0 && (
-                  <div className={styles.eventLinks}>
+                  <div className={styles.eventLinks} data-tour="log-links">
                     {fixLinks(e.fix).map((l) => (
                       <a key={l.href} href={l.href} className={styles.eventLink}>
                         {l.label}<ArrowUpRight size={12} aria-hidden="true" />

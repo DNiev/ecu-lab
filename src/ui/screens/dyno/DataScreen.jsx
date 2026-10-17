@@ -12,7 +12,7 @@ import React from 'react';
 
 import { Grid3x3, Info } from 'lucide-react';
 
-import { clamp, LOAD, presetById, RPM, SWEEP_STEP_RPM, veCorrections, veSamplesFromPull } from '../../../sim/index.js';
+import { clamp, layoutById, presetById, SWEEP_STEP_RPM, veCorrections, veSamplesFromPull } from '../../../sim/index.js';
 import { ExpandableInfo } from '../../components/ExpandableInfo.jsx';
 import { downloadCsv, dynoSheetFilename, sweepToCsv } from '../../components/dynoCsv.js';
 import { eventBands } from '../../components/eventBands.js';
@@ -22,7 +22,7 @@ import { Button } from '../../primitives/Button.jsx';
 import { Eyebrow } from '../../primitives/Eyebrow.jsx';
 import { StatTile } from '../../primitives/StatTile.jsx';
 import { ACTIONS } from '../../state/reducer.js';
-import { useBuild, useSession, useTune } from '../../state/StoreProvider.jsx';
+import { useBuild, useRoadTest, useSession, useTune } from '../../state/StoreProvider.jsx';
 import { deltaHeat, T, utilisationTone } from '../../theme.js';
 
 import styles from './DataScreen.module.css';
@@ -83,6 +83,7 @@ export function DataScreen() {
   const { result, histogram } = session;
   const [tune] = useTune();
   const [build] = useBuild();
+  const roadTest = useRoadTest();
 
   /**
    * The pull, as a file.
@@ -96,6 +97,8 @@ export function DataScreen() {
     downloadCsv(sweepToCsv(result.points), dynoSheetFilename({ engineName: name }));
   };
   const { ve } = tune;
+  // The VE table's breakpoints (sim/layouts.js): the histogram bins onto the cells it corrects.
+  const veAxes = layoutById(tune.layout).ve;
   const { logFocusRpm } = session;
   // Local, not session state. The store is one useReducer behind one context, so every
   // dispatch re-renders every consumer — the reason LiveScreen is its own file. A drag
@@ -165,7 +168,7 @@ export function DataScreen() {
   // swallowed MORE air than the table claimed, so the cell must come UP by that much.
   const buildHistogram = () => {
     if (!result) return;
-    const { ratio } = veCorrections(veSamplesFromPull(result.points));
+    const { ratio } = veCorrections(veSamplesFromPull(result.points), veAxes);
     dispatch({ type: ACTIONS.SET_SESSION_FIELD, field: 'histogram', value: ratio.map((row) => row.map((r) => (r == null ? null : (r - 1) * 100))) });
   };
   const applyHistogram = () => {
@@ -221,7 +224,7 @@ export function DataScreen() {
       <div className={styles.card} data-tone={tone}>
         <div className={styles.cardHead}>
           <span className={styles.cardRpm}>{shown.rpm} RPM</span>
-          <span className={styles.cardStat}>{shown.hp} whp · {shown.torque} lb-ft</span>
+          <span className={styles.cardStat}>{roadTest ? 'road test' : `${shown.hp} whp · ${shown.torque} lb-ft`}</span>
         </div>
         <div className={styles.gauges}>
           {gauges.map((g) => (
@@ -302,14 +305,14 @@ export function DataScreen() {
             <div className={styles.tableInner}>
               <div className={styles.tableRow}>
                 <div className={styles.cornerCell} />
-                {RPM.map((r) => (
+                {veAxes.rpm.map((r) => (
                   <div key={r} className={styles.headerCell}>{r}</div>
                 ))}
               </div>
-              {LOAD.map((m, ri) => (
+              {veAxes.load.map((m, ri) => (
                 <div key={m} className={styles.tableRow}>
                   <div className={styles.loadCell}>{m}</div>
-                  {RPM.map((_, ci) => {
+                  {veAxes.rpm.map((_, ci) => {
                     const e = histogram[ri][ci];
                     const bg = e == null ? T.panel2 : deltaHeat(e);
                     return (

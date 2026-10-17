@@ -45,6 +45,11 @@ import {
  * @property {number} compressorIdx index into COMPRESSOR_OPTS
  * @property {number} exhaustDiaIdx index into EXHAUST_DIA_OPTS
  * @property {number} ecuInjectorCc injector size the ECU is calibrated for, cc/min
+ * @property {boolean} [engineReady] false until the player has chosen a prebuilt engine or entered
+ *   their own engine's specs. Until then the figures below are placeholders no screen shows: SANDBOX
+ *   gates TUNE, LIVE, DYNO and DRAG on it. Absent (a saved state from before it existed) means ready
+ * @property {string[]} [assumed] the `EngineConfig` keys of the player's own engine that were left blank
+ *   and filled with a typical value (cam duration, valvetrain...). BUILD lists them until each is set
  * @property {string|null} presetId which factory preset (if any) is currently loaded stock
  * @property {object|null} presetPrompt the preset pending an overwrite-confirmation prompt, or null
  * @property {number} boostSel which RPM column the boost-curve editor has selected
@@ -89,11 +94,14 @@ import {
  *   it is in the undo snapshot so undoing a load puts the old one back
  * @property {boolean} diffView true while TUNE's grids show each cell's change from
  *   `baseline` instead of its value. Shared and outside the snapshot, like `rangeMode`
+ * @property {import('../../sim/layouts.js').Layout|string|null} [layout] the breakpoints `ve`, `timing`
+ *   and `afr` sit on (sim/layouts.js): sized to the engine (`engineLayout`), an engine
+ *   computer's own, an `ECU_LAYOUTS` id from an older save, or null for the old 8 × 6 grid
  */
 
 /**
  * A stored calibration in a map slot.
- * @typedef {{ve: number[][], timing: number[][], afr: number[][], ecu: object}} MapSlot
+ * @typedef {{ve: number[][], timing: number[][], afr: number[][], ecu: object, layout?: import('../../sim/layouts.js').Layout|string|null}} MapSlot
  */
 
 /**
@@ -162,9 +170,9 @@ import {
  * @property {number} dynoRpm engine speed the pull is currently at, RPM. Run state, not
  *   view state, for the same reason `revealCount` is: it is produced by the pull's own
  *   clock and read by both the tachometer and the audio.
- * @property {number} journeyStep guided-onboarding progress: BUILD -> TUNE -> LIVE ->
- *   DYNO, then free play (step 4). Survives navigation, so it lives here rather than
- *   as view state.
+ * @property {{id: string, step: number, marks: any[]}|null} mission the tutorial's
+ *   practice mission in progress: which one, how many of its steps are done, and what
+ *   the game looked like as each was done (see tutorial/missions.js). Null when none.
  * @property {number|null} logFocusRpm the RPM a chart band was activated at, so the
  *   pull log can highlight every event whose span covers it. Null means no highlight.
  *   Cleared by BANK_PULL — see that case in reducer.js.
@@ -185,17 +193,9 @@ import {
  *   run on (`dragSignature` in DragScreen.jsx). What lets the time slip say "these are
  *   last run's numbers, from before your change" instead of presenting a time the
  *   current car cannot run — the same rule `pullScores.signature` follows.
- * @property {'sandbox'|'career'} mode which door the player came in by. CAREER is a
- *   run of customer cars, so HOME leads with the jobs board; SANDBOX is free play with
- *   no objectives, so it has no jobs board at all — the split the reference build (v4.8)
- *   made at its start screen.
- * @property {number|null} activeJob index into CAREER_JOBS of the customer car being
- *   worked on, or null in free play. Career progress, which is what this slice holds:
- *   taking a job resets the build and applies that job's fault, and it has to survive
- *   every screen the player visits while diagnosing it.
- * @property {number[]} completedJobs indices of the jobs already passed
- * @property {'pass'|'fail'|null} jobResult how the last pull graded against the active
- *   job's target, or null before one has been run against it
+ * @property {'sandbox'|'career'} mode whose car is on the bench. CAREER is the tuning
+ *   shop (its save is `career` on the store, and its car replaces SANDBOX's in `build`
+ *   and `tune` while it is open); SANDBOX is free play. See ENTER_CAREER in reducer.js.
  * @property {{ambientC: number, altitudeM: number}} env the air the engine breathes, on
  *   the dyno and in LIVE. Session state: it is the day, not the build
  * @property {{ac: boolean, lights: boolean, launch?: boolean, nitrous?: boolean, bottleFills?: number, trimResets?: number}} liveAux accessory loads switched
@@ -233,6 +233,10 @@ import {
  * @property {TuneState} tune
  * @property {SessionState} session
  * @property {HistoryState} history
+ * @property {import('../career/shop.js').Career|null} career the career shop's save,
+ *   once the player has opened the shop this session
+ * @property {{sandbox: {build: BuildState, tune: TuneState, session: Partial<SessionState>}}|null} stash
+ *   SANDBOX's car and bench, put aside while the career has them
  */
 
 /**
@@ -254,9 +258,16 @@ export function stockEcuParts() {
 
 /**
  * Builds a fresh starting state for a new session.
+ *
+ * `blank` is SANDBOX's own first launch: no engine yet. The hardware and tables are the
+ * same placeholders (the simulator needs numbers to exist), but `build.engineReady` is
+ * false and every screen that would show them asks for an engine instead. The career's cars
+ * start from the ready default; the tutorial's demo applies its lesson engine on top of it.
+ *
+ * @param {{blank?: boolean}} [opts]
  * @returns {StoreState}
  */
-export function makeInitialState() {
+export function makeInitialState({ blank = false } = {}) {
   const ve = computeHardwareVE(DEFAULT_ENGINE_CONFIG, DEFAULT_MODS);
   const timing = clone2D(DEFAULT_TIMING);
   const afr = clone2D(DEFAULT_AFR);
@@ -281,6 +292,8 @@ export function makeInitialState() {
       // silently change which pipe a new build starts with.
       exhaustDiaIdx: EXHAUST_DIA_OPTS.findIndex((o) => o.dia === 3.0),
       ecuInjectorCc: 315,
+      engineReady: !blank,
+      assumed: [],
       presetId: null,
       presetPrompt: null,
       boostSel: 4,
@@ -292,6 +305,9 @@ export function makeInitialState() {
       afr,
       // The same arrays, not copies: no write mutates a table, only replaces it.
       baseline: { ve, timing, afr },
+      // The engine computer whose breakpoints the three tables sit on (sim/layouts.js);
+      // null is the ECU Lab grid, which tutorials, missions and the career always use.
+      layout: null,
       ecu: defaultEcuCalibration({ derived: deriveEngine(DEFAULT_ENGINE_CONFIG), gate: DEFAULT_ECU_HW.gate }),
       maps: [null, null, null, null],
       activeMap: 0,
@@ -320,7 +336,7 @@ export function makeInitialState() {
       volume: 1,
       dynoPhase: null,
       dynoRpm: 820,
-      journeyStep: 0,
+      mission: null,
       logFocusRpm: null,
       // A fresh object graph, like every other default here: DEFAULT_CAR is not frozen
       // and the DRAG screen writes to a copy of it on every control change.
@@ -331,13 +347,12 @@ export function makeInitialState() {
       dragT: 0,
       treePhase: 0,
       mode: 'sandbox',
-      activeJob: null,
-      completedJobs: [],
-      jobResult: null,
       env: { ...DEFAULT_ENV },
       liveAux: { ac: false, lights: false, nitrous: true },
       faults: {},
     },
     history: { past: [], future: [] },
+    career: null,
+    stash: null,
   };
 }

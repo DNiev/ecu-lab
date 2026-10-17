@@ -46,8 +46,11 @@ const REAL = {
   hpPerLbMin: [9.0, 12.5],
   // 50% mass burned at MBT: 8-10 degrees ATDC across engine types (HEYWOOD: the standard MBT phasing criterion).
   mfb50AtMbt: [6, 12],
-  // Spark advance at peak power, pump gas: NA near MBT, boosted knock-limited.
+  // Spark advance at peak power, pump gas: NA near MBT, boosted knock-limited. Two plugs
+  // per cylinder shorten the burn by 1/sqrt(2) (engine.js), and best-torque advance with
+  // it, so a twin-plug NA engine's band is the one-plug band scaled the same way.
   timingNa: [24, 36],
+  timingNaTwinPlug: [17, 36],
   timingBoosted: [4, 26],
   // Exhaust at peak power, °C. Production NA headers 750-900; turbine inlet up to ~950
   // (TURBINE). Lower edges allow for the model's known WOT shortfall (docs/accuracy.md).
@@ -56,9 +59,10 @@ const REAL = {
   // Peak cylinder pressure, bar (PCP — a practitioners' forum, the weakest source here).
   pmaxNa: [45, 90],
   pmaxBoosted: [60, 140],
-  // Brake mean effective pressure at peak torque, bar. Modern NA 11-14; downsized
+  // Brake mean effective pressure at peak torque, bar. Modern NA 11-14, GM's Gen III
+  // truck V8s 10.5-10.7 (LR4 295 lb-ft / 4.8 L, LQ4 370 / 6.0, LM7 335 / 5.3); downsized
   // turbo 17-27 (the makers' published torque ÷ displacement).
-  bmepNa: [11, 14.5],
+  bmepNa: [10.3, 14.5],
   bmepBoosted: [15, 27],
   // Friction plus pumping at peak power, bar (HEYWOOD on engine friction; a deliberately wide band).
   fmep: [0.8, 3.0],
@@ -71,14 +75,14 @@ function pullFor(preset) {
   const patch = S.applyPreset(preset);
   const derived = S.deriveEngine(patch.engineConfig);
   return S.simulateSweep({
-    loadKpa: 100, ve: patch.ve, veTruth: patch.ve, timing: patch.timing, afr: patch.afr,
+    loadKpa: 100, ve: patch.ve, veTruth: patch.ve, layout: patch.layout, timing: patch.timing, afr: patch.afr,
     turboOn: patch.turboOn, boostCurve: patch.boostCurve,
     octaneBonus: S.OCTANE_OPTS[patch.octaneIdx].bonus,
     octaneLabel: S.OCTANE_OPTS[patch.octaneIdx].label,
     fuel: S.OCTANE_OPTS[patch.octaneIdx],
     injectorCc: S.INJECTOR_OPTS[patch.injIdx].cc, ecuInjectorCc: patch.ecuInjectorCc,
-    injectorLabel: S.INJECTOR_OPTS[patch.injIdx].label, mods: patch.mods, mafScalar: 1,
-    derived, turbine: S.presetTurbine(preset), compressor: S.COMPRESSOR_OPTS[patch.compressorIdx],
+    injectorLabel: S.INJECTOR_OPTS[patch.injIdx].label, mods: patch.mods, mafScalar: patch.mafScalar,
+    derived, turbine: S.presetTurbine(preset), compressor: S.presetCompressor(preset),
   });
 }
 
@@ -93,12 +97,13 @@ const crankHp = (p) => p.hp / S.DRIVETRAIN_EFF;
 const airLbMin = (p) => (p.maf * 60) / 453.6;
 
 describe('the factory engines run like real engines, not just to their ratings', () => {
-  it.each(PULLS.map((r) => [r.preset.name, r]))('%s', (_, { peak, peakTq, boosted }) => {
+  it.each(PULLS.map((r) => [r.preset.name, r]))('%s', (_, { preset, peak, peakTq, boosted }) => {
+    const naTiming = (preset.engine.sparkPlugs ?? 1) > 1 ? REAL.timingNaTwinPlug : REAL.timingNa;
     const checks = {
       lambda: within(peak.lambda, boosted ? REAL.lambdaBoosted : REAL.lambdaNa),
       bsfc: within(peak.bsfc, boosted ? REAL.bsfcBoosted : REAL.bsfcNa),
       hpPerLbMin: within(crankHp(peak) / airLbMin(peak), REAL.hpPerLbMin),
-      timing: within(peak.timing, boosted ? REAL.timingBoosted : REAL.timingNa),
+      timing: within(peak.timing, boosted ? REAL.timingBoosted : naTiming),
       egt: within(peak.egt, boosted ? REAL.egtBoosted : REAL.egtNa),
       pmax: within(Math.max(peak.peakPressure, peakTq.peakPressure), boosted ? REAL.pmaxBoosted : REAL.pmaxNa),
       bmep: within(peakTq.bmep, boosted ? REAL.bmepBoosted : REAL.bmepNa),
@@ -109,11 +114,17 @@ describe('the factory engines run like real engines, not just to their ratings',
   });
 
   it('burns at the textbook MBT phasing wherever the calibration is at MBT', () => {
-    for (const { peakTq, boosted } of PULLS) {
-      if (boosted) continue; // knock-limited: phased later on purpose
-      const c = within(peakTq.mfb50, REAL.mfb50AtMbt);
-      expect(c).toMatchObject({ ok: true });
+    // Only where MBT, not knock, sets the spark: on pump fuel that is the top of the rev
+    // range for the naturally aspirated engines, and knock-limited points are phased
+    // later on purpose.
+    let checked = 0;
+    for (const { pull } of PULLS) {
+      for (const p of pull.points.filter((q) => q.timing >= q.mbtIdeal - 1)) {
+        expect(within(p.mfb50, REAL.mfb50AtMbt), `${p.rpm} RPM`).toMatchObject({ ok: true });
+        checked += 1;
+      }
     }
+    expect(checked).toBeGreaterThan(10);
   });
 
   it('runs its boosted engines hotter than its naturally aspirated ones', () => {

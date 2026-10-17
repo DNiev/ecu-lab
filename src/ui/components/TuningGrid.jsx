@@ -24,7 +24,7 @@
 
 import React from 'react';
 
-import { LOAD, RPM, addRect, diffTable } from '../../sim/index.js';
+import { GAME_LAYOUT, addRect, diffTable } from '../../sim/index.js';
 import { T, diffTint, heat, shadowAlpha } from '../theme.js';
 
 import { anchorOf, formatDelta, inRect, opLabel, rectOf, signed, spanSelection, stepsFor } from './selection.js';
@@ -44,12 +44,18 @@ const NUDGE = { Equal: 1, NumpadAdd: 1, Minus: -1, NumpadSubtract: -1 };
  * there. Shift still means coarse, so a Shift+= that arrives as "+" is the coarse step.
  */
 const NUDGE_BY_KEY = { '=': 1, '+': 1, '-': -1, _: -1 };
-const clampR = (r) => Math.min(Math.max(r, 0), LOAD.length - 1);
-const clampC = (c) => Math.min(Math.max(c, 0), RPM.length - 1);
+
+/** What a load axis measures, for its header. */
+export const LOAD_UNIT_LABEL = Object.freeze({ kPa: 'MAP kPa', 'g/cyl': 'AIR g/cyl', 'mg/cyl': 'AIR mg/cyl' });
+
+/** A load breakpoint as its axis writes it. */
+export const loadText = (unit, v) => (unit === 'g/cyl' ? v.toFixed(2) : String(v));
 
 /**
  * @param {object} props
- * @param {number[][]} props.data rows of values, indexed [row][col] against LOAD/RPM
+ * @param {number[][]} props.data rows of values, indexed [row][col] against `axes`
+ * @param {import('../../sim/layouts.js').TableAxes} [props.axes] the table's breakpoints:
+ *   the ECU Lab grid unless the tune sits on an engine computer's own (sim/layouts.js)
  * @param {number} props.min lower bound of the heat scale
  * @param {number} props.max upper bound of the heat scale
  * @param {number} props.decimals how many decimal places to render each cell at
@@ -65,11 +71,18 @@ const clampC = (c) => Math.min(Math.max(c, 0), RPM.length - 1);
  * @param {number} [props.diffScale] the change at which the tint stops brightening
  * @returns {React.ReactElement}
  */
-export function TuningGrid({ data, min, max, decimals, selection, setSelection, rangeMode = false, setData, baseline, diffView = false, diffScale = 1 }) {
+export function TuningGrid({ data, min, max, decimals, selection, setSelection, rangeMode = false, setData, baseline, diffView = false, diffScale = 1, axes = GAME_LAYOUT.ve }) {
+  const clampR = (r) => Math.min(Math.max(r, 0), axes.load.length - 1);
+  const clampC = (c) => Math.min(Math.max(c, 0), axes.rpm.length - 1);
+  // An engine computer's own grid has three or four times the cells: smaller ones, so
+  // more of it is in view at once.
+  const dense = axes.rpm.length > 12;
+  const cw = dense ? 42 : 51;
+  const ch = dense ? 28 : 37;
   const fmt = (v) => (decimals ? v.toFixed(decimals) : Math.round(v));
   // 96 subtractions, on renders that already walk every cell — not memoised.
   const diff = diffView && baseline ? diffTable(data, baseline) : null;
-  const rect = selection ? rectOf(selection) : null;
+  const rect = selection ? rectOf(selection, { rows: axes.load.length, cols: axes.rpm.length }) : null;
   const anchor = selection ? anchorOf(selection) : null;
   // The anchor of a mouse drag in progress, or null. A ref, not state: it changes on
   // every press and release and nothing renders from it.
@@ -175,43 +188,44 @@ export function TuningGrid({ data, min, max, decimals, selection, setSelection, 
       aria-label="Calibration table: arrows move, Shift+arrows select a range, plus and minus adjust"
     >
     <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 9.5, color: T.ink3, fontWeight: 700, letterSpacing: 0.8, marginBottom: 4 }}>
-      <span>MAP kPa &darr;</span><span>RPM &rarr;</span>
+      <span>{LOAD_UNIT_LABEL[axes.loadUnit]} &darr;</span><span>RPM &rarr;</span>
     </div>
     <div style={{ overflowX: 'auto', WebkitOverflowScrolling: 'touch', border: `1px solid ${T.line}`, borderRadius: 10 }}>
       <div style={{ display: 'inline-block', minWidth: '100%' }}>
-        <div style={{ display: 'flex' }}>
+        {/* `data-tour` hooks are for the tutorial's callouts, which point at this grid. */}
+        <div style={{ display: 'flex' }} data-tour="grid-rpm-axis">
           <div style={{ width: 44, flexShrink: 0, background: T.panel }} />
-          {RPM.map((r, ci) => (
+          {axes.rpm.map((r, ci) => (
             <button key={r} onClick={() => selectCol(ci)} style={{
-              width: 51, height: 30, flexShrink: 0, border: 'none', borderBottom: `1px solid ${T.line}`, borderLeft: `1px solid ${T.line}`,
+              width: cw, height: 30, flexShrink: 0, border: 'none', borderBottom: `1px solid ${T.line}`, borderLeft: `1px solid ${T.line}`,
               background: selection?.type === 'col' && selection.col === ci ? T.acc : T.panel,
               color: selection?.type === 'col' && selection.col === ci ? T.accOn : T.ink2,
               fontFamily: T.mono, fontSize: 10, fontWeight: 700,
             }}>{r}</button>
           ))}
         </div>
-        {LOAD.map((load, ri) => (
+        {axes.load.map((load, ri) => (
           <div key={load} style={{ display: 'flex' }}>
-            <button onClick={() => selectRow(ri)} style={{
-              width: 44, height: 37, flexShrink: 0, border: 'none', borderRight: `1px solid ${T.line}`, borderTop: `1px solid ${T.line}`,
+            <button onClick={() => selectRow(ri)} data-tour={axes.loadUnit === 'kPa' ? `grid-load-${load}` : undefined} style={{
+              width: 44, height: ch, flexShrink: 0, border: 'none', borderRight: `1px solid ${T.line}`, borderTop: `1px solid ${T.line}`,
               background: selection?.type === 'row' && selection.row === ri ? T.acc : T.panel,
               color: selection?.type === 'row' && selection.row === ri ? T.accOn : T.ink2,
               fontFamily: T.mono, fontSize: 10, fontWeight: 700,
-            }}>{load}</button>
+            }}>{loadText(axes.loadUnit, load)}</button>
             {data[ri].map((val, ci) => (
               <button
                 key={ci}
-                aria-label={`${RPM[ci]} RPM, ${load} kPa`}
+                aria-label={`${axes.rpm[ci]} RPM, ${loadText(axes.loadUnit, load)} ${axes.loadUnit}`}
                 aria-pressed={isSelected(ri, ci)}
                 onPointerDown={(e) => onCellPointerDown(e, ri, ci)}
                 onPointerEnter={(e) => onCellPointerEnter(e, ri, ci)}
                 onClick={(e) => onCellClick(e, ri, ci)}
                 style={{
-                  width: 51, height: 37, flexShrink: 0,
+                  width: cw, height: ch, flexShrink: 0,
                   border: isAnchor(ri, ci) ? `2px solid ${T.acc}` : isSelected(ri, ci) ? `2px solid ${T.ink}` : `1px solid ${shadowAlpha(0.35)}`,
                   background: !diff ? heat(val, min, max) : diff[ri][ci] === 0 ? T.panel2 : diffTint(diff[ri][ci], diffScale),
                   color: diff && diff[ri][ci] === 0 ? T.ink3 : T.ink,
-                  fontFamily: T.mono, fontSize: 12, fontWeight: 700,
+                  fontFamily: T.mono, fontSize: dense ? 11 : 12, fontWeight: 700,
                   // A mouse drag across cells must not start a text selection.
                   userSelect: 'none',
                 }}

@@ -102,6 +102,7 @@ export function LiveScreen({ tachFullScaleRpm, onStart, onStop, onToggleSound, o
   // One cast here, named and explained, rather than a suppression on each of the
   // thirty reads below.
   const live = /** @type {Record<string, any>} */ (session.live);
+  const engineOff = !live.running && !live.cranking;
 
   return (
     <>
@@ -124,7 +125,7 @@ export function LiveScreen({ tachFullScaleRpm, onStart, onStop, onToggleSound, o
               {live.running
                 ? (live.limiterCut || live.onLimiter ? 'On the rev limiter — the ECU is cutting cylinders to hold the engine at its limit. With a fuel cut those cylinders pump plain air, so the wideband reads lean here; that is not a lean mixture.'
                   : live.dfco ? 'Overrun fuel cut — injectors off while coasting down. Real ECUs do this; it costs nothing to spin.'
-                  : live.ecu?.knockNow ? `Knock — your TIMING table asks for more advance than the engine tolerates at this RPM and boost. The ECU is pulling ${(live.ecu.knockRetard ?? 0).toFixed(1)}° to protect it; take timing out of that part of the table.`
+                  : live.ecu?.knockNow ? `Knock — your SPARK table asks for more advance than the engine tolerates at this RPM and boost. The ECU is pulling ${(live.ecu.knockRetard ?? 0).toFixed(1)}° to protect it; take timing out of that part of the table.`
                   : (live.ecu?.knockRetard ?? 0) > 0.5 ? `Nothing is knocking now. The ECU is still giving back ${live.ecu.knockRetard.toFixed(1)}° it pulled for knock a moment ago, a little each second.`
                   : live.coolantC < 80 ? 'Warming up — the ECU adds extra fuel until the coolant reaches 80 °C.'
                   : live.closedLoop ? 'Warm and in closed loop — the ECU is trimming fuel against the O2 sensor.'
@@ -203,15 +204,17 @@ export function LiveScreen({ tachFullScaleRpm, onStart, onStop, onToggleSound, o
           <LiveGauge label="IAT" value={Math.round(live.sensedIat)} unit="°C" warn={live.sensedIat > 65} />
         </div>
         <div className={styles.gaugeRow}>
-          <LiveGauge label="LAMBDA" value={live.sensedLambda.toFixed(2)} unit="λ" color={T.violet} />
+          {/* With the engine off nothing is burning, so there is no mixture, no fuel state and no
+              idle-air trim to read: a "1.00 λ" or "FUEL ON" on a dead engine is a reading nobody took. */}
+          <LiveGauge label="LAMBDA" value={engineOff ? '—' : live.sensedLambda.toFixed(2)} unit={engineOff ? '' : 'λ'} color={T.violet} />
           <LiveGauge label="COOLANT" value={Math.round(live.sensedCoolant)} unit="°C" warn={live.sensedCoolant > 105} />
           <LiveGauge label="TIMING" value={live.live ? live.live.timing : '—'} unit="°" warn={!!(live.live && (live.ecu ? live.ecu.knockNow : live.live.knock))} />
         </div>
         <div className={styles.gaugeRow}>
           <LiveGauge label="INJ PW" value={live.live ? live.live.pw : '—'} unit="ms" />
           <LiveGauge label="DUTY" value={live.live ? live.live.duty : '—'} unit="%" warn={!!(live.live && live.live.duty > 90)} />
-          <LiveGauge label="IDLE AIR" value={Math.round(live.idleTrim)} unit="%" />
-          <LiveGauge label="FUEL" value={live.fuelCut ? 'CUT' : 'ON'} unit="" color={live.fuelCut ? T.warn : T.ok} />
+          <LiveGauge label="IDLE AIR" value={engineOff ? '—' : Math.round(live.idleTrim)} unit={engineOff ? '' : '%'} />
+          <LiveGauge label="FUEL" value={engineOff ? 'OFF' : live.fuelCut ? 'CUT' : 'ON'} unit="" color={engineOff ? T.ink3 : live.fuelCut ? T.warn : T.ok} />
         </div>
 
         <div className={styles.trims}>

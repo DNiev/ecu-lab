@@ -5,13 +5,12 @@
  * starter pulley a kit would ship with.
  */
 
-import { computeHardwareVE } from './airflow.js';
+import { hardwareVeAt } from './airflow.js';
 import { BARO_KPA } from './constants.js';
 import { blowerOf } from './blower.js';
 import { deriveEngine } from './engine.js';
 import { EXHAUST_DIA_OPTS } from './hardware.js';
-import { interp2 } from './math.js';
-import { RPM } from './tables.js';
+import { CURVE_RPM } from './tables.js';
 import { chargeTempK, INDUCTION_REF_EXHAUST_K } from './thermo.js';
 import { solveInduction } from './turbo.js';
 
@@ -54,14 +53,14 @@ export function blowerCurve(build, fuel, ratio) {
  */
 function solveCurve(build, fuel, blower, blowerRatio) {
   const derived = deriveEngine(build.engineConfig);
-  const ve = computeHardwareVE(build.engineConfig, build.mods, {
+  const veAt = hardwareVeAt(build.engineConfig, build.mods, {
     exhaustDia: EXHAUST_DIA_OPTS[build.exhaustDiaIdx]?.dia ?? 3.0, fuel, supercharged: true,
   });
   const top = derived.redline ?? 7000;
-  return [...RPM.filter((r) => r < top), top].map((rpm) => {
+  return [...CURVE_RPM.filter((r) => r < top), top].map((rpm) => {
     const man = solveInduction({
       rpm, loadKpa: BARO_KPA, turboOn: false, boostTargetPsi: 0, turbine: null, compressor: null,
-      veAt: (m) => interp2(ve, rpm, m), derived,
+      veAt: (m) => veAt(rpm, m), derived,
       intakeKAt: (b) => chargeTempK(b, build.mods.intercooler),
       intakeKAtEff: (b, eta) => chargeTempK(b, build.mods.intercooler, undefined, eta),
       lambda: 1, exhaustK: INDUCTION_REF_EXHAUST_K, blower, blowerRatio,

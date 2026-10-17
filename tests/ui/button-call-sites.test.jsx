@@ -156,7 +156,7 @@ function variantsOn(el) {
 // working would drop its screen's buttons and every "all of them are fine" assertion
 // below would go on passing over the shorter list.
 const EXPECTED = [
-  'SKIP GUIDE', 'RESET ALL TO STOCK', 'FLAT ACROSS ALL', 'SPOOL RAMP', 'ZERO',
+  'RESET ALL TO STOCK', 'FLAT ACROSS ALL', 'SPOOL RAMP', 'ZERO',
   'APPLY HALF', 'APPLY ALL', 'DONE', 'RESCALE ECU TO', 'STOP', 'TEST', 'RUN DYNO PULL',
   'BUILD HISTOGRAM FROM THIS PULL', 'APPLY CORRECTIONS TO VE', 'DISCARD',
 ];

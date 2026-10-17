@@ -24,12 +24,14 @@ import { LOAD, RPM, orderRect } from '../../sim/index.js';
 
 /**
  * @param {Selection} selection
+ * @param {{rows: number, cols: number}} [dims] the table's size: the ECU Lab grid's
+ *   unless the tune sits on an engine computer's own breakpoints
  * @returns {Rect}
  */
-export function rectOf(selection) {
+export function rectOf(selection, dims = { rows: LOAD.length, cols: RPM.length }) {
   if (selection.type === 'cell') return { r1: selection.row, c1: selection.col, r2: selection.row, c2: selection.col };
-  if (selection.type === 'row') return { r1: selection.row, c1: 0, r2: selection.row, c2: RPM.length - 1 };
-  if (selection.type === 'col') return { r1: 0, c1: selection.col, r2: LOAD.length - 1, c2: selection.col };
+  if (selection.type === 'row') return { r1: selection.row, c1: 0, r2: selection.row, c2: dims.cols - 1 };
+  if (selection.type === 'col') return { r1: 0, c1: selection.col, r2: dims.rows - 1, c2: selection.col };
   return orderRect(selection);
 }
 

@@ -61,7 +61,7 @@ const BUILD_KEYS = [
   'engineConfig', 'mods', 'turboOn', 'boostCurve', 'turbineIdx', 'turbineCount',
   'compressorIdx', 'injIdx', 'ecuInjectorCc', 'octaneIdx', 'exhaustDiaIdx',
   'mafScalar', 'presetId', 'fuelSystem', 'sensorHw', 'wastegate', 'coil', 'plugGapMm',
-  'ethanolPct',
+  'ethanolPct', 'engineReady', 'assumed',
 ];
 
 /**
@@ -69,14 +69,15 @@ const BUILD_KEYS = [
  *
  * `selection` is deliberately absent, for the same "hardware and calibration, never UI
  * cursors" reason `presetPrompt` is absent from BUILD_KEYS above: it is a cursor, not
- * calibration. Restoring it would make undo move the player's highlight around, and the
- * grid's dimensions never change, so a selection is always still valid after a restore.
+ * calibration. Restoring it would make undo move the player's highlight around. The
+ * grid's dimensions change only with the table layout (`layout`, below), and `restore`
+ * clears the selection when an undo crosses a layout change.
  *
  * `baseline` IS here, though no edit writes it: APPLY_PRESET and RESET_TO_STOCK do, and
  * undoing either must put back the baseline that went with the tables it restores, or
  * the CHANGES view would compare the old tables against the new calibration.
  */
-const TUNE_KEYS = ['ve', 'timing', 'afr', 'ecu', 'maps', 'activeMap', 'tablesDirty', 'baseline'];
+const TUNE_KEYS = ['ve', 'timing', 'afr', 'ecu', 'maps', 'activeMap', 'tablesDirty', 'baseline', 'layout'];
 
 /**
  * Does a write to `tune.<field>` touch something a snapshot carries?
@@ -147,6 +148,8 @@ export function restore(state, before, scope) {
   // table the action never touched is a no-op because the snapshot holds the value
   // that is already there.
   const tune = { ...state.tune, ...before.tune };
+  // A different layout is a different grid: a cell selected on it may not exist here.
+  if ((before.tune.layout ?? null) !== (state.tune.layout ?? null)) tune.selection = null;
   switch (scope) {
     case RESTORE_ALL:
       return { ...state, build: { ...state.build, ...before.build }, tune };

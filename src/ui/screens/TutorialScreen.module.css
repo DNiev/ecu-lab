@@ -1,7 +1,10 @@
+/* The tutorial: a fixed bar on top, the lesson scrolling in the middle, the page
+   buttons fixed at the bottom where a thumb finds them. */
+
 .screen {
   display: flex;
   flex-direction: column;
-  min-height: 100dvh;
+  height: 100dvh;
   background: var(--bg);
   color: var(--ink);
   font-family: var(--sans);
@@ -11,8 +14,13 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: var(--sp-lg) var(--sp-xl);
+  gap: var(--sp-md);
+  padding: var(--sp-md) var(--sp-xl);
+  border-bottom: 1px solid var(--line);
+  flex-shrink: 0;
 }
+
+.barActions { display: flex; gap: var(--sp-xs); }
 
 .count {
   font-size: var(--fs-xs);
@@ -23,46 +31,148 @@
 
 .body {
   flex: 1;
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  align-items: center;
-  padding: 0 var(--sp-xxl);
+  min-height: 0;
+  overflow-y: auto;
+  padding: var(--sp-xl) var(--sp-xl) var(--sp-xxl);
 }
 
-.inner { width: 100%; max-width: 60ch; }
+/* 68ch keeps prose at a comfortable measure while leaving a real screen room to be a
+   screen: the snippets are the width of this column. */
+.inner { width: 100%; max-width: 68ch; margin: 0 auto; }
+
+.eyebrow {
+  margin-bottom: var(--sp-sm);
+  font-size: var(--fs-micro);
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  color: var(--ink-soft);
+}
 
 /* 21px/27px (below, at the breakpoint) are not on the font-size scale: this is
    this screen's one section headline, a deliberately different size from
-   StartScreen's hero title rather than a shared repeating role. See the note
-   there. */
-.title { margin: 0 0 13px; font-size: 21px; font-weight: 800; letter-spacing: -0.01em; }
-.text { margin: 0; font-size: var(--fs-md); line-height: 1.7; color: var(--ink-soft); }
+   StartScreen's hero title rather than a shared repeating role. */
+.title { margin: 0 0 var(--sp-lg); font-size: 21px; font-weight: 800; letter-spacing: -0.01em; line-height: 1.25; }
+.num { color: var(--acc-ink); font-family: var(--mono); font-size: 0.85em; margin-right: 4px; }
 
-/* A step may carry the formula it is describing. Indented lines are set as code so the
-   arithmetic reads as arithmetic, rather than being buried in a paragraph. */
-.formula {
-  margin: 0;
-  font-family: var(--mono);
-  font-size: var(--fs-sm);
-  line-height: 1.6;
-  color: var(--cyan);
-  overflow-x: auto;
+.lede { margin: 0 0 var(--sp-xl); font-size: var(--fs-md); line-height: 1.65; color: var(--ink-soft); }
+
+.sectionHead {
+  margin: var(--sp-xl) 0 var(--sp-sm);
+  font-size: var(--fs-micro);
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  color: var(--acc-ink);
 }
-.gap { height: 9px; }
 
-/* 18px is not on the spacing scale: a single-use bottom spacer ahead of the
-   safe-area inset, 2px from the nearest step (--sp-xl, 16px) — further than
-   the ~1px this pass snaps. Left raw. */
-.dots { display: flex; gap: 6px; justify-content: center; padding-bottom: 18px; }
+.outcomes {
+  padding: var(--sp-xs) var(--sp-lg) var(--sp-md);
+  border: 1px solid var(--line-hi);
+  border-radius: var(--r-md);
+  background: var(--panel);
+}
 
+.outcomes .sectionHead { margin-top: var(--sp-md); }
+
+.outcomeList {
+  display: grid;
+  gap: var(--sp-sm);
+  margin: 0;
+  padding-left: 1.2em;
+  font-size: var(--fs-base);
+  line-height: 1.55;
+  color: var(--ink);
+}
+
+.need { margin: 0 0 var(--sp-sm); font-size: var(--fs-base); line-height: 1.55; color: var(--ink-soft); }
+
+.chapter { margin-top: var(--sp-lg); }
+
+.chapterHead {
+  display: flex;
+  justify-content: space-between;
+  padding: var(--sp-sm) 0;
+  border-bottom: 1px solid var(--line);
+  font-size: var(--fs-base);
+  font-weight: 800;
+  color: var(--ink);
+}
+
+.minutes { font-weight: 600; color: var(--ink-soft); font-size: var(--fs-sm); }
+
+.lessonList,
+.missionList { margin: 0; padding: 0; list-style: none; }
+
+.lessonLink {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-md);
+  width: 100%;
+  padding: 10px 2px;
+  border: none;
+  border-bottom: 1px solid var(--line);
+  background: none;
+  color: var(--ink-soft);
+  font: inherit;
+  font-size: var(--fs-base);
+  text-align: left;
+  cursor: pointer;
+}
+
+.lessonLink:hover { color: var(--ink); }
+.lessonNum { flex: 0 0 30px; font-family: var(--mono); color: var(--acc-ink); font-size: var(--fs-sm); }
+.lessonTitle { flex: 1; }
+.tick { color: var(--ok); flex-shrink: 0; }
+
+.mission,
+.practice {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-lg);
+  padding: var(--sp-md) var(--sp-lg);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--panel);
+}
+
+.mission { margin-bottom: var(--sp-sm); }
+
+.practice {
+  margin: var(--sp-xxl) 0 var(--sp-lg);
+  border-color: var(--acc);
+  background: var(--acc-bg);
+  flex-wrap: wrap;
+}
+
+.practiceTag { font-size: var(--fs-micro); font-weight: 800; letter-spacing: 0.14em; color: var(--acc-ink); }
+.practiceTitle { margin: 2px 0; font-size: var(--fs-base); font-weight: 800; color: var(--ink); }
+.practiceText { font-size: var(--fs-sm); line-height: 1.5; color: var(--ink-soft); }
+
+/* Finishing a chapter is worth saying. */
+.chapterDone {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-sm);
+  margin-top: var(--sp-xl);
+  padding: var(--sp-md) var(--sp-lg);
+  border-radius: var(--r-md);
+  background: var(--ok-bg);
+  border: 1px solid var(--ok-line);
+  color: var(--ok-ink);
+  font-size: var(--fs-base);
+  font-weight: 700;
+}
+
+.dots { display: flex; gap: 6px; justify-content: center; padding: var(--sp-md) 0 var(--sp-sm); flex-shrink: 0; }
 .dot { width: 6px; height: 6px; border-radius: var(--r-xs); background: var(--line); transition: width 0.2s ease; }
 .dotOn { width: 20px; background: var(--acc); }
 
 .actions {
   display: flex;
   gap: 10px;
-  padding: 0 var(--sp-xl) calc(var(--sp-xl) + env(safe-area-inset-bottom));
+  padding: var(--sp-sm) var(--sp-xl) calc(var(--sp-lg) + env(safe-area-inset-bottom));
+  border-top: 1px solid var(--line);
+  flex-shrink: 0;
 }
 
 .actions > * { flex: 1; }
@@ -72,27 +182,7 @@
    tokens.css. Kept in sync by hand with StartScreen.module.css. */
 @media (min-width: 560px) {
   .title { font-size: 27px; }
-
-  .actions {
-    justify-content: center;
-  }
-
+  .actions { justify-content: center; }
   .actions > *,
-  .actions > *:last-child {
-    flex: 0 0 auto;
-  }
-}
-
-/* The step's action: what to go and do. Set apart from the prose so a player skimming
-   the tutorial still leaves each step knowing their next move. */
-.action {
-  margin: 0;
-  padding: 9px 12px;
-  border-left: 3px solid var(--acc);
-  border-radius: 0 var(--r-sm) var(--r-sm) 0;
-  background: var(--acc-bg);
-  font-size: var(--fs-md);
-  line-height: 1.6;
-  color: var(--ink);
-  font-weight: 600;
+  .actions > *:last-child { flex: 0 0 auto; min-width: 140px; }
 }

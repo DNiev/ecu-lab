@@ -16,6 +16,7 @@ import React from 'react';
 
 import { axisPosition } from '../../../sim/index.js';
 import { deltaHeat, heat } from '../../theme.js';
+import { TableSurface, ViewToggle, useTableView } from '../surface/TableSurface.jsx';
 
 import styles from './CalTable.module.css';
 import {
@@ -33,9 +34,11 @@ let clip = /** @type {number[][]|null} */ (null);
  * @param {import('../../../sim/ecu/calibration.js').EcuFieldMeta} props.meta
  * @param {(next: import('./tableOps.js').Table) => void} props.onChange
  * @param {{x?: number, y?: number}|null} [props.marker] the operating point, when live
+ * @param {{x: string|null, y: string|null}} [props.axisVars] the live variables the axes
+ *   are read on, for the 3-D view's pull trace
  * @returns {React.ReactElement}
  */
-export function CalTable({ table, def, meta, onChange, marker }) {
+export function CalTable({ table, def, meta, onChange, marker, axisVars }) {
   const twoD = Array.isArray(table.y);
   const rows = rowsOf(table);
   const nRows = rows.length;
@@ -45,6 +48,8 @@ export function CalTable({ table, def, meta, onChange, marker }) {
   const [editAxes, setEditAxes] = React.useState(false);
   const [value, setValue] = React.useState('');
   const [pct, setPct] = React.useState('');
+  const [view, setView] = useTableView();
+  const show3d = twoD && view === '3d';
   const dragging = React.useRef(false);
   const lim = { min: meta.min, max: meta.max, decimals: meta.decimals ?? 0 };
   const step = meta.step ?? 1;
@@ -138,12 +143,22 @@ export function CalTable({ table, def, meta, onChange, marker }) {
         <span className={styles.unit}>{meta.unit}</span>
         {modified && <span className={styles.badge}>modified</span>}
         <span className={styles.flex} />
+        {twoD && <ViewToggle mode={view} onChange={setView} />}
+        {!show3d && <>
         <button type="button" className={styles.chip} aria-pressed={compare} onClick={() => setCompare(!compare)} disabled={!sameShape}>Compare</button>
         <button type="button" className={styles.chip} aria-pressed={editAxes} onClick={() => setEditAxes(!editAxes)}>Axes</button>
         <button type="button" className={styles.chip} onClick={() => setSel(all)}>All</button>
+        </>}
       </div>
 
-      <div className={styles.scroll}>
+      {show3d && (
+        <TableSurface x={table.x} y={/** @type {number[]} */ (table.y)} z={rows} lo={lo} hi={hi}
+          xLabel={meta.xLabel ?? 'x'} yLabel={meta.yLabel ?? 'y'} unit={meta.unit ?? ''} decimals={dec} title={meta.label}
+          xVar={axisVars?.x ?? null} yVar={axisVars?.y ?? null}
+          marker={marker?.x != null && marker?.y != null ? { x: marker.x, y: marker.y } : null} />
+      )}
+
+      {!show3d && <div className={styles.scroll}>
         <table className={styles.grid}>
           <thead>
             <tr>
@@ -195,11 +210,11 @@ export function CalTable({ table, def, meta, onChange, marker }) {
             ))}
           </tbody>
         </table>
-      </div>
+      </div>}
 
       {!twoD && <CurvePlot table={table} def={sameShape ? def : null} lo={lo} hi={hi} marker={marker?.x} />}
 
-      {target && (
+      {target && !show3d && (
         <div className={styles.tools} role="toolbar" aria-label={`Edit ${meta.label}`}>
           <span className={styles.selInfo}>{selInfo.cells} cell{selInfo.cells > 1 ? 's' : ''} · mean {fmt(selInfo.mean)}</span>
           <button type="button" className={styles.tool} onClick={() => commit(mapCells(table, target, (v) => v - step, lim))} aria-label="Decrease">−{step}</button>

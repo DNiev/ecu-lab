@@ -66,6 +66,8 @@ import { chargeTempK, exhaustTempK } from './thermo.js';
  *   one this function always modelled — it reads the true manifold pressure and charge
  *   temperature, knows the fuel, flows its injectors at their rating and finds the knock
  *   limit exactly — and the result is identical to before the ECU layer existed.
+ * @property {{intakeAdvDeg?: number, exhaustRetDeg?: number}|null} [cam] cam phaser positions
+ *   to solve the cycle at when there is no `ecu` context; the ECU's own win when there is
  */
 
 /**
@@ -129,7 +131,7 @@ export function evaluatePoint({
   rpm, mapKpa, boostPsi, veVal, veActualVal, timingVal, afrCommanded,
   fuel, mods, mafScalar, mafErrorBase,
   injectorCc, ecuInjectorCc, derived, compressor, turbine = null,
-  empKpa: empOverride, wastegateRelief = 0, ecu: E = null, blower = null, nitrous = null,
+  empKpa: empOverride, wastegateRelief = 0, ecu: E = null, blower = null, nitrous = null, cam = null,
 }) {
   // A supercharger brings its own compressor: its ceiling and its efficiency, which set
   // how hot the charge arrives. Without one, the turbo's compressor as always.
@@ -260,8 +262,11 @@ export function evaluatePoint({
   const cyc = cycleInputsFor({
     rpm, mapKpa, empKpa, intakeK: cylChargeK,
     airChargeG, burnedFuelG, fuelMassG: totalFuelG, lambda: lambdaActual, fuel,
-    ...(n2o ? { n2oG: n2o.n2oG } : {}),
-    derived: cycDerived, ...(E?.cam ? { cam: E.cam } : {}),
+    ...(n2o ? { n2oG: n2o.n2oG, kitFuelG: n2o.fuelG } : {}),
+    // Cam phasers move intake valve close, and with it effective compression: the ECU's
+    // own phaser position when it is running, else the position the caller states (the
+    // advisor grading a table against the VVT calibration it runs with).
+    derived: cycDerived, ...(E?.cam ? { cam: E.cam } : cam ? { cam } : {}),
   });
 
   // The knock limit is solved from the same cycle, so it responds to compression,
@@ -273,7 +278,7 @@ export function evaluatePoint({
   const usedTiming = timingVal - knockPull;
 
   const cycle = runCycle({ ...cyc, sparkBtdc: usedTiming });
-  const mbtIdeal = mbtFromBurn(cyc.burnDeg);
+  const mbtIdeal = mbtFromBurn(cyc.burnDeg, cyc.flameDevDeg);
   // Events that did not burn: the ECU cutting them (limiter, protection, traction) and
   // the cylinder failing to light (a spark too weak for the pressure, or a mixture
   // outside what a flame will cross). Both cost the whole event's work.
@@ -285,9 +290,7 @@ export function evaluatePoint({
   // Pumping is exhaust manifold pressure minus intake: a loss when throttled, and
   // genuinely negative — work returned to the piston — when boost exceeds backpressure.
   const pmepPa = pumpingFmepPa(mapKpa, empKpa);
-  const rubbingPa = rubbingFmepPa(rpm, derived.springPa || 0, {
-    bearingFmepPa: derived.bearingFmepPa, balanceShaftFrac: derived.balanceShaftFrac,
-  });
+  const rubbingPa = rubbingFmepPa(rpm, derived.springPa || 0, derived, mapKpa);
   // A supercharger is driven off the crank, so the power it takes to compress the air is
   // a load on the engine like friction: FMEP = power ÷ (displacement × firing rate).
   const blowerPa = blower ? blower.driveW / ((derived.displacementL / 1000) * (rpm / 120)) : 0;

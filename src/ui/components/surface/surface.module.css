@@ -1,0 +1,129 @@
+/* The 3-D table view and its pull player. Surface colours are data (theme.js heat), drawn
+   on the canvas; everything here is tokens. */
+
+.wrap {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-sm);
+}
+
+.box {
+  position: relative;
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--panel);
+  overflow: hidden;
+}
+
+.canvas {
+  display: block;
+  width: 100%;
+  touch-action: none;
+  cursor: grab;
+  outline: none;
+}
+
+.canvas:active { cursor: grabbing; }
+
+.canvas:focus-visible { box-shadow: inset 0 0 0 2px var(--acc); }
+
+.hint {
+  position: absolute;
+  right: 8px;
+  bottom: 6px;
+  font-size: var(--fs-micro);
+  color: var(--ink3);
+  pointer-events: none;
+}
+
+.toggle {
+  display: inline-flex;
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  overflow: hidden;
+}
+
+.toggle button {
+  font-size: var(--fs-xs);
+  font-weight: 700;
+  color: var(--ink2);
+  background: var(--panel2);
+  border: none;
+  padding: 3px 10px;
+}
+
+.toggle button + button { border-left: 1px solid var(--line); }
+
+.toggle button[aria-pressed='true'] {
+  color: var(--acc-ink);
+  background: var(--acc-bg);
+}
+
+.player {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-xs, 6px);
+}
+
+.controls {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-sm);
+}
+
+.play {
+  flex: none;
+  font-size: var(--fs-sm);
+  font-weight: 700;
+  color: var(--acc-on);
+  background: var(--acc);
+  border: none;
+  border-radius: var(--r-sm);
+  padding: 6px 12px;
+}
+
+.scrub {
+  flex: 1;
+  min-width: 0;
+  accent-color: var(--acc);
+}
+
+.read {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-sm) var(--sp-md, 16px);
+  margin: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.read div { display: flex; flex-direction: column; }
+
+.read dt {
+  font-size: var(--fs-micro);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink3);
+}
+
+.read dd {
+  margin: 0;
+  font-family: var(--mono);
+  font-size: var(--fs-sm);
+  font-weight: 700;
+  color: var(--ink);
+}
+
+.read .key dd { color: var(--acc-ink); }
+
+.note {
+  margin: 0;
+  font-size: var(--fs-xs);
+  color: var(--ink2);
+  line-height: 1.45;
+}
+
+.switchRow {
+  display: flex;
+  justify-content: flex-end;
+}

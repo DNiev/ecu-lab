@@ -1,0 +1,71 @@
+/* The blank engine form. Same tokens as the rest of BUILD; nothing here is pre-filled. */
+
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.group { display: flex; flex-direction: column; gap: 6px; }
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 12px;
+}
+
+.field { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+
+.label {
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  color: var(--ink2);
+}
+
+.inputRow { display: flex; align-items: center; gap: 6px; }
+
+.input {
+  flex: 1;
+  min-width: 0;
+  padding: 10px 12px;
+  font-family: var(--mono);
+  font-size: var(--fs-base);
+  font-weight: 700;
+  color: var(--ink);
+  background: var(--panel2);
+  border: 1px solid var(--line-hi);
+  border-radius: 8px;
+}
+
+.input::placeholder { color: var(--ink3); font-weight: 500; }
+.input:focus-visible { outline: 2px solid var(--acc); outline-offset: 1px; }
+.input[aria-invalid='true'] { border-color: var(--danger); }
+
+.unit { font-size: var(--fs-xs); font-weight: 700; color: var(--ink3); min-width: 28px; }
+
+.error { font-size: var(--fs-xs); color: var(--danger-ink); }
+
+.more { border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; background: var(--panel); }
+.more summary { cursor: pointer; font-size: var(--fs-sm); font-weight: 700; color: var(--ink-soft); }
+.more[open] { display: flex; flex-direction: column; gap: 8px; }
+.more[open] summary { margin-bottom: 4px; }
+
+.note { margin: 0 0 4px; font-size: var(--fs-xs); line-height: 1.55; color: var(--ink2); }
+
+.result {
+  font-size: var(--fs-sm);
+  line-height: 1.5;
+  color: var(--ink-soft);
+  background: var(--acc-bg);
+  border: 1px solid var(--line-hi);
+  border-radius: 10px;
+  padding: 10px 12px;
+}
+
+/* The typical value a blank choice is filled with, beside the choice's own label. */
+.typical {
+  font-weight: 400;
+  text-transform: none;
+  letter-spacing: 0;
+  color: var(--ink3, inherit);
+}

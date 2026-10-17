@@ -146,7 +146,11 @@ describe('fuel: what the ECU believes about fuel reaches the cylinder', () => {
     const e85 = S.OCTANE_OPTS[3];
     expect(b.stoich).toBeCloseTo(e85.stoich, 1);
     expect(b.octane).toBe(e85.octane);
-    expect(S.blendFuel(30).octane).toBeGreaterThan(93 + (105 - 93) * (30 / 85));
+    expect(b.ron).toBe(e85.ron);
+    expect(b.mon).toBe(e85.mon);
+    // Concave: a 30% blend has more than a straight-line share of E85's octane gain.
+    const g = S.OCTANE_OPTS[1];
+    expect(S.blendFuel(30).ron).toBeGreaterThan(g.ron + (e85.ron - g.ron) * (30 / 85));
   });
 
   it('leans out under boost on a returnless rail, and compensation brings it back', () => {
@@ -234,12 +238,15 @@ describe('ignition: knock control acts on what the sensor hears', () => {
     const base = at(makeEngine().pull(), 3000);
     const adv = at(makeEngine({ cal: { 'ignition.iatCorr': S.curve(S.IAT_AXIS, () => 20) } }).pull(), 3000);
     expect(adv.commandedTiming).toBeCloseTo(base.commandedTiming + 20, 0);
-    // Twenty degrees past a table that was already near MBT buys nothing, or costs.
-    expect(adv.torque).toBeLessThanOrEqual(base.torque + 2);
+    // Twenty degrees past the table buys nothing like twenty degrees' worth: at 3000 RPM
+    // on 91 this engine is knock-limited, so knock control pulls it back to the knock
+    // limit, and the most it can gain is the margin the table left under that limit.
+    expect(adv.torque).toBeLessThanOrEqual(base.torque + 4);
   });
 
   it('misfires under boost when the coil cannot break down the gap', () => {
-    const short = { 'ignition.dwell': S.curve(S.VOLT_AXIS, () => 1.0) };
+    // 1.2 ms: too short for the stock gap at this cylinder density, long enough for 0.6 mm.
+    const short = { 'ignition.dwell': S.curve(S.VOLT_AXIS, () => 1.2) };
     const weak = at(makeEngine({ preset: 'b58-m1', cal: short }).pull(), 4500);
     const narrow = at(makeEngine({ preset: 'b58-m1', build: { plugGapMm: 0.6 }, cal: short }).pull(), 4500);
     const full = at(makeEngine({ preset: 'b58-m1' }).pull(), 4500);
@@ -343,6 +350,20 @@ describe('the day matters', () => {
 });
 
 describe('the live engine runs its controllers in time', () => {
+  // A warm restart is the hard start: no cold enrichment to carry the flare. The step the
+  // engine catches on reads as a flare to the idle controller's damping, and it used to
+  // shut the idle valve in that one step and hold it shut, so the engine fell through
+  // its target after the flare and stalled or nearly did.
+  it.each([[null], ['vq35hr'], ['vq35de-revup'], ['n54'], ['ea888-gti']])('restarts warm without falling through its idle (%s)', (preset) => {
+    const eng = makeEngine({ preset });
+    const from = { ...S.makeLiveState(), cranking: true, coolantC: 88, oilC: 88, ecu: { ...S.makeEcuLiveState(), sEct: 88 } };
+    const { state, rows } = runLive(eng, { seconds: 8, from });
+    expect(state.running).toBe(true);
+    const caught = rows.findIndex((r) => r.running);
+    const lowest = Math.min(...rows.slice(caught + 4).map((r) => r.rpm));
+    expect(lowest).toBeGreaterThan(560);
+  });
+
   it('charges the battery at a hot idle, and sags only under a heavy electrical load', () => {
     // A 120 A alternator gives about half its rating at idle: enough for the car itself,
     // not for lights and A/C on top.

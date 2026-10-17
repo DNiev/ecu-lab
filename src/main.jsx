@@ -15,7 +15,7 @@ import { ErrorBoundary } from './ui/ErrorBoundary.jsx';
 createRoot(document.getElementById('root')).render(
   <React.StrictMode>
     <ErrorBoundary>
-      <EcuLab />
+      <EcuLab blankStart />
     </ErrorBoundary>
   </React.StrictMode>,
 );

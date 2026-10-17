@@ -96,25 +96,35 @@ describe('the jets', () => {
 });
 
 describe('what it does to the engine', () => {
-  it('adds power in step with the shot: 1.0-1.35 × the rating at the crank', () => {
-    // 1.0-1.35 rather than 1.0: the model makes 10-15% more power per unit of oxygen than
-    // real engines (docs/accuracy.md, approximation 1), and nitrous is oxygen.
+  it('adds power in step with the shot: 0.85-1.05 × the rating at the crank', () => {
+    // Kit ratings are crank figures and real kits land near them. It read 1.0-1.35 while a
+    // rich flame was credited with all the heat its oxygen could release; a wet kit sprays
+    // at lambda 0.75-0.80, where the CO and H2 left behind cost real power (thermo.js,
+    // heatReleasedShare), and the smallest shot, sprayed richest, lands lowest.
     const base = at(pull(null), 4500).hp;
     const gains = [50, 100, 150].map((shot) => (at(pull(kit(shot)), 4500).hp - base) / S.DRIVETRAIN_EFF / shot);
     for (const g of gains) {
-      expect(g).toBeGreaterThan(1.0);
-      expect(g).toBeLessThan(1.35);
+      expect(g).toBeGreaterThan(0.85);
+      expect(g).toBeLessThan(1.05);
     }
     expect(Math.max(...gains) - Math.min(...gains)).toBeLessThan(0.1);
   });
 
-  it('drops the knock limit about 2° per 50 hp of shot, as the rule of thumb says', () => {
-    for (const shot of [100, 150]) {
+  it('drops the knock limit a few degrees per 50 hp of shot, near the rule of thumb', () => {
+    // Measured as the knock limit itself, with and without the shot at the same speed.
+    // (Measuring the retard the ECU applied instead reads the drop minus whatever margin
+    // the spark table happened to leave, and hid a drop of about 7° per 50 hp once.)
+    // Tuners start from 2° per 50 hp; on pump 93 the model asks for more, about 3.5-5°
+    // (docs/accuracy.md: it read 3.0-4.1 before the rod length was corrected).
+    const base = pull(null);
+    for (const shot of [50, 100, 150]) {
       const p = pull(kit(shot), { cal: { 'nitrous.retardDeg': 0 } });
-      const worst = Math.max(...p.points.filter((x) => x.nitrousLbMin > 0).map((x) => x.knockPull));
-      const perFifty = worst / (shot / 50);
+      const drops = p.points.filter((x) => x.nitrousLbMin > 0)
+        .map((x) => base.points.find((y) => y.rpm === x.rpm).threshold - x.threshold)
+        .sort((a, b) => a - b);
+      const perFifty = drops[Math.floor(drops.length / 2)] / (shot / 50);
       expect(perFifty).toBeGreaterThan(1.5);
-      expect(perFifty).toBeLessThan(3.5);
+      expect(perFifty).toBeLessThan(5.5);
     }
   });
 
@@ -201,7 +211,8 @@ describe('fuel while spraying', () => {
     const after = stock(kit(150), { cal: { 'nitrous.fuelTrimPct': -pct } });
     expect(after.events.some((e) => e.type === 'rich' || e.type === 'lean')).toBe(false);
     const spray = after.points.filter((x) => x.nitrousLbMin > 0);
-    expect(Math.min(...spray.map((x) => x.lambda))).toBeGreaterThan(0.76);
+    // Clear of the point where the pull log calls it too rich to be safe.
+    expect(Math.min(...spray.map((x) => x.lambda))).toBeGreaterThan(S.COEFF.RICH_DAMAGE_LAMBDA);
     // Never leaner on the spray than the engine's own tune runs without it.
     for (const x of spray) expect(x.lambda).toBeLessThanOrEqual(x.afrCommanded / 14.7 + 0.005);
     expect(at(after, 2500).hp).toBe(at(before, 2500).hp);
@@ -240,7 +251,7 @@ describe('fuel while spraying', () => {
 });
 
 describe('the pull log sends the player to screens that exist', () => {
-  it('every nitrous event names BUILD → INDUCTION / FUEL SYSTEM or TUNE → NITROUS / INJECTORS', () => {
+  it('every nitrous event names BUILD → INDUCTION / FUEL SYSTEM or TUNE → NITROUS / INJECTORS / AIRFLOW', () => {
     const cases = [
       pull(kit(150), { cal: { 'nitrous.retardDeg': 0 } }),
       pull(kit(100), { bottleK: F(55) }),
@@ -249,10 +260,47 @@ describe('the pull log sends the player to screens that exist', () => {
     for (const p of cases) {
       for (const e of p.events.filter((x) => /nitrous|bottle/.test(x.type))) {
         for (const m of e.fix.matchAll(/\b(BUILD|TUNE) → ([A-Z][A-Z ]*[A-Z])/g)) {
-          expect(['BUILD → INDUCTION', 'BUILD → FUEL SYSTEM', 'TUNE → NITROUS', 'TUNE → INJECTORS']).toContain(`${m[1]} → ${m[2]}`);
+          expect(['BUILD → INDUCTION', 'BUILD → FUEL SYSTEM', 'TUNE → NITROUS', 'TUNE → INJECTORS', 'TUNE → AIRFLOW']).toContain(`${m[1]} → ${m[2]}`);
         }
       }
     }
+  });
+});
+
+describe('the fuel advice while spraying stays possible and finds the real fault', () => {
+  /** A dry 100 shot with its fuel at 100%, on a VE table scaled from the truth. */
+  const skewed = (scale) => {
+    const eng = makeEngine({ build: { ...FUELLED, nitrous: kit(100, { kit: 'dry' }) } });
+    eng.tables.ve = eng.tables.ve.map((row) => row.map((v) => v * scale));
+    return eng.pull(100);
+  };
+
+  it('sends a VE table that over-reads the engine to TUNE → AIRFLOW, not to the kit fuel', () => {
+    // The shape of a player's report: a 7 L V8 with an untuned table read λ 0.48 on the
+    // spray and was told to take 200 points out of a dry kit's fuel set at 100.
+    const rich = skewed(1.45).events.find((e) => e.type === 'rich');
+    expect(rich).toBeTruthy();
+    expect(rich.fix).toMatch(/TUNE → AIRFLOW/);
+    expect(rich.fix).not.toMatch(/lower Dry kit fuel/);
+  });
+
+  it('never asks for more change than the field holds', () => {
+    for (const scale of [1.0, 1.05]) {
+      for (const e of skewed(scale).events) {
+        const m = /lower Dry kit fuel by about (\d+) points/.exec(e.fix ?? '');
+        if (m) expect(Number(m[1])).toBeLessThanOrEqual(100);
+      }
+    }
+  });
+
+  it('sends a VE table that under-reads the engine to TUNE → AIRFLOW when the spray goes lean', () => {
+    const p = skewed(0.7);
+    const lean = p.events.filter((e) => ['nitrouslean', 'lean'].includes(e.type));
+    expect(lean.length).toBeGreaterThan(0);
+    for (const e of lean) {
+      expect(e.fix).not.toMatch(/raise the dry kit fuel to at least 100%/);
+    }
+    expect(lean.some((e) => /TUNE → AIRFLOW/.test(e.fix))).toBe(true);
   });
 });
 

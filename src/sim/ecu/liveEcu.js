@@ -16,13 +16,15 @@
  * ran, unchanged.
  */
 
-import { BARO_KPA, DRIVETRAIN_EFF, PSI_TO_KPA } from '../constants.js';
+import { BARO_KPA, DRIVETRAIN_EFF, KELVIN_OFFSET, PSI_TO_KPA } from '../constants.js';
 import { COEFF } from '../coefficients.js';
 import { ENGINE_INERTIA, readSpeedAndAirflow, STALL_RPM, steadyManifoldKpa } from '../live.js';
-import { clamp, interp2 } from '../math.js';
+import { trappedAirGrams } from '../cycle.js';
+import { needsAirmass, readEcuTable, truthReader } from '../layouts.js';
+import { clamp } from '../math.js';
 import { bottlePressurePsi, stepBottle } from '../nitrous.js';
 import { evaluatePoint } from '../point.js';
-import { RPM } from '../tables.js';
+import { CURVE_RPM, RPM } from '../tables.js';
 import { chargeTempK, INDUCTION_REF_EXHAUST_K } from '../thermo.js';
 import { solveInduction } from '../turbo.js';
 import { boostTarget, gateHoldPsi } from './boost.js';
@@ -53,9 +55,10 @@ export function makeEcuLiveState() {
 }
 
 /** Wall-film fraction and evaporation time constant by coolant temperature. */
-function filmParams(ectC) {
+function filmParams(ectC, injection) {
   const cold = clamp((E.FILM_WARM_C - ectC) / E.FILM_COLD_SPAN_C, 0, 1);
-  return { X: E.FILM_X_WARM + E.FILM_X_COLD_ADD * cold, tau: E.FILM_TAU_WARM_S + E.FILM_TAU_COLD_ADD_S * cold };
+  const k = injection === 'direct' ? E.FILM_DIRECT_SHARE : 1;
+  return { X: k * (E.FILM_X_WARM + E.FILM_X_COLD_ADD * cold), tau: E.FILM_TAU_WARM_S + E.FILM_TAU_COLD_ADD_S * cold };
 }
 
 /** Log channels, in order, recorded every step. Units in `LOG_CHANNELS` below. */
@@ -129,13 +132,13 @@ export function liveStepEcu(st, dt, input, cfg) {
   const env = cond.env;
   const baro = env.baroKpa;
   const { derived, mods, turboOn, boostCurve, turbine, compressor } = cfg;
-  const tables = { ve: cfg.ve, timing: cfg.timing, afr: cfg.afr };
+  const tables = { ve: cfg.ve, timing: cfg.timing, afr: cfg.afr, layout: cfg.layout ?? null };
   const hw = {
     ...cfg.ecu.hw, derived, mods, turboOn, boostCurve, turbine, compressor,
     blower: cfg.blower ?? null, blowerRatio: cfg.blowerRatio ?? 1, nitrous: cfg.nitrous ?? null,
     injectorCc: cfg.injectorCc, ecuInjectorCc: cfg.ecuInjectorCc, mafScalar: cfg.mafScalar,
     mafErrorBase: cfg.mafErrorBase, fuel: cfg.fuel,
-    veTruthByPhase: cfg.ecu.hw.veTruthByPhase ?? [cfg.veTruth ?? cfg.ve],
+    veTruthByPhase: cfg.ecu.hw.veTruthByPhase ?? [truthReader(cfg.veTruth, tables.layout?.ve ?? null) ?? ((r, m) => readEcuTable(tables, 've', r, { mapKpa: m }))],
   };
   const redline = derived.redline ?? 7500;
   // Fuel trims reset from the tuning software — done after a VE correction takes the
@@ -234,7 +237,8 @@ export function liveStepEcu(st, dt, input, cfg) {
   // valve does not chase the flare down — closing the loop on it winds the controller
   // up for the dip that follows. It will still add air if the engine sags.
   if (s.running && idleZone && pedal < 3) {
-    const holding = e.sinceStart < cal.idle.startHoldS && s.rpm > idleTarget;
+    const starting = e.sinceStart < cal.idle.startHoldS;
+    const holding = starting && s.rpm > idleTarget;
     if (holding) { /* hold base air through the flare */ } else if (s.rpm < E.IDLE_CAPTURE_RPM) {
       const err = idleTarget - s.rpm;
       const gain = err > 0 ? cal.idle.gainUp : cal.idle.gainDown;
@@ -250,6 +254,11 @@ export function liveStepEcu(st, dt, input, cfg) {
       // actually decelerate; it catches the engine again below 2000 RPM.
       s.idleTrim += (E.IDLE_COAST_AIR_PCT - s.idleTrim) * cal.idle.bleed * (dt / 0.05);
     }
+    // Never less than the base air while starting. The step the engine catches on is
+    // still just under the target, and the damping term reads the starter's pull-up as
+    // a flare: without this floor it shut the valve in that one step and the hold then
+    // held it shut, so a warm restart flared, fell through the target and stalled.
+    if (starting) s.idleTrim = Math.max(s.idleTrim, read1(cal.idle.baseAir, e.sEct));
   }
   const idleAir = (s.running ? s.idleTrim : 0) + (aux.ac ? cal.idle.acAirAdd : 0) + (aux.lights ? cal.idle.elecAirAdd : 0);
   e.idleAir = idleAir;
@@ -324,7 +333,7 @@ export function liveStepEcu(st, dt, input, cfg) {
     let target = 0;
     let steps = [];
     if (turboOn) {
-      const bt = boostTarget({ cal: cal.boost, baseCurve: boostCurve, rpmAxis: RPM, rpm: rpmC, throttlePct: e.sTps, gear: DYNO_GEAR, iatC: e.sIat });
+      const bt = boostTarget({ cal: cal.boost, baseCurve: boostCurve, rpmAxis: boostCurve.length === CURVE_RPM.length ? CURVE_RPM : RPM, rpm: rpmC, throttlePct: e.sTps, gear: DYNO_GEAR, iatC: e.sIat });
       target = Math.max(0, bt.target - e.boostCutPsi - (limp ? E.BOOST_CUT_ALL_PSI : 0));
       steps = bt.steps;
     }
@@ -407,7 +416,7 @@ export function liveStepEcu(st, dt, input, cfg) {
     const decayed = e.aePct * Math.exp(-dt / Math.max(0.02, cal.fuel.accelDecayS));
     e.aePct = aeWant > 0 ? Math.max(decayed, aeWant) : aeWant < 0 ? Math.min(decayed, Math.max(-60, aeWant)) : decayed;
     if (Math.abs(e.aePct) < 0.05) e.aePct = 0;
-    const { X, tau: filmTau } = filmParams(s.coolantC);
+    const { X, tau: filmTau } = filmParams(s.coolantC, derived.injection);
     const injPerCycle = lastPt?.fuelCmd != null && !s.fuelCut ? lastPt.fuelCmd / 1000 : 0;
     const cycles = (s.rpm / 120) * dt;
     const evap = e.film * clamp(dt / filmTau, 0, 1);
@@ -422,7 +431,12 @@ export function liveStepEcu(st, dt, input, cfg) {
     const crankingPct = s.cranking ? read1(cal.fuel.cranking, e.sEct) : 0;
     // Target lookup delay: a move to a richer target is eased in over the delay; a move
     // leaner is immediate.
-    const afrTable = interp2(tables.afr, rpmC, e.sMap);
+    const afrTable = readEcuTable(tables, 'afr', rpmC, {
+      mapKpa: e.sMap,
+      airmassG: needsAirmass(tables.layout)
+        ? trappedAirGrams({ veActual: readEcuTable(tables, 've', rpmC, { mapKpa: e.sMap }), mapKpa: e.sMap, chargeK: e.sIat + KELVIN_OFFSET, sweptM3: (derived.displacementL / derived.cyl) / 1000 })
+        : 0,
+    });
     if (e.afrTargetF == null || cal.fuel.targetDelayS <= 0 || afrTable > e.afrTargetF) e.afrTargetF = afrTable;
     else e.afrTargetF += (afrTable - e.afrTargetF) * clamp(dt / cal.fuel.targetDelayS, 0, 1);
     if (cal.ignition.highDetRetard > 0 && e.knockRetard > cal.ignition.highDetTriggerDeg) { e.highDet = true; e.highDetQuiet = 0; }

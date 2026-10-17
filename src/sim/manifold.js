@@ -8,8 +8,8 @@
 
 import { BARO_KPA, PSI_TO_KPA } from './constants.js';
 import { COEFF } from './coefficients.js';
-import { clamp, interp1 } from './math.js';
-import { REACHABLE_SLACK_KPA, RPM } from './tables.js';
+import { clamp, curveAt } from './math.js';
+import { REACHABLE_SLACK_KPA } from './tables.js';
 
 /**
  * WHAT USED TO BE HERE
@@ -36,6 +36,20 @@ export function bestPowerAfr(boostPsi) {
 }
 
 /**
+ * The most manifold pressure an engine makes: barometric plus the turbo's highest boost
+ * target, or the supercharger's most boost at full throttle (`blowerPeakPsi`, from
+ * `blowerCurve`), or barometric for a naturally aspirated engine. What a table's load axis
+ * has to reach.
+ *
+ * @param {{turboOn?: boolean, boostCurve?: number[], blowerPeakPsi?: number}} build
+ * @returns {number} kPa absolute
+ */
+export function peakMapKpaOf({ turboOn = false, boostCurve = [], blowerPeakPsi = 0 }) {
+  const psi = turboOn ? Math.max(0, ...boostCurve) : blowerPeakPsi;
+  return BARO_KPA + psi * PSI_TO_KPA;
+}
+
+/**
  * Highest manifold pressure the boost controller is even asking for at this speed, kPa.
  *
  * THE ONE DEFINITION OF REACHABLE. `calibrationAdvice` and `factoryCalibration` both
@@ -45,13 +59,13 @@ export function bestPowerAfr(boostPsi) {
  *
  * @param {object} input
  * @param {boolean} input.turboOn
- * @param {number[]} input.boostCurve boost target per `RPM` breakpoint, psi
+ * @param {number[]} input.boostCurve boost target per `RPM` or `CURVE_RPM` breakpoint, psi
  * @param {number} input.rpm
  * @param {number} [input.boostPsi] boost the engine is known to make here, for a
  *   supercharger, whose boost is its own physics rather than a curve anyone asked for
  * @returns {number} kPa absolute
  */
 export function reachableKpa({ turboOn, boostCurve, rpm, boostPsi }) {
-  const boost = boostPsi ?? (turboOn ? interp1(RPM, boostCurve, rpm) : 0);
+  const boost = boostPsi ?? (turboOn ? curveAt(boostCurve, rpm) : 0);
   return BARO_KPA + REACHABLE_SLACK_KPA + Math.max(0, boost) * PSI_TO_KPA;
 }

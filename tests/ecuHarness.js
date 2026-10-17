@@ -30,11 +30,16 @@ export function makeEngine({ preset, build: patch = {}, cal: calPatch = {}, env,
     turbineCount: p?.turbineCount ?? 1,
     compressorIdx: p?.compressorIdx ?? 1,
     exhaustDiaIdx: p?.exhaustDiaIdx ?? S.EXHAUST_DIA_OPTS.findIndex((o) => o.dia === 3.0),
+    // The preset's own MAF scalar, as APPLY_PRESET puts it in the app's BUILD slice. Left
+    // out, a turbo preset was graded with its MAF error uncorrected: 8% lean of the mixture
+    // its tables were written for, which only stopped being harmless once a rich flame's
+    // heat began to depend on how rich it is (thermo.js, heatReleasedShare).
+    mafScalar: p?.mafScalar ?? 1,
     ethanolPct: 0,
     ...patch,
   };
   const turbine = S.turbineWithCount(S.TURBINE_OPTS[build.turbineIdx], build.turbineCount);
-  const compressor = S.COMPRESSOR_OPTS[build.compressorIdx];
+  const compressor = S.compressorWithCount(S.COMPRESSOR_OPTS[build.compressorIdx], build.turbineCount);
   const fuel = S.tankFuel(build);
   const hwForVe = {
     turboOn: build.turboOn, turbine: build.turboOn ? turbine : null,
@@ -42,20 +47,24 @@ export function makeEngine({ preset, build: patch = {}, cal: calPatch = {}, env,
     peakBoostPsi: build.turboOn ? Math.max(...build.boostCurve) : 0,
     supercharged: !!S.blowerOf(build),
   };
-  const veTruth = S.computeHardwareVE(build.engineConfig, build.mods, hwForVe);
   const derived = S.deriveEngine(build.engineConfig);
   const hw = { ...S.ecuHardwareOf(build), veTruthByPhase: S.veTruthByPhaseFor(build.engineConfig, build.mods, hwForVe) };
   let cal = p?.ecu ?? S.defaultEcuCalibration({ derived, gate: hw.gate });
   for (const [k, v] of Object.entries(calPatch)) cal = S.setCal(cal, k, v);
+  // The engine's breathing with its cam where the calibration holds it, as the app has it.
+  const veTruth = S.scheduledVeAt(build.engineConfig, build.mods, hwForVe, cal.vvt);
+  const camAt = S.intakeCamAt(build.engineConfig, cal.vvt);
   const tables = {
-    ve: p?.ve ?? veTruth,
+    ve: p?.ve ?? S.computeHardwareVE(build.engineConfig, build.mods, hwForVe),
     timing: p?.timing ?? S.clone2D(S.DEFAULT_TIMING),
     afr: p?.afr ?? S.clone2D(S.DEFAULT_AFR),
+    // A preset's tables are on its own engine-sized breakpoints; the default engine's on the legacy grid.
+    layout: p?.layout ?? null,
   };
   const sweepArgs = (loadKpa = 100) => ({
     loadKpa, ...tables, veTruth, turboOn: build.turboOn, boostCurve: build.boostCurve,
     octaneLabel: fuel.label, fuel, injectorCc: S.INJECTOR_OPTS[build.injIdx].cc,
-    ecuInjectorCc: build.ecuInjectorCc, injectorLabel: 'x', mods: build.mods, mafScalar: 1,
+    ecuInjectorCc: build.ecuInjectorCc, injectorLabel: 'x', mods: build.mods, mafScalar: build.mafScalar ?? p?.mafScalar ?? 1,
     derived, turbine, compressor,
     ...(S.blowerOf(build) ? { blower: S.blowerOf(build), blowerRatio: build.blowerRatio ?? S.blowerOf(build).defaultRatio } : {}),
     ...(build.nitrous ? { nitrous: build.nitrous } : {}),
@@ -63,7 +72,7 @@ export function makeEngine({ preset, build: patch = {}, cal: calPatch = {}, env,
   const nitrousCond = build.nitrous ? { armed: nitrousArmed, heater: !!build.nitrous.heater, ...(bottleK ? { bottleK } : {}) } : null;
   const ecu = (cond) => ({ cal, hw: build.nitrous ? { ...hw, nitrous: build.nitrous } : hw, cond: cond ?? S.dynoConditions(env, faults, nitrousCond) });
   return {
-    build, derived, cal, hw, tables, veTruth, fuel, turbine, compressor,
+    build, derived, cal, hw, tables, veTruth, camAt, fuel, turbine, compressor,
     /**
      * A dyno pull with the ECU in the loop (or without it, `legacy`).
      * @param {number} [loadKpa]
@@ -75,7 +84,7 @@ export function makeEngine({ preset, build: patch = {}, cal: calPatch = {}, env,
     }),
     /** The live engine config, as EcuLab builds it. */
     liveCfg: (aux = {}) => ({
-      ...sweepArgs(), ve: tables.ve, timing: tables.timing, afr: tables.afr,
+      ...sweepArgs(), ve: tables.ve, timing: tables.timing, afr: tables.afr, layout: tables.layout,
       mafErrorBase: S.mafErrorFactor(build.mods, build.turboOn),
       ecu: { ...ecu(S.dynoConditions(env, faults)), aux },
     }),
