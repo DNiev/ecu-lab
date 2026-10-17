@@ -19,10 +19,14 @@ import { T } from '../theme.js';
  * @param {object} props
  * @param {string} props.title the always-visible summary line
  * @param {React.ReactNode} props.children the prose revealed when it opens
+ * @param {boolean} [props.lazy] mount the children only once first opened, for an
+ *   article carrying a live game screen that should not run while nobody is reading it
  * @returns {React.ReactElement}
  */
-export function ExpandableInfo({ title, children }) {
+export function ExpandableInfo({ title, children, lazy = false }) {
   const [open, setOpen] = useState(false);
+  const [opened, setOpened] = useState(!lazy);
+  if (open && !opened) setOpened(true);
   return (
     <div style={{ margin: '10px 0', border: `1px solid ${T.line}`, borderRadius: 10, overflow: 'hidden', background: T.panel }}>
       <button onClick={() => setOpen((o) => !o)} style={{ width: '100%', display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '11px 13px', background: 'none', border: 'none' }}>
@@ -36,7 +40,7 @@ export function ExpandableInfo({ title, children }) {
           the old 900px on a phone, and their endings could not be read). */}
       <div style={{ display: 'grid', gridTemplateRows: open ? '1fr' : '0fr', opacity: open ? 1 : 0, transition: 'grid-template-rows .3s ease, opacity .2s ease' }}>
         <div style={{ overflow: 'hidden', minHeight: 0 }}>
-          <div style={{ padding: '0 13px 13px', fontSize: 12.5, color: T.ink2, lineHeight: 1.65 }}>{children}</div>
+          <div style={{ padding: '0 13px 13px', fontSize: 12.5, color: T.ink2, lineHeight: 1.65 }}>{opened ? children : null}</div>
         </div>
       </div>
     </div>

@@ -56,9 +56,11 @@ describe('the advisor and the pull log agree on random builds', () => {
         for (const c of [...advice.overAdvanced, ...advice.pastMbt]) eng.tables.timing[c.ri][c.ci] = c.suggested;
       }
       const left = eng.pull(100).points.filter((p) => p.margin < 0);
-      // What timing cannot fix — an injector out of time, a mixture far lean — the pull log
-      // names separately; the advisor's job is the spark table, and there it must finish.
-      const sparkFixable = left.filter((p) => !p.fuelLimited && p.lambda < 1.05);
+      // What timing cannot fix — an injector out of time, a mixture far lean, a knock limit
+      // past the most retard a spark table holds (less the advisor's 1.5° of safety) — the
+      // pull log names separately; the advisor's job is the spark table, and there it must
+      // finish.
+      const sparkFixable = left.filter((p) => !p.fuelLimited && p.lambda < 1.05 && p.threshold >= S.SPARK_MIN_DEG + 1.5);
       if (sparkFixable.length) failures.push(`seed ${build.seed}: still knocks at ${sparkFixable.map((p) => p.rpm).join(', ')} RPM after four rounds of advice`);
     }
     expect(failures).toEqual([]);

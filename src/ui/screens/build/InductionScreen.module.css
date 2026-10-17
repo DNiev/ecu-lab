@@ -228,3 +228,5 @@
   font-size: var(--fs-xs);
   color: var(--ink3);
 }
+
+.hint[data-over='true'] { color: var(--danger); }

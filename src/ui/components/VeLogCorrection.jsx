@@ -70,7 +70,7 @@ export function VeLogCorrection({ corr, pullCount, liveCount, pullInfo, mafPct, 
       </p>
       {pullNote && <p className={styles.hint}>{pullNote}</p>}
       {Math.abs(mafPct) >= VE_LOG_GOOD_PCT && (
-        <p className={styles.maf}>
+        <p className={styles.maf} data-tour="velog-maf">
           The MAF read {Math.abs(mafPct).toFixed(1)}% {mafPct < 0 ? 'low' : 'high'} in these logs. That part is the MAF scalar&apos;s job, on{' '}
           <a href="#/tune/sensors">TUNE › SENSORS</a>, and is taken out of the numbers below — tune the MAF and the VE table separately, or each hides the other&apos;s error.
         </p>
@@ -107,7 +107,7 @@ export function VeLogCorrection({ corr, pullCount, liveCount, pullInfo, mafPct, 
               ? `Every logged cell is within ${VE_LOG_GOOD_PCT}% — as close as a wideband and fuel trims can tell.`
               : `Largest: ${worst.pct > 0 ? '+' : ''}${worst.pct.toFixed(1)}% at ${worst.rpm} RPM, ${worst.load} kPa. Positive means the engine got more air than the table thought (it ran lean).`}
           </p>
-          <div className={styles.actions}>
+          <div className={styles.actions} data-tour="velog-apply">
             <Button size="sm" onClick={() => onApply(0.5)} disabled={inSync}>APPLY HALF</Button>
             <Button size="sm" variant="ghost" onClick={() => onApply(1)} disabled={inSync}>APPLY ALL</Button>
           </div>

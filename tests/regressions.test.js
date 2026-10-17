@@ -9,6 +9,7 @@
 import { describe, expect, it } from 'vitest';
 
 import * as S from '../src/sim/index.js';
+import { makeEngine } from './ecuHarness.js';
 
 const STOCK = S.DEFAULT_ENGINE_CONFIG;
 const NO_MODS = { ...S.DEFAULT_MODS, turboFitted: false };
@@ -70,13 +71,12 @@ describe('#1/#2 fuel-trim histogram converges on the true VE table', () => {
     // A miscalibrated table does not change cylinder filling, but it does change how
     // much fuel goes in, and mixture genuinely affects the knock limit. So the
     // threshold must move, and it must move for the right reason.
-    // A 15% under-reading table, which lands the mixture just lean of stoichiometric —
-    // where flame temperature peaks and knock margin is genuinely worst. (Push it much
-    // further lean and margin comes back, because a very lean charge releases less heat
-    // and burns cooler. That is real, and it is why this test picks a realistic
-    // miscalibration rather than an extreme one.)
-    const lean = point({ veVal: 85, veActualVal: 100 });
-    const onTarget = point({ veVal: 100, veActualVal: 100 });
+    // Knock tendency peaks near stoichiometric, a little rich of it, and falls away on
+    // both sides (Al Almaleki et al., Fuel 2023; the classic octane-requirement curve).
+    // So the realistic miscalibration is a full-load cell commanded rich, 11.5:1, whose
+    // table reads 12% low: the mixture lands at about 13:1, near that peak.
+    const lean = point({ veVal: 88, veActualVal: 100, afrCommanded: 11.5 });
+    const onTarget = point({ veVal: 100, veActualVal: 100, afrCommanded: 11.5 });
 
     expect(lean.chargeIndex).toBe(onTarget.chargeIndex);   // same air...
     expect(lean.afr).toBeGreaterThan(onTarget.afr);        // ...leaner mixture...
@@ -358,11 +358,12 @@ describe('#31 compression under boost costs the bottom end, not just knock margi
       injectorCc: S.INJECTOR_OPTS[patch.injIdx].cc,
       ecuInjectorCc: patch.ecuInjectorCc,
       injectorLabel: S.INJECTOR_OPTS[patch.injIdx].label,
-      mods: patch.mods, mafScalar: 1, derived: S.deriveEngine(patch.engineConfig),
-      // The N54 is twin-turbo, and backpressure now depends on total turbine flow
-      // area, so the count has to come along or this models a choked engine.
+      mods: patch.mods, mafScalar: patch.mafScalar, derived: S.deriveEngine(patch.engineConfig),
+      // The N54 is twin-turbo: backpressure depends on total turbine flow area and the
+      // air supply on total compressor flow, so the count has to come along for both or
+      // this models a choked engine.
       turbine: S.presetTurbine(preset),
-      compressor: S.COMPRESSOR_OPTS[patch.compressorIdx],
+      compressor: S.presetCompressor(preset),
     });
   }
 
@@ -427,5 +428,30 @@ describe('preset-readiness hardening', () => {
     // Seven entries for an eight-point axis is the exact bug that once shipped.
     expect(() => run([0, 0, 3, 6, 8, 8, 8])).toThrow(/boost curve/i);
     expect(() => run(S.RPM.map(() => 8))).not.toThrow();
+  });
+});
+
+describe('twin turbos pass twice the air', () => {
+  it('a 7 L V8 holds its boost to redline on two Large turbos where one runs out', () => {
+    // Twins used to double only the turbine: the air side stayed one compressor, so a
+    // pair choked where it should not. Each turbo carries its own compressor.
+    const top = (count) => {
+      const eng = makeEngine({
+        build: {
+          engineConfig: { ...S.DEFAULT_ENGINE_CONFIG, configuration: 'V8', bore: 105, stroke: 100, compression: 9.0 },
+          mods: { ...S.DEFAULT_MODS, intercooler: true, exhaust: true, headers: true },
+          turboOn: true, boostCurve: [0, 2, 6, 10, 10, 10, 10, 10],
+          turbineIdx: 2, compressorIdx: 2, turbineCount: count,
+          injIdx: S.INJECTOR_OPTS.length - 1, ecuInjectorCc: S.INJECTOR_OPTS.at(-1).cc, octaneIdx: 3,
+          fuelSystem: { regulator: 'return', basePressureKpa: 300, pumpIdx: S.PUMP_OPTS.length - 1 },
+        },
+      });
+      return eng.pull(100).points.find((p) => p.rpm === 7000);
+    };
+    const single = top(1);
+    const twin = top(2);
+    expect(single.boostPsi).toBeLessThan(single.boostTarget - 2);
+    expect(twin.boostPsi).toBeGreaterThan(twin.boostTarget - 0.5);
+    expect(twin.hp).toBeGreaterThan(single.hp * 1.2);
   });
 });

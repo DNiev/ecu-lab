@@ -260,7 +260,7 @@ export function evaluatePoint({
   const cyc = cycleInputsFor({
     rpm, mapKpa, empKpa, intakeK: cylChargeK,
     airChargeG, burnedFuelG, fuelMassG: totalFuelG, lambda: lambdaActual, fuel,
-    ...(n2o ? { n2oG: n2o.n2oG } : {}),
+    ...(n2o ? { n2oG: n2o.n2oG, kitFuelG: n2o.fuelG } : {}),
     derived: cycDerived, ...(E?.cam ? { cam: E.cam } : {}),
   });
 
@@ -273,7 +273,7 @@ export function evaluatePoint({
   const usedTiming = timingVal - knockPull;
 
   const cycle = runCycle({ ...cyc, sparkBtdc: usedTiming });
-  const mbtIdeal = mbtFromBurn(cyc.burnDeg);
+  const mbtIdeal = mbtFromBurn(cyc.burnDeg, cyc.flameDevDeg);
   // Events that did not burn: the ECU cutting them (limiter, protection, traction) and
   // the cylinder failing to light (a spark too weak for the pressure, or a mixture
   // outside what a flame will cross). Both cost the whole event's work.

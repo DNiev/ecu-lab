@@ -82,7 +82,7 @@ describe('the pull log reads like a knock log', () => {
 
   it('names the load row the engine was on, and how much to take out', () => {
     const knock = makeEngine({ build: TURBO_10 }).pull(100).events.find((e) => e.type === 'knock');
-    expect(knock.fix).toMatch(/take about \d+° out of the \d+ kPa row|rows \(the engine ran at \d+ kPa/);
+    expect(knock.fix).toMatch(/pull about \d+° of timing from the \d+ kPa load row|load rows \(it ran at \d+ kPa/);
   });
 });
 

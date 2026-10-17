@@ -179,7 +179,8 @@ export function TuningGrid({ data, min, max, decimals, selection, setSelection, 
     </div>
     <div style={{ overflowX: 'auto', WebkitOverflowScrolling: 'touch', border: `1px solid ${T.line}`, borderRadius: 10 }}>
       <div style={{ display: 'inline-block', minWidth: '100%' }}>
-        <div style={{ display: 'flex' }}>
+        {/* `data-tour` hooks are for the tutorial's callouts, which point at this grid. */}
+        <div style={{ display: 'flex' }} data-tour="grid-rpm-axis">
           <div style={{ width: 44, flexShrink: 0, background: T.panel }} />
           {RPM.map((r, ci) => (
             <button key={r} onClick={() => selectCol(ci)} style={{
@@ -192,7 +193,7 @@ export function TuningGrid({ data, min, max, decimals, selection, setSelection, 
         </div>
         {LOAD.map((load, ri) => (
           <div key={load} style={{ display: 'flex' }}>
-            <button onClick={() => selectRow(ri)} style={{
+            <button onClick={() => selectRow(ri)} data-tour={`grid-load-${load}`} style={{
               width: 44, height: 37, flexShrink: 0, border: 'none', borderRight: `1px solid ${T.line}`, borderTop: `1px solid ${T.line}`,
               background: selection?.type === 'row' && selection.row === ri ? T.acc : T.panel,
               color: selection?.type === 'row' && selection.row === ri ? T.accOn : T.ink2,

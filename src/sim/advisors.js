@@ -16,6 +16,7 @@ import { chargeTempK, exhaustTempK } from './thermo.js';
 import { clamp, interp1, interp2 } from './math.js';
 import { evaluatePoint } from './point.js';
 import { reachableKpa } from './manifold.js';
+import { inductionAtMap } from './turbo.js';
 import {
   LOAD, OPEN_LOOP_KPA, RPM, SPARK_MAX_DEG, SPARK_MIN_DEG, interpolationRoomDeg,
 } from './tables.js';
@@ -165,6 +166,29 @@ export function calibrationAdvice({
     : reachableKpa({ turboOn, boostCurve, rpm }));
 
   /**
+   * The compressor pressure and exhaust backpressure a turbo engine runs at a manifold
+   * pressure below full throttle, as the dyno and LIVE solve them (`inductionAtMap`), or
+   * the no-boost default. The dyno and this advisor must grade a cell under the same
+   * charge: judged as if drawn from ambient, a part-throttle turbo cell was advised a
+   * degree or two past where the pull then knocked.
+   */
+  const inductionMemo = new Map();
+  const inductionAt = (rpm, mapKpa) => {
+    const plain = { boostPsi: Math.max(0, (mapKpa - BARO_KPA) / PSI_TO_KPA) };
+    if (!turboOn || blowerPull) return plain;
+    const key = `${rpm}:${mapKpa.toFixed(2)}`;
+    if (!inductionMemo.has(key)) {
+      const s = inductionAtMap({
+        rpm, mapKpa, boostTargetPsi: interp1(RPM, boostCurve, rpm), turbine, compressor,
+        veAt: (m) => interp2(veTruth ?? ve, rpm, m), derived,
+        intakeKAt: (b) => chargeTempK(b, mods.intercooler),
+      });
+      inductionMemo.set(key, s ?? plain);
+    }
+    return inductionMemo.get(key);
+  };
+
+  /**
    * The knock threshold at any manifold pressure, not just a row's.
    *
    * Sampled the way the sweep reads the tables — VE and mixture interpolated to the same
@@ -172,7 +196,7 @@ export function calibrationAdvice({
    */
   const ceilingAt = (ci, mapKpa) => evaluatePoint({
     rpm: RPM[ci], mapKpa,
-    boostPsi: Math.max(0, (mapKpa - BARO_KPA) / PSI_TO_KPA),
+    ...inductionAt(RPM[ci], mapKpa),
     veVal: interp2(ve, RPM[ci], mapKpa),
     veActualVal: veTruth ? interp2(veTruth, RPM[ci], mapKpa) : undefined,
     timingVal: interp2(timing, RPM[ci], mapKpa), afrCommanded: interp2(afr, RPM[ci], mapKpa),
@@ -224,7 +248,7 @@ export function calibrationAdvice({
       const bracketOnly = gradeKpa !== mapRow;
       const pt = evaluatePoint({
         rpm, mapKpa: gradeKpa,                                              // rule 1
-        boostPsi: Math.max(0, (gradeKpa - BARO_KPA) / PSI_TO_KPA),
+        ...inductionAt(rpm, gradeKpa),
         veVal: ve[ri][ci], veActualVal: veTruth?.[ri]?.[ci],
         timingVal: timing[ri][ci], afrCommanded: afr[ri][ci],
         fuel, mods: { ...mods, turboFitted: turboOn }, mafScalar, mafErrorBase,

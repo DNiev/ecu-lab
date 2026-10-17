@@ -77,8 +77,8 @@ function pullFor(preset) {
     octaneLabel: S.OCTANE_OPTS[patch.octaneIdx].label,
     fuel: S.OCTANE_OPTS[patch.octaneIdx],
     injectorCc: S.INJECTOR_OPTS[patch.injIdx].cc, ecuInjectorCc: patch.ecuInjectorCc,
-    injectorLabel: S.INJECTOR_OPTS[patch.injIdx].label, mods: patch.mods, mafScalar: 1,
-    derived, turbine: S.presetTurbine(preset), compressor: S.COMPRESSOR_OPTS[patch.compressorIdx],
+    injectorLabel: S.INJECTOR_OPTS[patch.injIdx].label, mods: patch.mods, mafScalar: patch.mafScalar,
+    derived, turbine: S.presetTurbine(preset), compressor: S.presetCompressor(preset),
   });
 }
 
@@ -109,11 +109,17 @@ describe('the factory engines run like real engines, not just to their ratings',
   });
 
   it('burns at the textbook MBT phasing wherever the calibration is at MBT', () => {
-    for (const { peakTq, boosted } of PULLS) {
-      if (boosted) continue; // knock-limited: phased later on purpose
-      const c = within(peakTq.mfb50, REAL.mfb50AtMbt);
-      expect(c).toMatchObject({ ok: true });
+    // Only where MBT, not knock, sets the spark: on pump fuel that is the top of the rev
+    // range for the naturally aspirated engines, and knock-limited points are phased
+    // later on purpose.
+    let checked = 0;
+    for (const { pull } of PULLS) {
+      for (const p of pull.points.filter((q) => q.timing >= q.mbtIdeal - 1)) {
+        expect(within(p.mfb50, REAL.mfb50AtMbt), `${p.rpm} RPM`).toMatchObject({ ok: true });
+        checked += 1;
+      }
     }
+    expect(checked).toBeGreaterThan(10);
   });
 
   it('runs its boosted engines hotter than its naturally aspirated ones', () => {

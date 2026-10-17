@@ -475,33 +475,6 @@ function selectedLoad() {
   return pressed[0].textContent;
 }
 
-describe('the guided first run', () => {
-  it('advances to the next step when the banner is followed', () => {
-    // `journeyStep` is onboarding progress, and the banner is the only thing that
-    // reads it. A dropped write leaves a new player stuck on step 1 of 4, being told
-    // to do something they have already done.
-    launch();
-    expect(screen.getByText('STEP 1 · BUILD THE ENGINE')).toBeTruthy();
-
-    fireEvent.click(screen.getByRole('button', { name: 'Done building — go tune it' }));
-
-    // The banner's onAdvance both bumps the step and changes tab, so the step-2 banner
-    // is what proves the store took the write — the tab change alone would not.
-    expect(screen.getByText('STEP 2 · CALIBRATE IT')).toBeTruthy();
-  });
-
-  it('dismisses for good on SKIP GUIDE', () => {
-    // The dismissal writes 99, a step the JOURNEY table has no entry for, so
-    // JourneyBanner renders null. Drop the write and the banner is unclosable.
-    launch();
-    expect(screen.getByText('STEP 1 · BUILD THE ENGINE')).toBeTruthy();
-
-    fireEvent.click(screen.getByRole('button', { name: 'SKIP GUIDE' }));
-
-    expect(screen.queryByText('STEP 1 · BUILD THE ENGINE')).toBeNull();
-  });
-});
-
 describe('banking a pull', () => {
   it('writes the career through to storage, not just to the store', async () => {
     // `BANK_PULL` updates bestScore/totalScore/pullCount/runs in the store; a
@@ -678,9 +651,9 @@ describe('career stats saved from a previous session', () => {
 
     // Open the panel for the other two figures: the collapsed subtitle only names the
     // pull count while no pull has been run this session.
-    fireEvent.click(screen.getByText('Career & Last Pull'));
+    fireEvent.click(screen.getByText('Sandbox Stats & Last Pull'));
     expect(statTile('BEST PULL')).toBe('812');
-    expect(statTile('CAREER TOTAL')).toBe('3405');
+    expect(statTile('TOTAL SCORE')).toBe('3405');
   });
 
   it('does not overwrite a saved career before the load completes', async () => {
@@ -728,36 +701,3 @@ describe('the engine-sound toggle', () => {
   });
 });
 
-describe('a career job', () => {
-  /** Runs a pull from DYNO and waits for the bench to come free again. */
-  async function pullAndWait() {
-    fireEvent.click(screen.getByRole('button', { name: 'RUN DYNO PULL' }));
-    await waitFor(
-      () => expect(screen.getByRole('button', { name: 'RUN DYNO PULL' })).toBeTruthy(),
-      { timeout: 10000 },
-    );
-  }
-
-  it('grades the pull against the job, and keeps the pulls banked before it', async () => {
-    // Taking a job used to empty the run log, and the log is saved whenever it changes,
-    // so a player's whole pull history went with it. The job's own pull is labelled
-    // with the job, so the kept log still says which car each pull was on.
-    render(<EcuLab />);
-    fireEvent.click(screen.getByRole('button', { name: 'CAREER' }));
-    fireEvent.click(screen.getByRole('button', { name: 'DYNO' }));
-    await pullAndWait();
-
-    fireEvent.click(screen.getByRole('button', { name: 'HOME' }));
-    fireEvent.click(screen.getByRole('button', { name: /Runs terrible since the fuel upgrade/ }));
-    // Taking a job goes straight to the dyno, with the job pinned above it.
-    expect(screen.getByText('JOB IN PROGRESS')).toBeTruthy();
-    await pullAndWait();
-
-    // Oversized injectors the ECU was never told about: the stock tables cannot pass it.
-    expect(screen.getByText('NOT THERE YET')).toBeTruthy();
-    const saved = await loadCareer();
-    expect(saved.runs.map((r) => r.label)).toEqual([
-      'Job · Runs terrible since the fuel upgrade', 'Custom build',
-    ]);
-  }, 2 * DYNO_PULL_MS + 6000);
-});

@@ -166,8 +166,11 @@ describe('every lever pulls the way it does on a real engine', () => {
     expect(forAll(({ at, eng, safe }) => {
       if (eng.derived.compression > 12.5) return null;
       const derivedHi = S.deriveEngine({ ...eng.build.engineConfig, compression: eng.derived.compression + 1 });
-      const lo = at({ timingVal: safe - 2 });
-      const hi = at({ timingVal: safe - 2, derived: derivedHi });
+      // Below BOTH knock limits, so neither engine's efficiency is knock control's: a
+      // compression point costs a few degrees of limit, more than a fixed 2° margin.
+      const timingVal = Math.min(safe - 2, at({ timingVal: safe - 2, derived: derivedHi }).threshold - 1);
+      const lo = at({ timingVal });
+      const hi = at({ timingVal, derived: derivedHi });
       if (hi.threshold > lo.threshold + 0.05) return `knock limit ${lo.threshold} → ${hi.threshold} at +1 CR`;
       if (hi.imep < lo.imep - 0.005) return `imep ${lo.imep} → ${hi.imep} at +1 CR, same air and fuel`;
       return null;

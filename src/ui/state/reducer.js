@@ -25,12 +25,12 @@
  * resolves them against the `live` it already holds.
  */
 
-import { clamp, clone2D, DEFAULT_AFR, DEFAULT_MODS, DEFAULT_TIMING, ECU_META, liveStep, presetById, setCal } from '../../sim/index.js';
+import { clamp, clone2D, DEFAULT_AFR, DEFAULT_MODS, DEFAULT_TIMING, ECU_META, liveStep, makeLiveState, presetById, setCal } from '../../sim/index.js';
 
 import {
   HISTORY_LIMIT, RESTORE_ALL, RESTORE_CALIBRATION, restore, snapshot, snapshotsTuneField,
 } from './history.js';
-import { stockEcuParts } from './initialState.js';
+import { makeInitialState, stockEcuParts } from './initialState.js';
 import { pushRun, RUN_LIMIT } from './runLog.js';
 
 /** @typedef {import('./initialState.js').StoreState} StoreState */
@@ -68,7 +68,9 @@ export const ACTIONS = Object.freeze({
   LIVE_PATCH: 'LIVE_PATCH',
   UNDO: 'UNDO',
   REDO: 'REDO',
-  TAKE_JOB: 'TAKE_JOB',
+  ENTER_CAREER: 'ENTER_CAREER',
+  ENTER_SANDBOX: 'ENTER_SANDBOX',
+  CAREER_UPDATE: 'CAREER_UPDATE',
 });
 
 /**
@@ -94,9 +96,9 @@ export const ACTIONS = Object.freeze({
  */
 
 /**
- * Fits ONE of the chosen turbine housing. A twin-turbo `turbineCount` belongs to a
- * preset, not a hand pick from the turbine list, so this always resets it to 1
- * alongside the new housing — and, like any hardware edit, clears `presetId`.
+ * Swaps the turbine housing. How many turbos are fitted (`turbineCount`) is its own
+ * pick on BUILD › Induction and stays as it was — a twin-turbo engine gets two of the
+ * new housing. Like any hardware edit, this clears `presetId`.
  * @typedef {{type: 'SET_TURBINE', value: number}} SetTurbineAction
  */
 
@@ -185,7 +187,7 @@ export const ACTIONS = Object.freeze({
  *   turbineIdx: number, turbineCount: number, compressorIdx: number, injIdx: number,
  *   ecuInjectorCc: number, octaneIdx: number, exhaustDiaIdx: number,
  *   ve: number[][], timing: number[][], afr: number[][],
- *   ecu?: object,
+ *   ecu?: object, mafScalar?: number,
  * }}} ApplyPresetAction
  */
 
@@ -212,23 +214,19 @@ export const ACTIONS = Object.freeze({
  */
 
 /**
- * Takes a career job: fits the customer's car and clears the bench, in one pass.
+ * Career mode: the shop's save and the car on the tuning bay.
  *
- * A job is a car that arrives with one fault already in it, so taking one has to write
- * across all three slices at once — the hardware the customer turned up with, a stock
- * calibration to diagnose it against, and a bench with no trace of the last job on it.
- * Split into separate writes it would render once per write, and worse, a
- * half-applied job is a car with the fault fitted and the old tables still loaded, which
- * is not any car the player was handed.
- *
- * `build` and `ve` are computed by the caller (`jobCar` in career.js) for the same reason
- * `RESET_TO_STOCK`'s are: they need `computeHardwareVE` fed a hardware description, which
- * is exactly the lookup the reducer should not be reaching for. Everything the reducer can
- * set from constants — the stock timing and fuel tables, full health, an empty result —
- * it sets itself.
- *
- * It also empties the undo stack: see the case below.
- * @typedef {{type: 'TAKE_JOB', index: number, build: BuildState, ve: number[][], ecu?: object}} TakeJobAction
+ * The career runs on the same build and tune slices as SANDBOX, so every screen and the
+ * whole simulator work unchanged. What changes is whose car is in them. ENTER_CAREER
+ * puts SANDBOX's car (and its pull stats and run log) aside and loads the shop's car;
+ * ENTER_SANDBOX puts the shop's car back on its lift and restores SANDBOX exactly as it
+ * was. CAREER_UPDATE carries a new save from the pure career functions (see
+ * src/ui/career/shop.js); the reducer only does the car-swapping around it: the work on
+ * the car that was on the bay goes back to its lift first, and a different car coming
+ * onto the bay starts with a clean bench and its own undo history.
+ * @typedef {{type: 'ENTER_CAREER', career: import('../career/shop.js').Career}} EnterCareerAction
+ * @typedef {{type: 'ENTER_SANDBOX'}} EnterSandboxAction
+ * @typedef {{type: 'CAREER_UPDATE', career: import('../career/shop.js').Career}} CareerUpdateAction
  */
 
 /**
@@ -397,7 +395,7 @@ export const ACTIONS = Object.freeze({
  *   SetPresetPromptAction | SetEngineConfigPatchAction | ApplyPresetAction |
  *   ResetToStockAction | RepairEngineAction | BankPullAction | RestoreCareerAction |
  *   PinRunAction | UnpinRunAction | LiveStepAction | LivePatchAction | UndoAction |
- *   RedoAction | TakeJobAction
+ *   RedoAction | EnterCareerAction | EnterSandboxAction | CareerUpdateAction
  * } KnownStoreAction
  */
 
@@ -475,7 +473,6 @@ function baseReducer(state, action) {
         build: {
           ...state.build,
           turbineIdx: action.value,
-          turbineCount: 1,
           presetId: null,
         },
       };
@@ -592,10 +589,9 @@ function baseReducer(state, action) {
           // A preset is a factory car: no supercharger or nitrous carried over from the last build.
           blowerId: null,
           nitrous: null,
-          // A preset's AFR table already bakes in a correction for the MAF error its
-          // mod set implies (factoryCalibration, src/sim/presets.js) — valid only at
-          // the neutral scalar, so loading a preset must pin this back to 1.0.
-          mafScalar: 1.0,
+          // A factory car's MAF calibration cancels its own intake and turbo plumbing
+          // (factoryCalibration, src/sim/presets.js), so a preset brings its scalar.
+          mafScalar: p.mafScalar ?? 1.0,
           // The factory car's fuel system, sensors, wastegate and coil: its calibration
           // (`p.ecu`) is set up for those parts, not for whatever the last car had.
           ...stockEcuParts(),
@@ -654,48 +650,39 @@ function baseReducer(state, action) {
       };
     }
 
-    case ACTIONS.TAKE_JOB:
+    case ACTIONS.ENTER_CAREER: {
+      if (state.session.mode === 'career') return { ...state, career: action.career };
+      const sandbox = { build: state.build, tune: state.tune, session: pickFields(state.session, SANDBOX_SESSION_FIELDS) };
+      return onTheBay({ ...state, career: action.career, stash: { sandbox }, session: { ...state.session, mode: 'career' } }, action.career);
+    }
+
+    case ACTIONS.ENTER_SANDBOX: {
+      if (state.session.mode !== 'career') return state;
+      const career = carBackOnItsLift(state, state.career);
+      let back = state.stash?.sandbox;
+      if (!back) {
+        const fresh = makeInitialState();
+        back = { build: fresh.build, tune: fresh.tune, session: pickFields(fresh.session, SANDBOX_SESSION_FIELDS) };
+      }
       return {
         ...state,
-        build: {
-          ...state.build,
-          ...action.build,
-          // The customer's car is not one of the factory presets, whatever hardware it
-          // happens to share with one.
-          presetId: null,
-          mafScalar: 1.0,
-        },
-        tune: {
-          ...state.tune,
-          ve: action.ve,
-          timing: clone2D(DEFAULT_TIMING),
-          afr: clone2D(DEFAULT_AFR),
-          ...(action.ecu ? { ecu: action.ecu } : {}),
-          maps: [null, null, null, null],
-          activeMap: 0,
-          // A car handed over for diagnosis carries no unsaved work of the player's.
-          tablesDirty: false,
-          selection: null,
-        },
-        session: {
-          ...state.session,
-          activeJob: action.index,
-          jobResult: null,
-          // A clear bench: no result, scores or histogram measured on the last car.
-          // The run log and its pin stay. They are the player's saved history, written
-          // to storage whenever they change, so emptying them here deleted every pull
-          // the player had ever banked. A job's pulls are labelled with the job instead.
-          result: null,
-          pullScores: null,
-          histogram: null,
-          logFocusRpm: null,
-          health: { piston: 100, bearing: 100, valve: 100 },
-        },
-        // A different car. Every entry on the stack is a snapshot of the last one, so an
-        // undo here would put the previous car's tables onto the customer's, and a redo
-        // would do the same from the other direction.
+        career,
+        stash: null,
+        build: back.build,
+        tune: back.tune,
+        session: { ...state.session, ...back.session, mode: 'sandbox', live: makeLiveState() },
         history: { past: [], future: [] },
       };
+    }
+
+    case ACTIONS.CAREER_UPDATE: {
+      const prev = state.career;
+      const career = carBackOnItsLift(state, action.career);
+      const sameCar = prev?.working != null && career.working === prev.working
+        && career.lifts.some((l) => l.jobId === prev.working);
+      if (sameCar || state.session.mode !== 'career') return { ...state, career };
+      return onTheBay({ ...state, career }, career);
+    }
 
     case ACTIONS.REPAIR_ENGINE:
       return {
@@ -744,6 +731,14 @@ function baseReducer(state, action) {
       };
 
     case ACTIONS.RESTORE_CAREER: {
+      // SANDBOX's saved stats. If CAREER already has the bench (a cold load straight
+      // into the shop can open it before this lands), they belong to the SANDBOX car set
+      // aside in the stash, not to the customer's car.
+      if (state.session.mode === 'career' && state.stash?.sandbox) {
+        const restored = baseReducer({ ...state, session: { ...state.session, ...state.stash.sandbox.session, mode: 'sandbox' } }, action);
+        const session = pickFields(restored.session, SANDBOX_SESSION_FIELDS);
+        return { ...state, stash: { ...state.stash, sandbox: { ...state.stash.sandbox, session } } };
+      }
       const c = action.career;
       const s = state.session;
       return {
@@ -868,9 +863,6 @@ const UNDOABLE = new Set(Object.keys(UNDO_SCOPE));
  *    the range mode, or toggling the overlay silently killed the redo a player crossed
  *    tabs to reach.
  *  - UNDO/REDO manage `future` themselves.
- *  - TAKE_JOB does write snapshotted fields, but it empties BOTH stacks itself (a
- *    different car makes every entry meaningless). Listing it here would be worse than
- *    redundant: the branch below rebuilds `history` from the pre-action `past`.
  *
  * The UNDOABLE actions are listed here too, for one list that answers "is this
  * new work?" — they reach `future: []` through the recording branch below rather than
@@ -951,6 +943,57 @@ function labelFor(action) {
       // instead of mislabelling every undo button for that action "Reset to stock".
       throw new Error(`labelFor: no label defined for undoable action type "${action.type}"`);
   }
+}
+
+/**
+ * SANDBOX's own session: what goes aside while the career has the bench, so a career
+ * pull never lands in SANDBOX's run log or its saved stats.
+ */
+const SANDBOX_SESSION_FIELDS = [
+  'result', 'runs', 'pinnedRunId', 'pullScores', 'histogram', 'logFocusRpm', 'health',
+  'pullCount', 'bestScore', 'totalScore', 'mission', 'revealCount',
+  'env', 'faults', 'liveAux',
+];
+
+/** @param {object} obj @param {string[]} keys */
+const pickFields = (obj, keys) => Object.fromEntries(keys.map((k) => [k, obj[k]]));
+
+/**
+ * The career save with the work on the car on the bay written back to its lift.
+ * @param {StoreState} state
+ * @param {import('../career/shop.js').Career} career
+ */
+function carBackOnItsLift(state, career) {
+  const working = state.career?.working;
+  if (!career || state.session.mode !== 'career' || working == null) return career;
+  return { ...career, lifts: career.lifts.map((l) => (l.jobId === working ? { ...l, car: { build: state.build, tune: state.tune } } : l)) };
+}
+
+/**
+ * Loads the career's working car onto the bay, or an empty bay: a clean bench, full
+ * health, no pull, and an undo history of its own.
+ * @param {StoreState} state
+ * @param {import('../career/shop.js').Career} career
+ * @returns {StoreState}
+ */
+function onTheBay(state, career) {
+  const lift = career?.lifts.find((l) => l.jobId === career.working);
+  const fresh = makeInitialState();
+  return {
+    ...state,
+    build: lift ? lift.car.build : fresh.build,
+    tune: lift ? lift.car.tune : fresh.tune,
+    session: {
+      ...state.session,
+      result: null, runs: [], pinnedRunId: null, pullScores: null, histogram: null, logFocusRpm: null,
+      health: { piston: 100, bearing: 100, valve: 100 }, pullCount: 0, bestScore: 0, totalScore: 0,
+      mission: null, revealCount: 0, running: false, live: makeLiveState(),
+      // A customer's car is worked on, and graded, in the standard shop: sea level,
+      // a mild day, no faults the job did not bring, nothing switched on.
+      env: fresh.session.env, faults: fresh.session.faults, liveAux: fresh.session.liveAux,
+    },
+    history: { past: [], future: [] },
+  };
 }
 
 /**

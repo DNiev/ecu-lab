@@ -8,11 +8,11 @@
  */
 
 import { COEFF } from './coefficients.js';
-import { clamp, groupRuns, interp1, interp2 } from './math.js';
+import { clamp, groupRuns, interp1, interp2, mergeNearbyRuns } from './math.js';
 import { solveInduction } from './turbo.js';
 import { chargeTempK, INDUCTION_REF_EXHAUST_K } from './thermo.js';
 import { evaluatePoint } from './point.js';
-import { LOAD, RPM } from './tables.js';
+import { LOAD, RPM, SPARK_MIN_DEG } from './tables.js';
 import { ecuSweepEvents } from './ecu/ecuEvents.js';
 import { ECU_COEFF } from './ecu/ecuCoefficients.js';
 import { ecuSteadyPoint } from './ecu/strategy.js';
@@ -74,25 +74,6 @@ export function mafErrorFactor(mods, turboOn) {
 const KNOCK_MERGE_GAP_RPM = 600;
 
 /**
- * Joins runs of points separated by a small gap into one, marking the result
- * `intermittent` — how borderline knock looks on a log: on, off, on again.
- * @param {object[][]} runs
- * @param {number} gapRpm
- * @returns {object[][]}
- */
-function mergeNearbyRuns(runs, gapRpm) {
-  const out = [];
-  for (const run of runs) {
-    const prev = out[out.length - 1];
-    if (prev && run[0].rpm - prev[prev.length - 1].rpm <= gapRpm) {
-      const merged = Object.assign([...prev, ...run], { intermittent: true });
-      out[out.length - 1] = merged;
-    } else out.push(run);
-  }
-  return out;
-}
-
-/**
  * The spark-table rows in force at a manifold pressure, as a tuner would look for them:
  * one row when the engine sits on it, the two either side (and where between) when it
  * runs between them — which, under boost, it nearly always does.
@@ -102,11 +83,11 @@ function mergeNearbyRuns(runs, gapRpm) {
 function tableRowsAt(mapKpa) {
   const rows = [...LOAD].sort((a, b) => a - b);
   const on = rows.find((r) => Math.abs(r - mapKpa) <= 3);
-  if (on !== undefined) return `the ${on} kPa row`;
-  if (mapKpa > rows[rows.length - 1]) return `the ${rows[rows.length - 1]} kPa row (the engine ran at ${Math.round(mapKpa)} kPa there)`;
+  if (on !== undefined) return `the ${on} kPa load row`;
+  if (mapKpa > rows[rows.length - 1]) return `the ${rows[rows.length - 1]} kPa load row (it ran at ${Math.round(mapKpa)} kPa)`;
   const hi = rows.find((r) => r > mapKpa);
   const lo = [...rows].reverse().find((r) => r < mapKpa);
-  return `the ${lo} and ${hi} kPa rows (the engine ran at ${Math.round(mapKpa)} kPa, between them)`;
+  return `the ${lo} and ${hi} kPa load rows (it ran at ${Math.round(mapKpa)} kPa, between them)`;
 }
 
 /**
@@ -182,18 +163,30 @@ export function simulateSweep({
     const veActualVal = veTruth ? interp2(veTruth, rpm, man.mapKpa) : undefined;
     const timingVal = interp2(timing, rpm, man.mapKpa);
     const afrCommanded = interp2(afr, rpm, man.mapKpa);
-    points.push(evaluatePoint({
-      rpm, mapKpa: man.mapKpa, boostPsi: man.boostPsi,
-      veVal, veActualVal, timingVal, afrCommanded, fuel, mods: modsWithTurbo,
-      mafScalar, mafErrorBase, injectorCc, ecuInjectorCc, derived, compressor,
-      turbine: turboOn ? turbine : null, empKpa: man.empKpa,
-      ...(man.blower ? { blower: man.blower } : {}),
-    }));
+    points.push({
+      ...evaluatePoint({
+        rpm, mapKpa: man.mapKpa, boostPsi: man.boostPsi,
+        veVal, veActualVal, timingVal, afrCommanded, fuel, mods: modsWithTurbo,
+        mafScalar, mafErrorBase, injectorCc, ecuInjectorCc, derived, compressor,
+        turbine: turboOn ? turbine : null, empKpa: man.empKpa,
+        ...(man.blower ? { blower: man.blower } : {}),
+      }),
+      ...(turboOn ? { boostTarget: Number(boostTarget.toFixed(1)) } : {}),
+    });
   }
 
   let pistonWear = 0, valveWear = 0;
   points.forEach((p) => {
-    if (p.knock) pistonWear += p.knockPull * COEFF.WEAR_KNOCK;
+    // Only knock that happened wears the piston. When the retard came from valvetrain
+    // noise read as knock (the controller sits at the larger of the two, see
+    // knockRetard in point.js), the engine ran further from its limit, not into it: that
+    // costs power, which the pull log reports as false knock, but it hammers nothing.
+    // It was once charged as detonation, so a big cam with the factory knock threshold
+    // lost half its pistons to a noise.
+    // `knockFalse` is logged to a tenth of a degree and `knockPull` is not, so the
+    // comparison allows for that rounding.
+    const realKnockDeg = p.knockPull > (p.knockFalse ?? 0) + 0.05 ? p.knockPull : 0;
+    if (p.knock) pistonWear += realKnockDeg * COEFF.WEAR_KNOCK;
     if (p.leanRisk) {
       if (p.valveRisk) valveWear += COEFF.WEAR_VALVE_LEAN_BOOST;
       else pistonWear += COEFF.WEAR_LEAN;
@@ -219,7 +212,7 @@ export function simulateSweep({
   // ever a proxy for it and one that ignored static compression entirely. Block
   // material still modulates it: an iron block holds its main bores rounder under load
   // than an aluminium one, which is `bearingWearMult`'s whole job.
-  const bearingWear = Math.max(0, avgPeakPressure - COEFF.BEARING_PRESSURE_FREE_BAR)
+  const bearingWear = Math.max(0, avgPeakPressure - (derived.bearingFreeBar ?? COEFF.BEARING_PRESSURE_FREE_BAR))
     * COEFF.WEAR_BEARING_PER_BAR * derived.bearingWearMult;
   const wear = { piston: pistonWear, bearing: bearingWear, valve: valveWear };
 
@@ -233,6 +226,9 @@ export function simulateSweep({
   // table is not the problem, the fuelling is — a tuner reading a wideband against the
   // target makes exactly this call before touching a single AFR cell.
   const missedTarget = (p) => Math.abs(p.afr - p.afrCommanded) > 0.5;
+  /** The ECU's injector flow rate is not the fitted injector's: its own entry, and the
+   *  first thing to fix when the mixture is off. */
+  const injMismatch = Math.abs(injectorCc / ecuInjectorCc - 1) > 0.05;
 
   // WHILE NITROUS SPRAYS the mixture is not the base tune's alone: a wet kit's jet brings
   // fuel of its own, a dry kit's rides on the injectors, and the vapour takes room the air
@@ -252,12 +248,41 @@ export function simulateSweep({
     const changeMg = (p.fuelMass + kitMg) * (p.lambda / COEFF.N2O_TARGET_LAMBDA - 1);
     return Math.round((changeMg / shotMg) * 100);
   };
+  /** The kit-fuel field this build tunes, its current setting and its limits. */
+  const kitFuelField = () => {
+    const dry = nitrous?.kit === 'dry';
+    const n = ecu?.cal?.nitrous;
+    return dry
+      ? { label: 'Dry kit fuel', now: n?.dryFuelPct, min: 0, max: 200 }
+      : { label: 'Fuel correction while spraying', now: n?.fuelTrimPct, min: -100, max: 100 };
+  };
   const nitrousFuelFix = (p, dir) => {
     const pct = nitrousFuelChangePct(p);
-    const field = nitrous?.kit === 'dry' ? 'Dry kit fuel' : 'Fuel correction while spraying';
-    const amount = pct != null ? ` by about ${Math.min(Math.abs(pct), nitrous?.kit === 'dry' ? 200 : 100)} points` : '';
-    return `On TUNE → NITROUS, ${dir === 'less' ? 'lower' : 'raise'} ${field}${amount}. That changes the fuel only while the nitrous flows — leave VE and the AFR table alone, they are right when it stops. Nitrous tuners aim for about 11.5-12:1 (λ 0.78-0.82) on pump gas.`;
+    const field = kitFuelField();
+    // The change can only go as far as the field does: a dry kit's fuel at 100% cannot be
+    // lowered by 200 points. When the whole range is not enough, the kit is not the
+    // problem, and saying "lower it by 200" hid that.
+    const room = field.now == null ? Infinity
+      : dir === 'less' ? field.now - field.min : field.max - field.now;
+    const want = pct != null ? Math.abs(pct) : null;
+    const verb = dir === 'less' ? 'lower' : 'raise';
+    const base = 'the rest of the error is in the base fuelling, so check VE on TUNE → AIRFLOW and the injector scaling on TUNE → INJECTORS.';
+    const aim = ' Nitrous tuners aim for about 11.5-12:1 (λ 0.78-0.82) on pump gas.';
+    if (room <= 0) {
+      return `On TUNE → NITROUS, ${field.label} is already at its ${dir === 'less' ? 'minimum' : 'maximum'} (${field.now}%), so the kit's fuel cannot fix this: ${base}${aim}`;
+    }
+    if (want != null && want > room) {
+      return `On TUNE → NITROUS, ${verb} ${field.label} as far as it goes (${room} points, to ${dir === 'less' ? field.min : field.max}%). That alone will not reach the target: ${base}${aim}`;
+    }
+    return `On TUNE → NITROUS, ${verb} ${field.label}${want != null ? ` by about ${want} points` : ''}. That changes the fuel only while the nitrous flows — leave VE and the AFR table alone, they are right when it stops.${aim}`;
   };
+  // The base tune can be the one off, and nitrous only makes it show: a VE table well
+  // above what the engine really fills fuels for air that is not there, spraying or not.
+  // Tuning the kit's fuel to hide that would leave the engine wrong the moment the
+  // nitrous stops. 8 % is past what the closed-loop trim or a wideband's own error
+  // explains.
+  const baseVeOff = (p) => (p.ve > 0 ? p.veTable / p.ve - 1 : 0);
+  const baseFuelFix = (p) => `The base fuelling is off, not the nitrous: the VE table says ${p.veTable}% here where the engine actually fills ${p.ve}%, so the ECU fuels for ${baseVeOff(p) > 0 ? 'air that is not there' : 'less air than it gets'} whether the kit sprays or not. Correct VE on TUNE → AIRFLOW first (log a pull and accept the suggestions), then re-check the mixture on the spray. Leave the nitrous fuel where it is until then.`;
 
   // Real knock: commanded timing past the knock limit. Without an ECU that is exactly
   // `knock`. With one, the controller can also pull timing for noise it mistook for
@@ -271,10 +296,11 @@ export function simulateSweep({
   const knockRuns = ecu
     ? mergeNearbyRuns(groupRuns(points, (p) => p.margin < 0 && !spraying(p)), KNOCK_MERGE_GAP_RPM)
     : groupRuns(points, (p) => p.knock);
-  /** How this build turns its boost down: a turbo's target, a supercharger's pulley. */
+  /** How this build turns its boost down: a turbo's target, a supercharger's pulley. The
+   *  turbo's base target is the BUILD curve; TUNE → BOOST only trims it. */
   const lessBoost = blower
-    ? 'fit a larger blower pulley (a lower ratio) on BUILD → INDUCTION'
-    : 'back off boost in that range on BUILD';
+    ? 'fit a larger blower pulley (a lower drive ratio) on BUILD → INDUCTION'
+    : 'lower the boost target there on BUILD → INDUCTION (Boost Target Curve)';
   knockRuns.forEach((run) => {
     const peak = ecu
       ? run.reduce((a, b) => (b.margin < a.margin ? b : a))
@@ -284,16 +310,33 @@ export function simulateSweep({
     const leanContrib = Math.max(0, peak.afr - peak.bestAfr) * 2.5;
     const causes = [];
     if (boosted) causes.push(`boost (up to ${Math.max(...run.map((p) => p.boostPsi)).toFixed(1)} psi here) eating into your margin`);
-    if (leanContrib >= 1.5) causes.push(`the mixture running leaner than the ${peak.bestAfr}:1 best-power target here (peak ${peak.afr.toFixed(1)}:1)${peak.fuelLimited ? ', partly from injectors maxing out' : ''}`);
+    if (leanContrib >= 1.5) causes.push(`the mixture running leaner than the ${peak.bestAfr.toFixed(1)}:1 best-power target here (peak ${peak.afr.toFixed(1)}:1)${peak.fuelLimited ? ', partly from injectors maxing out' : ''}`);
     if (causes.length === 0) causes.push(`the commanded timing itself being too aggressive for ${octaneLabel} octane and this compression ratio at this load`);
-    const suggestedTiming = Math.max(-5, Math.round((peak.threshold - 1) * 2) / 2);
+    const suggestedTiming = Math.max(SPARK_MIN_DEG, Math.round((peak.threshold - 1) * 2) / 2);
+    const sparkCanFix = peak.threshold - 1 >= SPARK_MIN_DEG;
+    const levers = ['higher-octane fuel', 'lower compression', ...(boosted && !mods.intercooler ? ['an intercooler'] : []),
+      ...(derived.injection !== 'direct' ? ['direct injection'] : []), ...(derived.chamberOffsetK > 0 ? ['an aluminum head'] : [])];
+    const buildLevers = `${levers.slice(0, -1).join(', ')} or ${levers.at(-1)}`;
     const impact = Math.max(5, Math.round((10 + avgPull * 7) * (0.3 + 0.7 * rangeFrac(run))));
     events.push({
       type: 'knock', severity: 3, impact,
       rpmStart: run[0].rpm, rpmEnd: run[run.length - 1].rpm,
       msg: `Knock across ${rangeLabel(run)}${/** @type {any} */ (run).intermittent ? ' (on and off)' : ''} — ECU pulled up to ${Math.max(...run.map((p) => p.knockPull)).toFixed(1)}° (peak near ${peak.rpm} RPM)`,
       cause: `Caused by ${causes.join(' and ')}. This spans ${Math.round(rangeFrac(run) * 100)}% of the RPM sweep${avgPull >= 2 ? `, averaging ${avgPull.toFixed(1)}° of retard — a common tuner's rule of thumb treats anything sustained above about 2° as a warning of expensive engine damage, not an acceptable operating point` : ''}.`,
-      fix: `On TIMING, take about ${Math.max(1, Math.ceil(-peak.margin + 1))}° out of ${tableRowsAt(peak.map)} around ${peak.rpm} RPM, so the engine runs about ${suggestedTiming}° there.${boosted ? ` Or ${lessBoost}.` : ''}${leanContrib >= 1.5 ? ` Or richen AFR toward ${peak.bestAfr}:1 there.` : ''} Higher octane, lower compression, or an aluminum head on BUILD also buy margin.`,
+      // In the order a tuner works: mixture first (the knock limit moves with it), then
+      // timing, then boost, then hardware.
+      fix: [
+        leanContrib >= 1.5 && peak.afrCommanded - peak.bestAfr > 0.3
+          ? `On TUNE → FUEL, richen the AFR target in those cells to about ${peak.bestAfr.toFixed(1)}:1 (λ ${(peak.bestAfr / fuel.stoich).toFixed(2)}) — it ran ${peak.afr.toFixed(1)}:1. Fuel first: a richer charge runs cooler and raises the knock limit.`
+          : leanContrib >= 1.5
+            ? `Fuel first: the AFR target asks for ${peak.afrCommanded.toFixed(1)}:1 but it ran ${peak.afr.toFixed(1)}:1, so correct the VE table there on TUNE → AIRFLOW until it hits the target — a lean charge knocks sooner.`
+            : null,
+        sparkCanFix
+          ? `On TUNE → SPARK, pull about ${Math.max(1, Math.ceil(-peak.margin + 1))}° of timing from ${tableRowsAt(peak.map)} around ${peak.rpm} RPM, to about ${suggestedTiming}° there (less either side, across ${rangeLabel(run)}). Aim for 0–1° of knock retard on the next pull.`
+          : `Timing alone can't fix this: at ${peak.rpm} RPM it knocks even at ${SPARK_MIN_DEG}°, the most retard the SPARK table holds.`,
+        boosted ? `${sparkCanFix ? 'Or' : 'Instead,'} ${lessBoost}.` : null,
+        `Hardware that raises the knock limit: ${buildLevers} (BUILD).`,
+      ].filter(Boolean).join(' '),
     });
   });
 
@@ -310,7 +353,7 @@ export function simulateSweep({
       rpmStart: run[0].rpm, rpmEnd: run[run.length - 1].rpm,
       msg: `Peak cylinder pressure past what the bottom end takes across ${rangeLabel(run)} — up to ${peak.peakPressure.toFixed(0)} bar near ${peak.rpm} RPM`,
       cause: `${derived.compression.toFixed(1)}:1 static compression multiplies whatever the manifold sends it, and it is being sent ${Math.round(peak.map)} kPa at ${peak.ve.toFixed(0)}% VE${peak.boostPsi >= 1 ? ` (${peak.boostPsi.toFixed(1)} psi of boost)` : ''}${spraying(peak) ? `, with a ${nitrous.shotHp} shot of nitrous adding the oxygen for about ${Math.round(peak.nitrousLbMin * N2O_AIR_EQUIV)} lb/min more air on top` : ''} — about ${peak.peakPressure.toFixed(0)} bar at the top of the stroke, against roughly ${COEFF.PEAK_PRESSURE_LIMIT_BAR} bar for stock cast pistons and production rods. This is not detonation: the mixture is burning normally and the ECU has nothing to detect. It is simply more force than the parts are built to pass, on every firing stroke, for ${Math.round(rangeFrac(run) * 100)}% of the sweep.`,
-      fix: `Lower static compression on BUILD, or ${spraying(peak) ? `spray a smaller shot, or start it higher in the rev range on TUNE → NITROUS, ` : ''}${peak.boostPsi >= 1 ? `${blower ? 'fit a larger blower pulley' : 'take boost out of this range'} ` : ''}so the same compression has less to multiply. On a real engine, forged pistons and rods are the hardware answer if you want to keep both; this app does not offer them, so here it is compression or ${spraying(peak) ? 'the shot' : 'boost'}. Higher octane will NOT help here — it buys knock margin, not rod strength, so a big-octane fuel just removes the knock that was warning you and leaves the load exactly where it was.`,
+      fix: `Take cylinder pressure out: ${peak.boostPsi >= 1 ? `${blower ? 'fit a larger blower pulley on BUILD → INDUCTION' : 'lower the boost target on BUILD → INDUCTION'}, ` : ''}${spraying(peak) ? 'run a smaller shot or start it later on TUNE → NITROUS, ' : ''}or lower static compression on BUILD → ENGINE. Less timing also lowers peak pressure, at a cost in power. More octane will NOT help: it raises the knock limit, not what the pistons and rods can carry. (A real build fits forged pistons and rods here; this app doesn't offer them.)`,
     });
   });
 
@@ -322,7 +365,7 @@ export function simulateSweep({
       rpmStart: run[0].rpm, rpmEnd: run[run.length - 1].rpm,
       msg: `Injectors maxed across ${rangeLabel(run)} (up to ${peak.duty}% duty) — mixture leaned to ${peak.afr.toFixed(1)}:1`,
       cause: `Required pulse width (${peak.pw} ms) exceeds 90% of the ${(120000 / peak.rpm).toFixed(1)} ms available per engine cycle at ${peak.rpm} RPM, so the ${injectorLabel} injectors physically cannot deliver the commanded fuel.${fuel.stoich < 12 ? ` ${octaneLabel} needs roughly ${(14.7 / fuel.stoich).toFixed(2)}× the fuel volume of gasoline at the same lambda — a big part of why you ran out here.` : ''}`,
-      fix: `On BUILD → FUEL SYSTEM, step up to a larger injector (then set TUNE → INJECTORS to match), or lower VE/boost in this range so demand fits under the current injectors' capacity.${fuel.stoich < 12 ? ' Switching back to a gasoline blend would also cut fuel volume sharply — at the cost of knock margin.' : ''}`,
+      fix: `On BUILD → FUEL SYSTEM, fit larger injectors — size them to run about 80–85% duty at peak — then enter their flow rate on TUNE → INJECTORS. Or ${turboOn || blower ? `${blower ? 'fit a larger blower pulley' : 'lower the boost target'} in this range on BUILD → INDUCTION` : 'lower the rev limit'} so demand fits the injectors you have.${fuel.stoich < 12 ? ` ${octaneLabel} needs about ${(14.7 / fuel.stoich).toFixed(1)}× gasoline's fuel volume; gasoline would fit these injectors, but gives up knock margin.` : ''}`,
     });
   });
 
@@ -343,10 +386,10 @@ export function simulateSweep({
       fix: peak.fuelLimited
         ? `Upgrade injectors on BUILD → FUEL SYSTEM (and set TUNE → INJECTORS to match), or lower VE/boost so demand fits within current capacity.`
         : spraying(peak)
-          ? nitrousFuelFix(peak, 'more')
+          ? baseVeOff(peak) < -0.08 ? baseFuelFix(peak) : nitrousFuelFix(peak, 'more')
           : peak.afrCommanded <= COEFF.LEAN_DAMAGE_AFR
-          ? `Fix what the ECU is getting wrong rather than asking for a richer number: correct VE on TUNE → AIRFLOW in this range, and check TUNE → INJECTORS and TUNE → SENSORS match the parts on BUILD (the setup warnings there name any mismatch).`
-          : `On AFR, richen the cells in this range — best power here is near ${peak.bestAfr}:1${peak.boostPsi > 1 ? ' (richer than the N/A ideal, because boost needs the charge cooling)' : ''}.${missedTarget(peak) ? ' Then correct VE there, so the engine gets what the table asks for.' : ''}`,
+          ? `The AFR target is fine; fuel delivery isn't hitting it, so don't just ask for a richer number. Correct the VE table in this range on TUNE → AIRFLOW (log a pull and accept the suggested cells), then check the injector flow rate on TUNE → INJECTORS and the MAF and sensor scaling on TUNE → SENSORS match the parts on BUILD.`
+          : `On TUNE → FUEL, richen the AFR target in these cells to about ${peak.bestAfr.toFixed(1)}:1 (λ ${(peak.bestAfr / fuel.stoich).toFixed(2)})${peak.boostPsi > 1 ? ' — richer than the NA best-power mixture, because boost needs the charge cooling' : ''}.${missedTarget(peak) ? ' Then correct the VE table there on TUNE → AIRFLOW, so the engine gets what the target asks for.' : ''}`,
     });
   });
 
@@ -359,7 +402,7 @@ export function simulateSweep({
       rpmStart: run[0].rpm, rpmEnd: run[run.length - 1].rpm,
       msg: `Lean-under-boost across ${rangeLabel(run)} (up to ${peak.afr.toFixed(1)}:1 at ${peak.boostPsi.toFixed(1)} psi) — elevated EGT, valve risk`,
       cause: `Boost raises cylinder pressure and heat at the same time the mixture goes lean — that combination burns exhaust valves over repeated pulls, separately from detonation. This spans ${Math.round(rangeFrac(run) * 100)}% of the sweep.`,
-      fix: `Richen AFR under boost in this range, confirm injectors are not maxed (injector duty on the pull log), or add an intercooler.`,
+      fix: `On TUNE → FUEL, richen the boost AFR target in this range (about 11.5–12:1 on gasoline). Check injector duty isn't maxed in the datalog, and fit an intercooler on BUILD → INDUCTION if there isn't one.`,
     });
   });
 
@@ -371,29 +414,57 @@ export function simulateSweep({
       type: 'rich', severity: 3, impact,
       rpmStart: run[0].rpm, rpmEnd: run[run.length - 1].rpm,
       msg: `Dangerously rich across ${rangeLabel(run)} — down to lambda ${peak.lambda.toFixed(2)} (${peak.afr.toFixed(1)}:1)`,
-      cause: spraying(peak)
+      cause: spraying(peak) && baseVeOff(peak) > 0.08
+        ? `This is while the nitrous sprays, but most of the extra fuel is the base tune's: the VE table here reads ${Math.round(baseVeOff(peak) * 100)}% more air than the engine really gets, and a speed-density ECU fuels for the air the table says. The nitrous's own fuel comes on top of that.`
+        : spraying(peak)
         ? `This is while the nitrous sprays, and the extra fuel is the nitrous's, not the base tune's. ${nitrous?.kit === 'dry' ? 'The injectors carry the dry kit\'s fuel on top of the fuel for the air' : 'The wet kit\'s own jet adds fuel, jetted rich on purpose, on top of the injectors'} — and the nitrous vapour takes up room the air would have had. A speed-density ECU works out air from MAP and the VE table, so it cannot see that and keeps fuelling for air that is not there. Past about 11:1 the extra fuel washes the cylinder walls, fouls plugs and costs power.`
         : `Far more fuel is being delivered than the available air can burn. Raw fuel washes the oil film off the cylinder walls, fouls plugs, and passes into the exhaust. It also costs a lot of power — the mixture is well past the point where extra fuel helps.`,
-      fix: spraying(peak) ? nitrousFuelFix(peak, 'less') : peak.afrCommanded / 14.7 >= COEFF.RICH_DAMAGE_LAMBDA
-        ? `The AFR table asked for ${peak.afrCommanded.toFixed(1)}:1 but the engine got ${peak.afr.toFixed(1)}:1, so the fuelling is off, not the target. Correct VE on TUNE → AIRFLOW in this range, and check the injector scaling on TUNE → INJECTORS and the MAF scalar on TUNE → SENSORS match the parts on BUILD.`
-        : `The AFR table itself asks for this much fuel. Lean the AFR cells in this range back toward ${peak.bestAfr}:1.${missedTarget(peak) ? ' Then check VE and the injector scaling on TUNE → INJECTORS, because the engine is getting even more than the table asks for.' : ''}`,
+      fix: spraying(peak) && baseVeOff(peak) > 0.08 ? baseFuelFix(peak)
+        : spraying(peak) ? nitrousFuelFix(peak, 'less') : peak.afrCommanded / 14.7 >= COEFF.RICH_DAMAGE_LAMBDA
+        ? `The AFR target asked for ${peak.afrCommanded.toFixed(1)}:1 and the engine got ${peak.afr.toFixed(1)}:1, so the fuelling is off, not the target. ${injMismatch ? `Fix the injector flow rate on TUNE → INJECTORS first (its own entry in this log) — it alone makes every pulse ${(injectorCc / ecuInjectorCc).toFixed(1)}× too big. ` : ''}Then correct the VE table on TUNE → AIRFLOW, and check the MAF scalar on TUNE → SENSORS matches the parts on BUILD.`
+        : `The AFR target itself asks for this much fuel. On TUNE → FUEL, lean the target in these cells back to about ${peak.bestAfr.toFixed(1)}:1 (λ ${(peak.bestAfr / fuel.stoich).toFixed(2)}).${missedTarget(peak) ? ' Then check the VE table on TUNE → AIRFLOW and the injector flow rate on TUNE → INJECTORS, because the engine is getting even more than the target.' : ''}`,
     });
   });
 
   groupRuns(points, (p) => p.mafFlag).forEach((run) => {
     const avgTrim = run.reduce((s, p) => s + p.trimPct, 0) / run.length;
-    const direction = avgTrim > 0 ? 'lean' : 'rich';
+    // `trimPct` is the MAF reading's error: below zero the MAF under-reads the air, the
+    // ECU fuels for less air than there is, and the engine runs LEAN (point.js divides
+    // the commanded lambda by this factor). This was once the other way round, and the
+    // log told a player with a lean cold-air intake to expect a rich one.
+    const direction = avgTrim < 0 ? 'lean' : 'rich';
     const source = mods.intake && turboOn ? 'the bigger intake and turbo plumbing'
       : mods.intake ? 'the bigger intake' : 'the turbo plumbing';
     const impact = Math.round(8 * (0.3 + 0.7 * rangeFrac(run)));
     events.push({
       type: 'maf', severity: 1, impact,
       rpmStart: run[0].rpm, rpmEnd: run[run.length - 1].rpm,
-      msg: `MAF trim averaging ${avgTrim > 0 ? '+' : ''}${avgTrim.toFixed(0)}% across ${rangeLabel(run)} — running ${direction}`,
-      cause: `${source.charAt(0).toUpperCase() + source.slice(1)} changed how much air reads across the MAF sensor at a given flow rate, and the ECU has not been rescaled for it.`,
-      fix: `On TUNE → SENSORS, adjust the MAF scalar and re-run the pull — watch the AFR trace (actual vs. commanded) until they line up.`,
+      msg: `MAF reading about ${Math.abs(avgTrim).toFixed(0)}% ${avgTrim < 0 ? 'low' : 'high'} across ${rangeLabel(run)} — running ${direction}`,
+      cause: `${source.charAt(0).toUpperCase() + source.slice(1)} changed how much air reads across the MAF sensor at a given flow rate, and the ECU has not been rescaled for it. It sees ${avgTrim < 0 ? 'less' : 'more'} air than the engine really takes in, so it fuels ${avgTrim < 0 ? 'too little' : 'too much'}.`,
+      fix: `On TUNE → SENSORS, ${avgTrim < 0 ? 'raise' : 'lower'} the MAF scalar from ${mafScalar.toFixed(2)} to about ${(mafScalar * 100 / (100 + avgTrim)).toFixed(2)}, which cancels this. Re-pull and check the actual AFR trace sits on the commanded one.`,
     });
   });
+
+  // UNDERBOOST: the turbo cannot make what is asked of it. Below 4000 RPM a shortfall is
+  // spool, which every turbo has and the boost curve should already allow for; above it,
+  // with the exhaust flowing hard, a turbo that still falls short is too small (its
+  // compressor runs out of flow, or its turbine chokes and cannot drive it). Nothing
+  // logged this before: asking a small turbo for 12 psi quietly made 5, and more boost
+  // on the same hardware looked like it made less power.
+  if (turboOn) {
+    groupRuns(points, (p) => p.rpm >= 4000 && p.boostTarget != null
+      && p.boostTarget - p.boostPsi > Math.max(1.5, p.boostTarget * 0.15)).forEach((run) => {
+      const worst = run.reduce((a, b) => ((b.boostTarget - b.boostPsi) > (a.boostTarget - a.boostPsi) ? b : a));
+      const impact = Math.round(10 * (0.3 + 0.7 * rangeFrac(run)));
+      events.push({
+        type: 'underboost', severity: 2, impact,
+        rpmStart: run[0].rpm, rpmEnd: run[run.length - 1].rpm,
+        msg: `Boost falls short of target across ${rangeLabel(run)} (${worst.boostPsi.toFixed(1)} of ${worst.boostTarget.toFixed(1)} psi at ${worst.rpm} RPM)`,
+        cause: `The turbo cannot make this much boost here. With the wastegate shut, boost settles where the turbine's power meets what the compressor needs: a compressor too small runs out of flow, and a turbine too small chokes the exhaust and cannot drive it. Asking for more does not help — it only makes the target further away.`,
+        fix: `On BUILD → INDUCTION, fit a larger compressor, a larger turbine or twin turbos — the airflow line under the Turbos picker shows what this engine needs against what the turbo flows. Or lower the boost target up top to what this turbo holds (about ${worst.boostPsi.toFixed(0)} psi at ${worst.rpm} RPM).`,
+      });
+    });
+  }
 
   groupRuns(points, (p) => p.compressorOver).forEach((run) => {
     const peak = run.reduce((a, b) => (b.boostPsi > a.boostPsi ? b : a));
@@ -403,7 +474,7 @@ export function simulateSweep({
       rpmStart: run[0].rpm, rpmEnd: run[run.length - 1].rpm,
       msg: `Compressor pushed past its efficient range across ${rangeLabel(run)} (target up to ${peak.boostPsi.toFixed(1)} psi)`,
       cause: `This compressor's practical ceiling is lower than the boost you're asking for here — beyond it, the compressor is working outside its efficient map. On a real turbo that air leaves hotter, less dense and more knock-prone; this app prices the compressor's heat at one fixed efficiency, so here the warning is the main cost (see Learn article 39).`,
-      fix: `On BUILD, size up the compressor, or lower the boost target for this RPM range.`,
+      fix: `On BUILD → INDUCTION, keep the boost target at or under this compressor's ~${compressor?.boostCeiling ?? peak.boostPsi} psi ceiling in this range, or fit a larger compressor.`,
     });
   });
 
@@ -421,7 +492,7 @@ export function simulateSweep({
       rpmStart: run[0].rpm, rpmEnd: run[run.length - 1].rpm,
       msg: `Supercharger over its rated speed across ${rangeLabel(run)} (${peak.blowerRpm.toLocaleString('en-US')} rpm, rated ${rated.toLocaleString('en-US')})`,
       cause: `A supercharger is geared to the crank: at ${peak.rpm} RPM the ${blowerRatio.toFixed(2)}:1 pulley${blower.stepUp ? ` and its ${blower.stepUp}:1 internal step-up` : ''} spin the ${blower.label} past what its ${blower.type === 'centrifugal' ? 'impeller and gears' : 'rotors and bearings'} are rated for. Nothing makes more boost for free up there: it is wear, heat and a thrown belt waiting to happen.`,
-      fix: `On BUILD → INDUCTION, fit a larger blower pulley (a lower ratio — about ${safeRatio}:1 keeps it inside its rating at this RPM), or lower the rev limit.`,
+      fix: `On BUILD → INDUCTION, fit a larger blower pulley (a lower drive ratio — about ${safeRatio}:1 keeps it inside its rating at this RPM), or lower the rev limiter on TUNE → PROTECT.`,
     });
   });
 
@@ -432,7 +503,7 @@ export function simulateSweep({
       type: 'injscale', severity: 3, impact: Math.round(clamp(14 + Math.abs(injRatio - 1) * 22, 14, 40)),
       msg: `Injector scaling mismatch — ECU is calibrated for ${ecuInjectorCc}cc but ${injectorCc}cc are fitted`,
       cause: `The ECU calculates pulse width for a ${ecuInjectorCc}cc injector. With ${injectorCc}cc actually fitted, every pulse delivers about ${(injRatio * 100).toFixed(0)}% of the intended fuel, so the whole tune runs ${richLean} no matter what your AFR table asks for.`,
-      fix: `On TUNE → INJECTORS, set the ECU injector scaling to ${injectorCc}cc to match the hardware. Real tuning software calls this the injector scaling constant (UpRev's K-fuel multiplier, HP Tuners' injector flow rate) — it must always be updated when injectors change.`,
+      fix: `On TUNE → INJECTORS, set the injector flow rate (scaling) to ${injectorCc} cc/min to match what is fitted. Every tuning suite has this constant — HP Tuners calls it injector flow rate, UpRev the K-fuel multiplier — and it changes whenever the injectors do. Fix this before anything else fuel-related.`,
     });
   }
 
@@ -446,7 +517,7 @@ export function simulateSweep({
       rpmStart: Math.round(floatRpm), rpmEnd: endRpm,
       msg: `Valve float above ${Math.round(floatRpm)} RPM — cylinder filling collapsing over the last ${lost.length * SWEEP_STEP_RPM} RPM of the pull`,
       cause: `The camshaft opens the valves but only the springs close them. Above ${Math.round(floatRpm)} RPM the valves stop following the lobe, so the cylinder cannot fill and power falls off a cliff instead of tapering. A ${derived.camDuration}° cam opens further and faster, which is exactly why it demands stiffer springs than stock.`,
-      fix: `Raise the valve spring rate on BUILD until float sits above your ${endRpm} RPM redline, or fit a milder cam. No amount of table tuning can fix this — the valvetrain is simply not keeping up.`,
+      fix: `On BUILD → ENGINE, raise the valve spring rate until float sits above your ${endRpm} RPM redline, or fit a milder cam. Or keep the engine under it: set the rev limiter below ${Math.round(floatRpm)} RPM on TUNE → PROTECT. No table change fixes valve float.`,
     });
   }
 
@@ -470,17 +541,18 @@ export function simulateSweep({
   // for the reason the wear number now moves. A high-compression naturally aspirated
   // engine can reach this without a turbo, and a knock-limited boosted one can stay
   // under it because the retard the ECU pulled took the pressure peak with it.
-  if (avgPeakPressure > COEFF.BEARING_EVENT_BAR) {
+  const bearingEventBar = derived.bearingEventBar ?? COEFF.BEARING_EVENT_BAR;
+  if (avgPeakPressure > bearingEventBar) {
     const bearingLevers = [
-      turboOn ? 'Back off boost' : blower ? 'Fit a larger blower pulley' : null,
+      turboOn ? 'Lower the boost target on BUILD → INDUCTION' : blower ? 'Fit a larger blower pulley on BUILD → INDUCTION' : null,
       points.some(spraying) ? `${turboOn || blower ? 'spray' : 'Spray'} a smaller shot` : null,
     ].filter(Boolean);
-    const impact = Math.round(clamp((avgPeakPressure - COEFF.BEARING_EVENT_BAR) * 0.25, 3, 9));
+    const impact = Math.round(clamp((avgPeakPressure - bearingEventBar) * 0.25, 3, 9));
     events.push({
       type: 'bearing', severity: 1, impact,
       msg: `Sustained cylinder pressure through the pull (averaging ${avgPeakPressure.toFixed(0)} bar peak) — bottom-end stress accumulating`,
       cause: `Peak cylinder pressure is carried by the rod into the rod and main bearings on every firing stroke, knock or no knock. ${turboOn || blower ? `${avgBoost.toFixed(1)} psi of average boost ${points.some(spraying) ? 'and the nitrous ' : ''}against ` : points.some(spraying) ? 'The nitrous\'s extra charge against ' : 'Running this much load against '}${derived.compression.toFixed(1)}:1 static compression is what puts it there — compression multiplies manifold pressure, so both halves of that pair count.`,
-      fix: `${bearingLevers.length ? `${bearingLevers.join(', ')}, or lower` : 'Lower'} static compression — on a real engine, unless the bottom end has been built for it (this app does not offer a built bottom end). An iron block holds its main bores rounder under this load than an aluminium one, and either way there is no calibration change that removes the force — only ones that reduce it.`,
+      fix: `${bearingLevers.length ? `${bearingLevers.join(', ')}, or lower` : 'Lower'} static compression on BUILD → ENGINE. Less timing also lowers peak pressure, at a cost in power. ${derived.bearingFreeBar > COEFF.BEARING_PRESSURE_FREE_BAR ? 'This is a factory turbo engine, built for boost, and this is past what its factory tune asks of it.' : 'This is a naturally aspirated bottom end: a factory turbo engine is built for this load, this one is not.'} An iron block holds its main bores rounder under this load than an aluminium one, and either way there is no calibration change that removes the force — only ones that reduce it.`,
     });
   }
 

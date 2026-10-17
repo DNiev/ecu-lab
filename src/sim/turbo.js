@@ -32,6 +32,7 @@ import { COEFF } from './coefficients.js';
 import { clamp } from './math.js';
 import { solveBlower } from './blower.js';
 import { compressorMap } from './compressorMap.js';
+import { INDUCTION_REF_EXHAUST_K } from './thermo.js';
 
 export { compressorMap };
 
@@ -270,4 +271,47 @@ export function solveInduction({
     choke: mapState.choke,
     mapMargin: mapState.margin,
   };
+}
+
+/**
+ * The induction state that puts a turbo engine's manifold at a given pressure, below what
+ * full throttle makes at this speed: the throttle opening that gets there, found the way
+ * the dyno and LIVE get there (`solveInduction`), and the compressor pressure and exhaust
+ * backpressure that come with it. A spooled turbo at part throttle still compresses, and
+ * heats, the air upstream of the plate, so a spark cell cannot be judged as if it were
+ * drawn straight from ambient. At the pressure full throttle tops out at, the full-throttle
+ * state; above it, null, and the caller's own rule applies.
+ *
+ * @param {object} input
+ * @param {number} input.rpm
+ * @param {number} input.mapKpa the manifold pressure to reach, kPa
+ * @param {number} input.boostTargetPsi the boost curve's target at this speed
+ * @param {object} input.turbine
+ * @param {object} input.compressor
+ * @param {(mapKpa: number) => number} input.veAt
+ * @param {import('./engine.js').DerivedEngine} input.derived
+ * @param {(boostPsi: number) => number} input.intakeKAt
+ * @returns {{boostPsi: number, empKpa: number}|null}
+ */
+/** How close to the full-throttle pressure counts as full throttle, kPa. */
+const INDUCTION_MATCH_KPA = 0.5;
+
+export function inductionAtMap({ rpm, mapKpa, boostTargetPsi, turbine, compressor, veAt, derived, intakeKAt }) {
+  const at = (loadKpa) => solveInduction({
+    rpm, loadKpa, turboOn: true, boostTargetPsi, turbine, compressor, veAt, derived, intakeKAt,
+    lambda: 1, exhaustK: INDUCTION_REF_EXHAUST_K,
+  });
+  const full = at(BARO_KPA);
+  // The pressure full throttle tops out at is reached there, with that state's own
+  // backpressure; above it, nothing reaches it.
+  if (mapKpa > full.mapKpa + INDUCTION_MATCH_KPA) return null;
+  if (mapKpa >= full.mapKpa - INDUCTION_MATCH_KPA) return { boostPsi: full.boostPsi, empKpa: full.empKpa };
+  let lo = 0;
+  let hi = BARO_KPA;
+  for (let i = 0; i < 20; i += 1) {
+    const mid = (lo + hi) / 2;
+    if (at(mid).mapKpa < mapKpa) lo = mid; else hi = mid;
+  }
+  const s = at((lo + hi) / 2);
+  return { boostPsi: s.boostPsi, empKpa: s.empKpa };
 }

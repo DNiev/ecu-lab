@@ -124,7 +124,7 @@ export function LiveScreen({ tachFullScaleRpm, onStart, onStop, onToggleSound, o
               {live.running
                 ? (live.limiterCut || live.onLimiter ? 'On the rev limiter — the ECU is cutting cylinders to hold the engine at its limit. With a fuel cut those cylinders pump plain air, so the wideband reads lean here; that is not a lean mixture.'
                   : live.dfco ? 'Overrun fuel cut — injectors off while coasting down. Real ECUs do this; it costs nothing to spin.'
-                  : live.ecu?.knockNow ? `Knock — your TIMING table asks for more advance than the engine tolerates at this RPM and boost. The ECU is pulling ${(live.ecu.knockRetard ?? 0).toFixed(1)}° to protect it; take timing out of that part of the table.`
+                  : live.ecu?.knockNow ? `Knock — your SPARK table asks for more advance than the engine tolerates at this RPM and boost. The ECU is pulling ${(live.ecu.knockRetard ?? 0).toFixed(1)}° to protect it; take timing out of that part of the table.`
                   : (live.ecu?.knockRetard ?? 0) > 0.5 ? `Nothing is knocking now. The ECU is still giving back ${live.ecu.knockRetard.toFixed(1)}° it pulled for knock a moment ago, a little each second.`
                   : live.coolantC < 80 ? 'Warming up — the ECU adds extra fuel until the coolant reaches 80 °C.'
                   : live.closedLoop ? 'Warm and in closed loop — the ECU is trimming fuel against the O2 sensor.'

@@ -37,7 +37,7 @@ export function SensorsScreen({ needsMafRecal, chartData, result, children }) {
   return (
     <div className={styles.wrap}>
       <Eyebrow icon={Zap}>Fuel Control &amp; MAF Scaling</Eyebrow>
-      <Panel className={styles.mafPanel}>
+      <Panel className={styles.mafPanel} data-tour="sensors-maf">
         <div className={styles.mafHead}>
           <span>MAF RECAL STATUS</span>
           <span className={styles.mafStatus} data-needs-recal={needsMafRecal ? 'true' : 'false'}>{needsMafRecal ? 'HARDWARE CHANGED' : 'STOCK — OK'}</span>
@@ -50,7 +50,7 @@ export function SensorsScreen({ needsMafRecal, chartData, result, children }) {
       </Panel>
       <div className={styles.scalarLabel}>MAF Scalar</div>
       <div className={styles.scalarRow}>
-        <input type="range" min={0.75} max={1.25} step={0.01} value={mafScalar} onChange={(e) => dispatch({ type: ACTIONS.SET_BUILD_FIELD, field: 'mafScalar', value: Number(e.target.value) })} className={styles.scalarSlider} />
+        <input type="range" aria-label="MAF scalar" data-tour="sensors-scalar" min={0.75} max={1.25} step={0.01} value={mafScalar} onChange={(e) => dispatch({ type: ACTIONS.SET_BUILD_FIELD, field: 'mafScalar', value: Number(e.target.value) })} className={styles.scalarSlider} />
         <div className={styles.scalarValue}>{mafScalar.toFixed(2)}</div>
       </div>
       <ExpandableInfo title="VE tuning vs. MAF tuning — platforms differ">
@@ -65,7 +65,7 @@ export function SensorsScreen({ needsMafRecal, chartData, result, children }) {
         <br /><br /><b className={styles.em}>As a beginner:</b> do not guess the scalar. Install the part, run a pull, then check the AFR trace and the MAF trim log entry on DYNO — they will tell you which direction and roughly how far to move it.
       </ExpandableInfo>
       {result && (
-        <Panel tight className={styles.trimPanel}>
+        <Panel tight className={styles.trimPanel} data-tour="sensors-trim">
           <div className={styles.trimLabel}>FUEL TRIM — LAST PULL</div>
           <ResponsiveContainer width="100%" height={150}>
             <LineChart data={chartData} margin={{ top: 4, right: 12, left: -14, bottom: 0 }}>

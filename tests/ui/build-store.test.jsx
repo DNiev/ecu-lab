@@ -279,12 +279,11 @@ function BuildProbe({ onBuild }) {
 }
 
 describe('choosing a turbine', () => {
-  it('drops the twin-turbo count the preset installed', () => {
-    // SET_TURBINE resets `turbineCount` to 1 as well as setting `turbineIdx`, because
-    // the count belongs to the preset's induction layout, not to the housing you just
-    // picked. Route this control through SET_BUILD_FIELD and the count survives: a
-    // twin count against a turbine chosen as a single, silently doubling the airflow
-    // the sim is handed. Nothing else in the suite covers that.
+  it('keeps a twin setup when the housing changes, and the Turbos picker sets the count', () => {
+    // The number of turbos is its own control on BUILD › Induction. Swapping the housing
+    // must not quietly drop a twin to a single — and the Single/Twin picker must be what
+    // changes it, or the compressor and turbine airflow the sim is handed stop matching
+    // what the screen shows.
     launch();
     const picker = presetPicker();
     const twin = ENGINE_PRESETS.find((p) => applyPreset(p).turbineCount > 1);
@@ -300,8 +299,12 @@ describe('choosing a turbine', () => {
     const current = TURBINE_OPTS[applyPreset(twin).turbineIdx].label;
     const other = TURBINE_OPTS.map((o) => o.label).find((l) => l !== current);
     fireEvent.click(screen.getByRole('button', { name: new RegExp(`^${other}`) }));
+    expect(inductionSummary()).toMatch(/Twin/);
 
+    fireEvent.click(screen.getByRole('button', { name: 'Single' }));
     expect(inductionSummary()).not.toMatch(/Twin/);
+    fireEvent.click(screen.getByRole('button', { name: 'Twin' }));
+    expect(inductionSummary()).toMatch(/Twin/);
   });
 });
 
@@ -599,17 +602,18 @@ describe('every segmented control', () => {
     total += expectEverySegHasOneSelection();
 
     // Guard the sweep itself: if navigation silently failed, the per-tab assertions
-    // above would each pass on whatever happened to be showing. Nineteen is the count
+    // above would each pass on whatever happened to be showing. Twenty-one is the count
     // of segmented controls those three stops reach today:
-    //   BUILD 15 — Engine: Configuration, Block, Head, Cam Phasers, Ignition Coils, Plug
-    //     Gap; Induction: MAP Sensor, Compressor, Wastegate Actuator (the spring picker
+    //   BUILD 17 — Engine: Configuration, Block, Head, Cam Phasers, Fuel Injection,
+    //     Ignition Coils, Plug Gap; Induction: MAP Sensor, Compressor, Turbos (single or
+    //     twin), Wastegate Actuator (the spring picker
     //     only appears for a pneumatic gate), Nitrous Kit (its shot and bottle pickers
     //     only appear with a kit fitted); Fuel: Octane, Regulation, Base Pressure,
     //     Wideband Controller; Exhaust: Diameter.
     //   TUNE > INJECTORS 3 — the map-slot picker above every TUNE view, ECU Injector
     //     Scaling, and the ECU's Pressure Compensation.
     //   DYNO 1 — the manifold-pressure picker.
-    expect(total).toBe(19);
+    expect(total).toBe(21);
   });
 });
 

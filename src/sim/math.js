@@ -87,3 +87,22 @@ export function groupRuns(points, predicate) {
   if (current) runs.push(current);
   return runs.map((r) => points.slice(r.start, r.end + 1));
 }
+
+/**
+ * Joins runs of points separated by a small gap into one, marking the result
+ * `intermittent` — how borderline knock looks on a log: on, off, on again.
+ * @param {object[][]} runs
+ * @param {number} gapRpm
+ * @returns {object[][]}
+ */
+export function mergeNearbyRuns(runs, gapRpm) {
+  const out = [];
+  for (const run of runs) {
+    const prev = out[out.length - 1];
+    if (prev && run[0].rpm - prev[prev.length - 1].rpm <= gapRpm) {
+      const merged = Object.assign([...prev, ...run], { intermittent: true });
+      out[out.length - 1] = merged;
+    } else out.push(run);
+  }
+  return out;
+}

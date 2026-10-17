@@ -20,6 +20,7 @@ import {
 } from '../../../src/ui/state/history.js';
 import { makeInitialState } from '../../../src/ui/state/initialState.js';
 import { ACTIONS, reducer } from '../../../src/ui/state/reducer.js';
+import { newCareer } from '../../../src/ui/career/shop.js';
 import { RUN_LIMIT } from '../../../src/ui/state/runLog.js';
 
 /**
@@ -50,6 +51,12 @@ function makeSentinelState() {
       state[slice] = { past: [], future: [] };
       continue;
     }
+    // `career` and `stash` are null until the shop is opened: whole values, not slices
+    // of fields, so they are compared whole (see `changedFieldKeys`).
+    if ((/** @type {any} */ (init))[slice] === null) {
+      state[slice] = `SENTINEL::${slice}`;
+      continue;
+    }
     const sliceState = /** @type {any} */ ({});
     for (const field of Object.keys(/** @type {any} */ (init)[slice])) {
       sliceState[field] = `SENTINEL::${slice}.${field}`;
@@ -70,6 +77,10 @@ function makeSentinelState() {
 function changedFieldKeys(before, after) {
   const changed = new Set();
   for (const slice of Object.keys(before)) {
+    if (typeof before[slice] !== 'object' || before[slice] === null) {
+      if (before[slice] !== after[slice]) changed.add(slice);
+      continue;
+    }
     for (const field of Object.keys(before[slice])) {
       if (before[slice][field] !== after[slice][field]) {
         changed.add(`${slice}.${field}`);
@@ -102,9 +113,11 @@ const N54_PRESET = {
 };
 
 describe('makeInitialState', () => {
-  it('returns the four slices', () => {
+  it('returns the four slices, and no career until the shop is opened', () => {
     const s = makeInitialState();
-    expect(Object.keys(s).sort()).toEqual(['build', 'history', 'session', 'tune']);
+    expect(Object.keys(s).sort()).toEqual(['build', 'career', 'history', 'session', 'stash', 'tune']);
+    expect(s.career).toBeNull();
+    expect(s.stash).toBeNull();
   });
 
   it('starts with no preset loaded and clean tables', () => {
@@ -199,12 +212,13 @@ describe('CLEAR_PRESET_ID', () => {
 });
 
 describe('SET_TURBINE', () => {
-  it('fits one of the chosen housing, because a twin-turbo count belongs to a preset', () => {
+  it('swaps the housing and keeps the number of turbos, which is its own pick', () => {
     const twin = { ...makeInitialState() };
     twin.build = { ...twin.build, turbineIdx: 2, turbineCount: 2 };
     const s = reducer(twin, { type: ACTIONS.SET_TURBINE, value: 1 });
     expect(s.build.turbineIdx).toBe(1);
-    expect(s.build.turbineCount).toBe(1);
+    expect(s.build.turbineCount).toBe(2);
+    expect(s.build.presetId).toBe(null);
   });
 });
 
@@ -678,57 +692,6 @@ describe('RESET_TO_STOCK', () => {
     expect(s.build.mods).toEqual(DEFAULT_MODS);
     expect(s.build.mafScalar).toBe(1.0);
     expect(s.build.presetId).toBeNull();
-    expect(s.tune.ve).toEqual([[70]]);
-    expect(s.tune.timing).toEqual(DEFAULT_TIMING);
-    expect(s.tune.afr).toEqual(DEFAULT_AFR);
-    expect(s.tune.tablesDirty).toBe(false);
-  });
-});
-
-describe('TAKE_JOB', () => {
-  /** A player mid-session: pulls banked, one pinned, edits on the undo stack. */
-  function midSession() {
-    let s = makeInitialState();
-    s = reducer(s, { type: ACTIONS.SET_TABLE, table: 'timing', value: s.tune.timing.map((r) => r.map((v) => v + 2)) });
-    s = reducer(s, { type: ACTIONS.SET_TABLE, table: 've', value: s.tune.ve.map((r) => r.map((v) => v + 1)) });
-    s = reducer(s, { type: ACTIONS.UNDO });
-    const runs = [{ id: 'r2', n: 2 }, { id: 'r1', n: 1 }];
-    return { ...s, session: { ...s.session, runs, pinnedRunId: 'r1', result: /** @type {any} */ ({ peakHp: 1 }) } };
-  }
-  const take = (s) => reducer(s, {
-    type: ACTIONS.TAKE_JOB, index: 2, build: makeInitialState().build, ve: [[70]],
-  });
-
-  it('keeps the run log and its pin, which are the player\'s saved history', () => {
-    // Both are written to storage whenever they change (the save effect in EcuLab.jsx),
-    // so emptying them here deleted every pull the player had banked, for good.
-    const before = midSession();
-    const s = take(before);
-    expect(s.session.runs).toBe(before.session.runs);
-    expect(s.session.pinnedRunId).toBe('r1');
-  });
-
-  it('clears the bench: no result measured on the last car', () => {
-    const s = take(midSession());
-    expect(s.session.result).toBeNull();
-    expect(s.session.pullScores).toBeNull();
-    expect(s.session.activeJob).toBe(2);
-    expect(s.session.jobResult).toBeNull();
-  });
-
-  it('empties both undo stacks, so neither can put the last car\'s tables on this one', () => {
-    const before = midSession();
-    // Guard the setup: there has to be something on each stack for this to mean anything.
-    expect(before.history.past.length).toBeGreaterThan(0);
-    expect(before.history.future.length).toBeGreaterThan(0);
-    const s = take(before);
-    expect(s.history).toEqual({ past: [], future: [] });
-    expect(reducer(s, { type: ACTIONS.UNDO })).toBe(s);
-    expect(reducer(s, { type: ACTIONS.REDO })).toBe(s);
-  });
-
-  it('installs the stock spark and fuel tables and the job\'s VE', () => {
-    const s = take(midSession());
     expect(s.tune.ve).toEqual([[70]]);
     expect(s.tune.timing).toEqual(DEFAULT_TIMING);
     expect(s.tune.afr).toEqual(DEFAULT_AFR);
@@ -1844,6 +1807,55 @@ describe('tune.rangeMode (#105)', () => {
     expect(toggled.tune.rangeMode).toBe(true);
     expect(toggled.history.past).toHaveLength(0);
     expect(toggled.history.future).toHaveLength(1);
+  });
+});
+
+describe('CAREER and SANDBOX share the bench, never the car', () => {
+  const sandboxCar = () => {
+    const s = makeInitialState();
+    return { ...s, build: { ...s.build, mafScalar: 0.8 }, session: { ...s.session, pullCount: 7, bestScore: 1234 } };
+  };
+
+  it('sets SANDBOX aside whole on the way in, and puts it back whole on the way out', () => {
+    const career = newCareer();
+    const inCareer = reducer(sandboxCar(), { type: ACTIONS.ENTER_CAREER, career });
+    expect(inCareer.session.mode).toBe('career');
+    expect(inCareer.build.mafScalar).toBe(1);
+    expect(inCareer.session.pullCount).toBe(0);
+    const back = reducer(inCareer, { type: ACTIONS.ENTER_SANDBOX });
+    expect(back.session.mode).toBe('sandbox');
+    expect(back.build.mafScalar).toBe(0.8);
+    expect(back.session.pullCount).toBe(7);
+    expect(back.session.bestScore).toBe(1234);
+    expect(back.stash).toBeNull();
+    expect(back.career).toBe(career);
+  });
+
+  it('keeps SANDBOX’s run log through a visit to the shop, and no undo crosses cars', () => {
+    // The player's banked pulls are saved history: the shop must never empty them, and
+    // an undo on the customer's car must not put SANDBOX's tables onto it.
+    let s = sandboxCar();
+    s = reducer(s, { type: ACTIONS.SET_TABLE, table: 'timing', value: s.tune.timing.map((r) => r.map((v) => v + 2)) });
+    const runs = /** @type {any} */ ([{ id: 'r2', n: 2 }, { id: 'r1', n: 1 }]);
+    s = { ...s, session: { ...s.session, runs, pinnedRunId: 'r1' } };
+    expect(s.history.past.length).toBeGreaterThan(0);
+    const inCareer = reducer(s, { type: ACTIONS.ENTER_CAREER, career: newCareer() });
+    expect(inCareer.history).toEqual({ past: [], future: [] });
+    const back = reducer(inCareer, { type: ACTIONS.ENTER_SANDBOX });
+    expect(back.session.runs).toBe(runs);
+    expect(back.session.pinnedRunId).toBe('r1');
+  });
+
+  it('sends SANDBOX’s saved stats to SANDBOX even when they load after CAREER has the bench', () => {
+    const inCareer = reducer(sandboxCar(), { type: ACTIONS.ENTER_CAREER, career: newCareer() });
+    const restored = reducer(inCareer, {
+      type: ACTIONS.RESTORE_CAREER, career: { best: 5000, total: 9000, pulls: 40, runs: [], pinnedRunId: null },
+    });
+    expect(restored.session.pullCount).toBe(0);
+    expect(restored.session.bestScore).toBe(0);
+    const back = reducer(restored, { type: ACTIONS.ENTER_SANDBOX });
+    expect(back.session.pullCount).toBe(47);
+    expect(back.session.bestScore).toBe(5000);
   });
 });
 

@@ -105,3 +105,23 @@
 .event[data-focused='true'] {
   box-shadow: inset 3px 0 0 0 var(--acc);
 }
+
+/* Which step of the tune an entry belongs to, ahead of its headline. */
+.eventStep {
+  display: inline-block;
+  margin-right: 6px;
+  padding: 0 5px;
+  border-radius: 4px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--ink-soft);
+  border: 1px solid var(--line);
+  vertical-align: 1px;
+}
+
+.order {
+  font-size: 11.5px;
+  color: var(--ink2);
+  margin-bottom: 8px;
+}

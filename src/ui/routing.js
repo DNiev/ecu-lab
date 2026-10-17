@@ -20,7 +20,7 @@
  * @type {Record<string, string[]>}
  */
 export const ROUTES = {
-  dash: ['jobs', 'stats', 'health', 'learn', 'realcar'],
+  dash: ['stats', 'health', 'learn', 'realcar'],
   build: ['engine', 'induction', 'fuel', 'exhaust'],
   // The base tables first, then the engine management's own control strategies.
   tune: ['airflow', 'spark', 'fuel', 'injectors', 'sensors', 'boost', 'vvt', 'idle', 'protect', 'torque', 'nitrous'],
@@ -50,7 +50,9 @@ export const TAB_NAMES = {
 
 /**
  * @typedef {Object} Route
- * @property {'start'|'tutorial'|'app'} view - Which top-level screen is showing.
+ * @property {'start'|'tutorial'|'course'|'shop'|'app'} view - Which top-level screen is showing:
+ *   the start screen, the five-minute tutorial, the Tuning Course (opened from Learn), the
+ *   career's shop, or the app.
  * @property {string|null} tab - The active tab key (a key of `ROUTES`), or
  *   `null` when `view` is not 'app'.
  * @property {string|null} section - The open accordion section within `tab`,
@@ -63,6 +65,12 @@ const START_ROUTE = { view: 'start', tab: null, section: null };
 
 /** @type {Route} */
 const TUTORIAL_ROUTE = { view: 'tutorial', tab: null, section: null };
+
+/** @type {Route} */
+const COURSE_ROUTE = { view: 'course', tab: null, section: null };
+
+/** @type {Route} */
+const SHOP_ROUTE = { view: 'shop', tab: null, section: null };
 
 /**
  * Parse a `window.location.hash`-shaped string into a route object.
@@ -94,6 +102,14 @@ export function parseRoute(hash) {
     return { ...TUTORIAL_ROUTE };
   }
 
+  if (first === 'course') {
+    return { ...COURSE_ROUTE };
+  }
+
+  if (first === 'shop') {
+    return { ...SHOP_ROUTE };
+  }
+
   if (!Object.prototype.hasOwnProperty.call(ROUTES, first)) {
     return { ...START_ROUTE };
   }
@@ -117,6 +133,14 @@ export function formatRoute(route) {
 
   if (view === 'tutorial') {
     return '#/tutorial';
+  }
+
+  if (view === 'course') {
+    return '#/course';
+  }
+
+  if (view === 'shop') {
+    return '#/shop';
   }
 
   if (view === 'app' && tab != null) {

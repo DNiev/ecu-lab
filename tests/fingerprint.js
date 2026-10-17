@@ -313,10 +313,10 @@ export function buildFingerprint(S) {
       ve: p.ve, veTruth: p.ve, timing: p.timing, afr: p.afr,
       derived: S.deriveEngine(p.engineConfig), fuel,
       mods: p.mods, turboOn: p.turboOn, boostCurve: p.boostCurve,
-      compressor: S.COMPRESSOR_OPTS[p.compressorIdx],
+      compressor: S.presetCompressor(preset),
       turbine: S.presetTurbine(preset),
       injectorCc: S.INJECTOR_OPTS[p.injIdx].cc, ecuInjectorCc: p.ecuInjectorCc,
-      mafScalar: 1.0, mafErrorBase: S.mafErrorFactor(p.mods, p.turboOn),
+      mafScalar: p.mafScalar, mafErrorBase: S.mafErrorFactor(p.mods, p.turboOn),
     });
     out.calibrationAdvice[preset.id] = {
       overAdvanced: advice.overAdvanced.length,

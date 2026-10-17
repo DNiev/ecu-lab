@@ -466,6 +466,10 @@ export function ecuSteadyPoint({ cal, hw, cond, tables, rpm, loadKpa }) {
   const throttlePct = throttleFrac * 100;
   const gear = cond.gear ?? DYNO_GEAR;
   const protect = new Set();
+  // What the wideband read when a lean protection tripped. The logged point is the state
+  // AFTER the protection acted — boost out, so richer — and reporting that reading made
+  // the log say "λ 0.96, leaner than the λ 1.02 limit".
+  let leanTripLambda = 0;
   const mod = { boostCutPsi: 0, extraFuelPct: 0, extraRetardDeg: 0, cutFrac: 0, cutType: 'fuel', loadScale: 1, highDet: false, nitrousFrac: 0 };
 
   // Nitrous: the controller's window and, on the dyno, its progressive ramp in RPM — the
@@ -513,6 +517,7 @@ export function ecuSteadyPoint({ cal, hw, cond, tables, rpm, loadKpa }) {
     // the likeliest cause, and the one that melts pistons.
     if (mod.nitrousFrac > 0 && cal.nitrous.leanCutEnabled && sensedLambda > cal.nitrous.leanCutLambda) {
       protect.add('nitrous lean');
+      leanTripLambda = Math.max(leanTripLambda, sensedLambda);
       mod.nitrousFrac = 0;
       changed = true;
     }
@@ -522,6 +527,7 @@ export function ecuSteadyPoint({ cal, hw, cond, tables, rpm, loadKpa }) {
     }
     if (P.leanEnabled && sensedLambda > P.leanLambda && resolved.sensed.mapKpa > P.leanMinKpa && mod.cutFrac < 1) {
       protect.add('lean');
+      leanTripLambda = Math.max(leanTripLambda, sensedLambda);
       changed = applyAction(P.leanAction, mod, P.boostCutPsi, hw.turboOn) || changed;
     }
     if (P.egtEnabled && pt.egt > P.egtLimitC) {
@@ -582,6 +588,7 @@ export function ecuSteadyPoint({ cal, hw, cond, tables, rpm, loadKpa }) {
     ecuStoich: Number(resolved.sensed.ecuFuel.stoich.toFixed(2)),
     torqueLimitNm: Math.round(Math.min(read1(cal.torque.limitByGear, gear), read1(cal.torque.limitByRpm, rpm))),
     protect: [...protect],
+    ...(leanTripLambda > 0 ? { leanTripLambda: Number(leanTripLambda.toFixed(3)) } : {}),
     breakdown: { ...resolved.breakdown, boost: solved.steps },
   };
 }

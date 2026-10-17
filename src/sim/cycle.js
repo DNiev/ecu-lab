@@ -149,10 +149,13 @@ export function burnDurationDeg({ rpm, lambda, residualFrac, boreFlameFactor = 1
  * @property {number} rodRatio connecting rod length ÷ crank radius
  * @property {number} ivcAbdc intake valve close, degrees after BDC
  * @property {number} burnDeg burn duration, crank degrees
+ * @property {number} [flameDevDeg] spark to self-sustaining flame, crank degrees. Absent,
+ *   `FLAME_DEVELOPMENT_DEG`; nitrous's extra oxygen shortens it
  * @property {number} boreM cylinder bore, metres — sets heat-transfer area
  * @property {number} strokeM stroke, metres — sets piston speed and liner area
  * @property {number} trappedMassKg total mass in the cylinder, for the gas-law temperature
- * @property {number} octaneNumber fuel antiknock index
+ * @property {number} octaneNumber the octane index the fuel behaves as in this engine
+ *   (`octaneIndex`): what the ignition-delay correlation reads
  * @property {number} [lambda] delivered lambda; sets how hot the flame behind the
  *   front runs, which heats the end gas on top of compression
  * @property {number} [evoAtdc] exhaust valve open, degrees after TDC firing. A retarded
@@ -185,6 +188,7 @@ export function runCycle({
   rpm, sparkBtdc, trappedPa, trappedK, heatJ,
   clearanceM3, sweptM3, rodRatio, ivcAbdc, burnDeg, octaneNumber,
   boreM, strokeM, trappedMassKg, evoAtdc = EVO_ATDC, exhaustManifoldPa = BARO_KPA * 1000,
+  flameDevDeg = COEFF.FLAME_DEVELOPMENT_DEG,
 }) {
   const step = COEFF.CYCLE_STEP_DEG;
   const thetaStart = -180 + ivcAbdc;
@@ -192,7 +196,7 @@ export function runCycle({
   // Spark does not light the charge instantly: there is a delay while a kernel forms
   // and grows to a self-sustaining flame. Combustion is therefore phased from the end
   // of that delay, not from the spark event.
-  const burnStart = spark + COEFF.FLAME_DEVELOPMENT_DEG;
+  const burnStart = spark + flameDevDeg;
   const burnEnd = burnStart + burnDeg;
   // Geometry the wall heat-transfer model needs. What reaches the piston is the heat
   // release minus whatever the walls take, and the wall term is computed per step below
@@ -341,7 +345,13 @@ export function runCycle({
     // --- AUTOIGNITION of what is left unburned. The end gas is heated by compression AND
     // by the burned gas right behind the flame front, which the two-zone temperature now
     // gives directly rather than through a fitted multiplier.
-    if (burned < COEFF.KNOCK_ENDGAS_BURN_LIMIT) {
+    // The step in which the burn passes the limit counts only its share before it: cut
+    // off on whole steps, the integral jumped by a step's worth as spark moved across
+    // the grid, and the knock-limit search could land a fraction of a degree past knock.
+    const endGasShare = burned < COEFF.KNOCK_ENDGAS_BURN_LIMIT ? 1
+      : prevBurned < COEFF.KNOCK_ENDGAS_BURN_LIMIT
+        ? (COEFF.KNOCK_ENDGAS_BURN_LIMIT - prevBurned) / Math.max(1e-9, burned - prevBurned) : 0;
+    if (endGasShare > 0) {
       const endGasK = tU + (tB - tU) * burned * COEFF.ENDGAS_FLAME_COUPLING;
       if (endGasK > peakEndGasK) peakEndGasK = endGasK;
       // Douaud & Eyzat ignition delay: how long this mixture survives at this pressure
@@ -350,7 +360,7 @@ export function runCycle({
         * Math.pow(pNext / COEFF.ATM_PA, -COEFF.KNOCK_DE_N)
         * Math.exp(COEFF.KNOCK_DE_E / endGasK);
       // Livengood-Wu: autoignition when the accumulated fraction of the delay reaches 1.
-      knockIntegral += (step * msPerDeg) / tau;
+      knockIntegral += (endGasShare * step * msPerDeg) / tau;
     }
 
     if (pNext > peakPressurePa) { peakPressurePa = pNext; peakPressureDeg = thetaNext; }
@@ -437,6 +447,45 @@ export function runCycle({
 }
 
 /**
+ * Kalghatgi's K: where this engine's end gas sits between the two octane tests. The
+ * compression temperature at 15 bar (Tcomp15) stands for the whole pressure-temperature
+ * history; the RON test (K = 0) and the MON test (K = 1) are placed on the same scale from
+ * their specified intake temperatures, compressed alike from one atmosphere. A cooler
+ * charge at a given pressure than the RON test's — boost with an intercooler, direct
+ * injection — gives a NEGATIVE K, where a sensitive fuel resists knock better than its
+ * RON says. Kalghatgi measured K at full throttle on 37 production engines, NA to
+ * turbocharged, averaging −0.38, and −0.4 to −0.74 on direct-injected ones.
+ *
+ * @param {number} trappedK charge temperature at intake valve close, K
+ * @param {number} trappedPa charge pressure at intake valve close, Pa
+ * @returns {number} K
+ */
+export function octaneIndexK(trappedK, trappedPa) {
+  const e = (COEFF.GAMMA_UNBURNED - 1) / COEFF.GAMMA_UNBURNED;
+  const t15 = (t, p) => t * Math.pow(COEFF.OCTANE_K_REF_PA / Math.max(1, p), e);
+  const ron = t15(COEFF.OCTANE_RON_TEST_INTAKE_K, COEFF.ATM_PA);
+  const mon = t15(COEFF.OCTANE_MON_TEST_INTAKE_K, COEFF.ATM_PA);
+  return clamp((t15(trappedK, trappedPa) - ron) / (mon - ron), COEFF.OCTANE_K_MIN, COEFF.OCTANE_K_MAX);
+}
+
+/**
+ * The octane number the ignition-delay correlation should see: the octane index,
+ * OI = RON − K·(RON − MON), the primary reference fuel that behaves like this fuel in
+ * this engine. Douaud & Eyzat fitted their correlation on reference fuels, for which
+ * RON = MON = OI; a real fuel's MON is lower, and how much that matters depends on K.
+ * A fuel carrying only one number is taken to be a reference fuel.
+ *
+ * @param {{octane: number, ron?: number, mon?: number}} fuel
+ * @param {number} trappedK
+ * @param {number} trappedPa
+ * @returns {number}
+ */
+export function octaneIndex(fuel, trappedK, trappedPa) {
+  if (fuel.ron == null || fuel.mon == null) return fuel.octane;
+  return fuel.ron - octaneIndexK(trappedK, trappedPa) * (fuel.ron - fuel.mon);
+}
+
+/**
  * The most spark advance this cycle tolerates before the end gas lights itself.
  *
  * Solved from `runCycle` rather than looked up, so every input that changes the pressure
@@ -502,6 +551,22 @@ export function trappedAirGrams({ veActual, mapKpa, chargeK, sweptM3 }) {
 }
 
 /**
+ * Spark to self-sustaining flame, crank degrees, for a charge whose oxidant is air plus
+ * decomposed nitrous. See `FLAME_DEV_SHARE_PER_O2_PT`.
+ *
+ * @param {number} airG air in the cylinder, grams
+ * @param {number} n2oG nitrous oxide in the cylinder, grams
+ * @returns {number}
+ */
+export function flameDevelopmentDeg(airG, n2oG) {
+  const airMol = airG / 28.96;
+  const n2oMol = n2oG / 44.013;
+  const o2Pct = (100 * (0.2095 * airMol + 0.5 * n2oMol)) / Math.max(1e-9, airMol + 1.5 * n2oMol);
+  return COEFF.FLAME_DEVELOPMENT_DEG
+    * clamp(1 - COEFF.FLAME_DEV_SHARE_PER_O2_PT * Math.max(0, o2Pct - 20.95), 0.5, 1);
+}
+
+/**
  * Builds the cycle inputs for one operating point. Shared by the per-point solve and the
  * factory calibration generator: two copies would drift, and the generated calibration
  * would then be knock-limited against a different engine than the player drives.
@@ -526,13 +591,15 @@ export function trappedAirGrams({ veActual, mapKpa, chargeK, sweptM3 }) {
  *   overlap). Retarding the exhaust holds it open later into the intake stroke (more
  *   overlap) and opens it later on the power stroke (more expansion). Absent, the cams
  *   sit where the grind put them, which is every engine without phasers
+ * @param {number} [input.kitFuelG] the part of `fuelMassG`, grams, that a wet nitrous kit
+ *   sprayed into the airstream rather than the injectors into the ports
  * @param {number} [input.n2oG] nitrous oxide in the cylinder, grams. Its oxygen is already
  *   in `burnedFuelG` (the fuel it lets burn) and `lambda`; here it adds its own gas to the
  *   trapped pressure and the mass to heat, and the heat of its breakdown to the burn
  * @returns {CycleInput & {residualFrac: number, trappedK: number, effectiveCr: number}}
  */
 export function cycleInputsFor({
-  rpm, mapKpa, empKpa, intakeK, airChargeG, burnedFuelG, fuelMassG, lambda, fuel, derived, cam, n2oG = 0,
+  rpm, mapKpa, empKpa, intakeK, airChargeG, burnedFuelG, fuelMassG, lambda, fuel, derived, cam, n2oG = 0, kitFuelG = 0,
 }) {
   const fuelIn = fuelMassG ?? burnedFuelG;
   const sweptM3 = (derived.displacementL / derived.cyl) / 1000;
@@ -561,7 +628,12 @@ export function cycleInputsFor({
   const nComp = COEFF.GAMMA_UNBURNED;
   const floorK = fuelDewPointK(fuelIn, airChargeG, mapKpa * Math.pow(crEff, nComp), fuel)
     / Math.pow(crEff, nComp - 1);
-  const cooledK = Math.max(intakeK - evaporativeCoolingK(fuelIn, airChargeG, fuel), Math.min(intakeK, floorK));
+  // A wet nitrous kit's fuel is sprayed into the airstream with the nitrous, upstream of
+  // the ports, so it cools the air the way the nitrous itself does, not the way a port
+  // injector's fuel, boiling off the valve, does.
+  const evapK = evaporativeCoolingK(Math.max(0, fuelIn - kitFuelG), airChargeG, fuel, derived.evapInCylinder)
+    + evaporativeCoolingK(kitFuelG, airChargeG, fuel, COEFF.N2O_CHARGE_COOLING_SHARE);
+  const cooledK = Math.max(intakeK - evapK, Math.min(intakeK, floorK));
   const trappedK = trappedChargeK(cooledK, residualFrac) + (derived.chamberOffsetK || 0);
 
   // Pressure at intake valve close, from the ideal gas law on the fresh charge at the
@@ -608,7 +680,12 @@ export function cycleInputsFor({
     burnDeg: burnDurationDeg({
       rpm, lambda, residualFrac, boreFlameFactor: derived.boreFlameFactor,
     }),
-    octaneNumber: fuel.octane,
+    // Nitrous comes apart into N₂ and O₂ (2 N₂O → 2 N₂ + O₂: a third of the product
+    // moles are oxygen, against air's 21%), so the oxidant the flame sees is richer in
+    // O₂ and the kernel forms faster. Carried only when nitrous is in the cylinder, so
+    // every other cycle's inputs are exactly what they were.
+    ...(n2oG > 0 ? { flameDevDeg: flameDevelopmentDeg(airChargeG, n2oG) } : {}),
+    octaneNumber: octaneIndex(fuel, trappedK, trappedPa),
     lambda,
     residualFrac,
     effectiveCr: vIvc / clearanceM3,
@@ -628,7 +705,8 @@ export function cycleInputsFor({
  * @returns {number} MBT spark advance, degrees BTDC
  */
 export function mbtForCell(input) {
-  return mbtFromBurn(cycleInputsFor(input).burnDeg);
+  const cyc = cycleInputsFor(input);
+  return mbtFromBurn(cyc.burnDeg, cyc.flameDevDeg);
 }
 
 /**
@@ -640,9 +718,10 @@ export function mbtForCell(input) {
  * makes MBT respond to mixture, dilution and speed, as the old correlation could not.
  *
  * @param {number} burnDeg burn duration, crank degrees
+ * @param {number} [flameDevDeg] spark to self-sustaining flame, crank degrees
  * @returns {number} MBT spark advance, degrees BTDC
  */
-export function mbtFromBurn(burnDeg) {
+export function mbtFromBurn(burnDeg, flameDevDeg = COEFF.FLAME_DEVELOPMENT_DEG) {
   // Crank angle of 50% burn, as a fraction of the burn duration: solve the Wiebe
   // function for x where the burned fraction is one half.
   const half = Math.pow(Math.log(2) / COEFF.WIEBE_A, 1 / (COEFF.WIEBE_M + 1));
@@ -650,7 +729,7 @@ export function mbtFromBurn(burnDeg) {
   // light-load MBT work added: a very slow, heavily diluted burn would otherwise ask
   // for advance no calibration would ever write.
   return clamp(
-    COEFF.FLAME_DEVELOPMENT_DEG + half * burnDeg - COEFF.MFB50_ATDC_DEG,
+    flameDevDeg + half * burnDeg - COEFF.MFB50_ATDC_DEG,
     COEFF.MBT_MIN_DEG, COEFF.MBT_MAX_DEG,
   );
 }

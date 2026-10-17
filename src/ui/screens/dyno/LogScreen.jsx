@@ -13,6 +13,7 @@ import { Eyebrow } from '../../primitives/Eyebrow.jsx';
 import { useSession } from '../../state/StoreProvider.jsx';
 import { coversRpm, eventTone } from '../../components/eventBands.js';
 import { fixLinks } from '../../components/fixLinks.js';
+import { fixStep, inFixOrder } from '../../components/fixOrder.js';
 
 import styles from './LogScreen.module.css';
 
@@ -44,7 +45,13 @@ export function LogScreen() {
         </div>
       ) : (
         <div className={styles.events}>
-          {result.events.map((e, i) => {
+          {result.events.length > 1 && (
+            <div className={styles.order} data-testid="log-order">
+              Listed in the order a tuner fixes them: setup, then fuel, then spark, then boost. Each step changes what the next one reads, so fix the top entry and pull again.
+            </div>
+          )}
+          {inFixOrder(result.events).map((e, i) => {
+            const step = fixStep(e.type);
             const tone = eventTone(e);
             const focused = coversRpm(e, logFocusRpm);
             let ref;
@@ -60,19 +67,22 @@ export function LogScreen() {
                 data-tone={tone}
                 data-focused={String(focused)}
               >
-                <div className={styles.eventHead}>
+                <div className={styles.eventHead} data-tour="log-title">
                   <div className={styles.eventTitle}>
                     <AlertTriangle size={14} className={styles.eventIcon} />
-                    <span>{e.msg}</span>
+                    <span>
+                      <span className={styles.eventStep} data-step={step.id}>{step.index} · {step.label}</span>
+                      {e.msg}
+                    </span>
                   </div>
                   {e.impact != null && <span className={styles.eventImpact}>-{e.impact}</span>}
                 </div>
-                {e.cause && <div className={styles.eventCause}><b className={styles.eventLabel}>Why: </b>{e.cause}</div>}
-                {e.fix && <div className={styles.eventFix}><b className={styles.eventLabel}>Try: </b>{e.fix}</div>}
+                {e.cause && <div className={styles.eventCause} data-tour="log-why"><b className={styles.eventLabel}>Why: </b>{e.cause}</div>}
+                {e.fix && <div className={styles.eventFix} data-tour="log-try"><b className={styles.eventLabel}>Try: </b>{e.fix}</div>}
                 {/* Crosslinks: the screens the fix names, one tap away rather than found
                     by name. */}
                 {fixLinks(e.fix).length > 0 && (
-                  <div className={styles.eventLinks}>
+                  <div className={styles.eventLinks} data-tour="log-links">
                     {fixLinks(e.fix).map((l) => (
                       <a key={l.href} href={l.href} className={styles.eventLink}>
                         {l.label}<ArrowUpRight size={12} aria-hidden="true" />

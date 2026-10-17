@@ -22,7 +22,7 @@ import { Button } from '../../primitives/Button.jsx';
 import { Eyebrow } from '../../primitives/Eyebrow.jsx';
 import { StatTile } from '../../primitives/StatTile.jsx';
 import { ACTIONS } from '../../state/reducer.js';
-import { useBuild, useSession, useTune } from '../../state/StoreProvider.jsx';
+import { useBuild, useRoadTest, useSession, useTune } from '../../state/StoreProvider.jsx';
 import { deltaHeat, T, utilisationTone } from '../../theme.js';
 
 import styles from './DataScreen.module.css';
@@ -83,6 +83,7 @@ export function DataScreen() {
   const { result, histogram } = session;
   const [tune] = useTune();
   const [build] = useBuild();
+  const roadTest = useRoadTest();
 
   /**
    * The pull, as a file.
@@ -221,7 +222,7 @@ export function DataScreen() {
       <div className={styles.card} data-tone={tone}>
         <div className={styles.cardHead}>
           <span className={styles.cardRpm}>{shown.rpm} RPM</span>
-          <span className={styles.cardStat}>{shown.hp} whp · {shown.torque} lb-ft</span>
+          <span className={styles.cardStat}>{roadTest ? 'road test' : `${shown.hp} whp · ${shown.torque} lb-ft`}</span>
         </div>
         <div className={styles.gauges}>
           {gauges.map((g) => (

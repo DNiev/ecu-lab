@@ -83,7 +83,7 @@ export function InjectorsScreen({ dutyPreview, injectorCc, children }) {
         Injectors flow a rated amount of fuel, and the ECU controls delivery by varying how long each stays open per cycle. As RPM and airflow rise, more fuel is needed in less time, and eventually the injector is open almost the whole cycle — that is duty cycle nearing 100%. Past about 90%, there is no more room to add fuel even if the AFR table calls for it, so the mixture leans out on its own regardless of what you commanded.
       </ExpandableInfo>
 
-      <Panel tight className={styles.dutyPanel}>
+      <Panel tight className={styles.dutyPanel} data-tour="inj-duty">
         <div className={styles.dutyHead}>
           <div className={styles.dutyHeadLabel}>INJECTOR DUTY PREVIEW · WOT @ 6500 RPM</div>
           {fuel.stoich < 14 && <div className={styles.dutyFuelNote}>{fuel.label} stoich {fuel.stoich}:1</div>}

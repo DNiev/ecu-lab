@@ -1,7 +1,7 @@
 /**
  * HOME > Learn How It Works.
  *
- * The plain-language guide: thirty-nine numbered articles, in reading order, from
+ * The plain-language guide: forty-six numbered articles, in reading order, from
  * "an engine is an air pump" through reading a time slip to the published
  * correlations the engine model implements and the limits it does not cross.
  *
@@ -20,6 +20,8 @@ import React from 'react';
 import { BuildSection } from '../../components/BuildSection.jsx';
 import { ExpandableInfo } from '../../components/ExpandableInfo.jsx';
 
+import { LearnDeep, TryIt } from './LearnDeep.jsx';
+
 import styles from './LearnScreen.module.css';
 
 /**
@@ -35,9 +37,26 @@ function LearnScreenInner({ active, onToggle }) {
       icon={BookOpen} label="Learn How It Works"
       sub="Plain-language guide to engine tuning"
     >
-      <div className={styles.intro}>Read in order. Each explains a piece of what the live engine is doing right now.</div>
+      {/* The course is the way through this subject for someone learning it; the
+          articles below are the reference it draws on. */}
+      <a className={styles.course} href="#/course">
+        <span className={styles.courseTag}>THE TUNING COURSE</span>
+        <span className={styles.courseTitle}>Learn to tune, start to finish</span>
+        <span className={styles.courseText}>16 short lessons, about 40 minutes, a lesson at a time. Live game screens, worked maths with your engine&apos;s own numbers, a real bolt-on retune, and practice missions that tick themselves off in the game.</span>
+        <span className={styles.courseCta}>OPEN THE COURSE ›</span>
+      </a>
+      <div className={styles.intro}>The articles: read in order, or dip in. Each explains a piece of what the live engine is doing right now.</div>
+      {/* Reading paths: most readers arrive with a question, not a free afternoon. */}
+      <div className={styles.paths}>
+        <div className={styles.pathsHead}>WHERE TO START</div>
+        <div><b className={styles.em}>New to tuning:</b> the Tuning Course above, then 1–5 and 12–16.</div>
+        <div><b className={styles.em}>Just fitted a part:</b> 42 and 43, then 45 for a whole job worked through.</div>
+        <div><b className={styles.em}>Something is wrong on the dyno:</b> 44, troubleshooting by symptom.</div>
+        <div><b className={styles.em}>How the game works it out:</b> 6–11, 26, 39 and 46.</div>
+      </div>
 
       <div className={`${styles.part} ${styles.partFirst}`}>PART 1 · FUNDAMENTALS</div>
+      <div className={styles.partGoal}>After this part you can say what the ECU decides, what VE and lambda are, and why timing makes torque until knock stops it.</div>
 
       <ExpandableInfo title="1. The whole thing in one paragraph">
         An engine is an air pump. However much air it swallows decides how much fuel can be burned, and burning fuel is what makes power. The ECU's entire job is to measure the air, add the right amount of fuel, and light it at the right moment. Tuning is adjusting those last two decisions.
@@ -53,7 +72,7 @@ function LearnScreenInner({ active, onToggle }) {
       <ExpandableInfo title="3. Lambda — the only mixture number that matters">
         Gasoline burns completely at about 14.7 parts air to 1 part fuel. Divide any AFR by its fuel's stoichiometric ratio and you get <b className={styles.em}>lambda</b>: 1.00 is exactly complete combustion, below 1 is rich, above 1 is lean.
         <br /><br />Lambda matters because it means the same thing on every fuel. E85 is stoichiometric at about 9.8:1, so 12.5:1 means something completely different on E85 than on pump gas — but lambda 0.85 is lambda 0.85 on both.
-        <br /><br />Best power is slightly rich: around <b className={styles.em}>lambda 0.87</b> naturally aspirated, and richer still under boost — near 0.83 — because the extra fuel evaporating cools the charge and buys knock margin. Leaner than that under load and you lose power while raising both knock risk and exhaust temperature.
+        <br /><br />Best power is slightly rich: around <b className={styles.em}>lambda 0.87</b> naturally aspirated, and richer still under boost — near 0.83 — because the extra fuel cools the charge and the burn and buys a little knock margin (more on a direct-injected engine, whose fuel evaporates in the cylinder&apos;s own air). Leaner than that under load and you lose power while raising both knock risk and exhaust temperature.
       </ExpandableInfo>
 
       <ExpandableInfo title="4. Why timing makes torque, and where it stops">
@@ -68,10 +87,14 @@ function LearnScreenInner({ active, onToggle }) {
         <br /><br />The part most explanations leave out is that knock is a <b className={styles.em}>race against time</b>, not a pressure threshold. At any pressure and temperature the end gas survives for a certain time before lighting itself. Every instant of the cycle uses up a slice of that time, and when the slices add up to one whole survival time, it goes. That is what this app runs: an ignition-delay correlation evaluated every crank angle, accumulated until it reaches 1.
         <br /><br />Two things fall straight out. <b className={styles.em}>Engine speed matters twice</b> — at higher RPM the same crank degrees are fewer milliseconds, so the end gas has less real time to autoignite at identical pressure. And <b className={styles.em}>retard is not purely protective</b>: it lowers peak pressure but drags the burn later, leaving the end gas hot for longer. Usually the pressure drop wins. Not always.
         <br /><br />What buys margin: higher octane, richer mixture, cooler charge, less compression, less boost. But these are not independent knobs being added up — a hot charge at high boost is far worse than "hot" plus "boosted", because both push the same exponential.
+        <br /><br /><b className={styles.em}>Where the limit sits.</b> On pump fuel, a 10–11:1 naturally aspirated engine is <i>knock-limited</i> at full throttle through the low and middle revs: it knocks before it reaches best torque (MBT), and only near peak power, where each crank degree lasts fewest milliseconds, does MBT come first. This app&apos;s stock V6 on 91 sits about 4° under MBT from 1500 to 4500 RPM and reaches it near 6000. That is why a factory spark table is shaped by its fuel, and why knock control, not bravery, decides the last few degrees.
+        <br /><br /><b className={styles.em}>Octane is two numbers.</b> A pump fuel has a Research octane number (RON, a mild lab test) and a Motor octane number (MON, a hotter one); US pumps post their average, (R+M)/2, so 91 is about 96 RON and 86 MON. Which one your engine behaves like depends on how hot its end gas is for its pressure. Kalghatgi&apos;s <i>octane index</i> weighs them: OI = RON − K × (RON − MON). A boosted, intercooled or direct-injected engine runs cooler for its pressure than the RON test, K goes negative, and pump fuel resists knock better than its RON says; at light load, worse. E85&apos;s wide gap between the two (104 and 88) is part of why it shines under boost.
+        <br /><br /><b className={styles.em}>Where the fuel is sprayed.</b> A port injector aims at the back of the hot intake valve, and the fuel boils off the metal, barely cooling the air. A direct injector sprays into the cylinder&apos;s own air: measured on the same engine, about 14 °C cooler on gasoline and 49 °C on E85, which is a large part of how direct-injected turbo engines carry 10–11:1 compression on pump fuel where the port-injected turbo engines of the 1990s ran about 8.5:1. BUILD › ENGINE sets which one your engine has.
         <br /><br /><b className={styles.em}>How much is too much?</b> A common tuner's rule of thumb treats anything sustained above about 2° of retard as a problem to fix, not an operating point. Zero is the target.
       </ExpandableInfo>
 
       <div className={styles.part}>PART 2 · WHAT THE ECU CALCULATES</div>
+      <div className={styles.partGoal}>After this part you can follow the ECU&apos;s arithmetic from manifold pressure to injector time to torque, with every symbol in plain words.</div>
 
       {/* Unnumbered, as it was in the reference build: a key to read the numbered
           articles by, not an article in the sequence. */}
@@ -152,20 +175,22 @@ function LearnScreenInner({ active, onToggle }) {
       </ExpandableInfo>
 
       <div className={styles.part}>PART 3 · THE TUNING PROCESS</div>
+      <div className={styles.partGoal}>After this part you can run the tuning loop, read a datalog, and tell a calibration fault from a hardware limit.</div>
 
       <ExpandableInfo title="12. The loop: change → pull → read → adjust">
         This is the whole method, and it is not a simplification:
         <br /><br /><b className={styles.em}>1. Change one thing.</b> One table region, one hardware item. Change three and you will not know which one mattered.
         <br /><br /><b className={styles.em}>2. Run a pull.</b> Nothing is known until it is measured. There is no preview in this app on purpose.
         <br /><br /><b className={styles.em}>3. Read the log first.</b> Before looking at the power number, read the Pull Log and check the datalog for gaps between commanded and actual. Power that came with 6° of knock retard is not power you keep.
-        <br /><br /><b className={styles.em}>4. Adjust and repeat.</b> The VS. LAST PULL line tells you whether the change helped. Small logged steps beat big guesses, every time.
+        <br /><br /><b className={styles.em}>4. Adjust and repeat.</b> The next pull draws the previous one dashed behind it (labelled Prev), so you can see whether the change helped, and where. Pin a pull on DYNO › HISTORY to compare against it instead. Small logged steps beat big guesses, every time.
+        <br /><br /><TryIt href="#/dyno/result">DYNO</TryIt>
       </ExpandableInfo>
 
       <ExpandableInfo title="13. A worked example — first turbo tune">
         Fit a turbo on BUILD, set its boost curve to about 8 psi, and run a pull without touching the tables. It will score terribly, and here is why: a factory naturally-aspirated calibration has no real tuning above 101 kPa, so the boost rows are just a copy of the wide-open-throttle row — far too much timing for the cylinder pressure you have just created, and leaner (12.6–13.2:1) than boost wants.
         <br /><br /><b className={styles.em}>Read the log.</b> It will report knock across most of the range, with the RPM band and how many degrees the ECU pulled.
-        <br /><br /><b className={styles.em}>Fix the spark first.</b> On SPARK, pull the 150 and 200 kPa rows down. A common rule of thumb is 1–1.5° per psi of boost — about 3–4° per 20 kPa — and it is close to what this app's engines need: the stock V6's knock limit falls from about 30° at 100 kPa to about 21° at 140 kPa and 12° at 200 kPa. Pull again.
-        <br /><br /><b className={styles.em}>Then the mixture.</b> On FUEL, richen those same rows toward lambda 0.83 (about 12.2:1). Pull again — knock margin improves a little as well (a few tenths of a degree here), because a richer charge resists knock.
+        <br /><br /><b className={styles.em}>Set the fuel first.</b> Tuners work fuel before timing, because the knock limit and best-torque timing both move with the mixture. On FUEL, richen the 150 and 200 kPa rows toward lambda 0.83 (about 12.2:1 on gasoline) — the cooling the extra fuel brings is what boost needs. The pull log lists its entries in this same order: setup, fuel, spark, boost.
+        <br /><br /><b className={styles.em}>Then the timing.</b> On SPARK, pull the 150 and 200 kPa rows down; the richer mixture bought a few tenths of a degree, not the whole fix. A common rule of thumb is 1–1.5° per psi of boost — about 3–4.5° per 20 kPa — and this app's stock V6 wants a little more, about 5°: at 3500 RPM its knock limit falls from about 19° at 100 kPa to about 9° at 140 kPa, and past top dead centre by 200 kPa. A 10.3:1 port-injected engine on 91 without an intercooler simply cannot take 14 psi; at 8 psi it has about 5° to work with. Pull again.
         <br /><br /><b className={styles.em}>Then check the fuel system.</b> If the log reports injectors maxed, that is hardware: fit bigger injectors and set the matching injector scaling on TUNE → INJECTORS, or ask for less boost. Nothing in the tables can create fuel that the injectors have no time to deliver.
       </ExpandableInfo>
 
@@ -175,6 +200,7 @@ function LearnScreenInner({ active, onToggle }) {
         <br /><br /><b className={styles.em}>Mixture: asked → got</b> — if actual is not what you commanded, the cause is upstream of the fuel table: usually MAF scaling or injectors out of duty. Do not "fix" it by editing fuel cells; fix the cause.
         <br /><br /><b className={styles.em}>Airflow</b> — an engine near 300 hp flows around 200 g/s at peak power in this app (a real one needs 10–15% more, see article 39), which is a quick sanity check on whether your VE table is plausible.
         <br /><br /><b className={styles.em}>Injectors</b> — duty above 90% is the wall. <b className={styles.em}>Heat</b> — sustained EGT above about 950–1000°C cooks turbines and valves; it rises with retarded timing and as the mixture leans toward stoichiometric, and a rich mixture is what pulls it back down (the app shows less of that cooling than a real engine does — see article 39).
+        <br /><br /><TryIt href="#/dyno/data">DYNO › DATALOG</TryIt>
       </ExpandableInfo>
 
       <ExpandableInfo title="15. What tuning can fix, and what it can't">
@@ -189,6 +215,7 @@ function LearnScreenInner({ active, onToggle }) {
       </ExpandableInfo>
 
       <div className={styles.part}>PART 4 · GETTING IT TO THE GROUND</div>
+      <div className={styles.partGoal}>After this part you can explain why the same power runs different times: gearing, grip, weight transfer and drag.</div>
 
       <ExpandableInfo title="17. A torque curve is only half of acceleration">
         Everything up to here has been about making torque. The DRAG page is about what happens to it next, and it runs on four equations:
@@ -235,6 +262,7 @@ function LearnScreenInner({ active, onToggle }) {
       </ExpandableInfo>
 
       <div className={styles.part}>PART 5 · WHAT THE SIMULATOR IS DOING</div>
+      <div className={styles.partGoal}>After this part you can say where the model&apos;s numbers come from, what the rest of the ECU does, and where the simulator simplifies.</div>
 
       <ExpandableInfo title="22. The turbo is a machine, not a boost knob">
         A compressor is not a pump that delivers whatever number you type. It is a wheel with a <b className={styles.em}>map</b>: for a given pressure ratio it can only pass so much air, and it is only efficient in the middle of that map.
@@ -242,6 +270,7 @@ function LearnScreenInner({ active, onToggle }) {
         <br /><br />What actually sets boost is an <b className={styles.em}>energy balance</b>. The turbine takes power out of the exhaust; the compressor spends it on the intake. Boost is wherever those two settle. That is why exhaust temperature and turbine size change boost without you touching the target, and why a wastegate lowers backpressure the moment it cracks open.
         <br /><br />Boost builds from nothing as the turbo spools, and it stops at the first pressure the turbine cannot hold. At low RPM that is usually the surge line: past it the compressor cannot hold the pressure at so little flow. So asking for 15 psi at 2000 RPM gets you what the turbo can make there, never less than asking for 5 would.
         <br /><br />So when the app refuses you boost, it is not a rule — it is the hardware. Change the turbine, the compressor, or how much exhaust energy you are making.
+        <br /><br /><b className={styles.em}>Big engines run out of compressor.</b> A 7-litre V8 at 7500 RPM and 10 psi asks for roughly 80 lb/min of air; one Large compressor here chokes near 66. The boost falls away before redline however high you set the target, and the small turbine that came with it dams the exhaust on the way out. That is why big engines so often run <b className={styles.em}>twin turbos</b>: two in parallel, each with its own compressor and turbine, pass twice the air at the same boost. BUILD › Induction has a Single/Twin picker, with a line comparing what your engine needs at the rev limit to where the fitted compressors choke.
       </ExpandableInfo>
 
       <ExpandableInfo title="23. What boost costs: pumping work and backpressure">
@@ -401,13 +430,13 @@ function LearnScreenInner({ active, onToggle }) {
       <ExpandableInfo title="39. What this simulator simplifies">
         <b className={styles.em}>In short:</b> the directions are right everywhere and the sizes are close, but this is a teaching model, not a replacement for a real dyno. The app&apos;s own figures below are checked by its tests on every change; the real-engine figures come from published sources, listed in the project&apos;s docs/accuracy.md.
         <br /><br /><b className={styles.em}>Checked and close to real engines:</b> full-throttle mixture (λ 0.83–0.87), timing, how late the burn lands, torque per litre, cylinder pressure, friction, the airflow and fuel it reports, and how much power boost adds with and without an intercooler. Every preset makes its published power within 5%.
-        <br /><br /><b className={styles.em}>Fuel used per horsepower runs low.</b> The presets burn about 0.40–0.43 lb of fuel per horsepower-hour at full throttle. Real NA engines use about 0.45–0.50 (the best modern ones about 0.42), and turbo engines about 0.50–0.60. Power is right, so the air and fuel needed to make it read about 10–15% low, and so does injector duty. On a real car, leave more injector headroom than the app says you need.
-        <br /><br /><b className={styles.em}>Turbos spool late.</b> The turbos here take their energy from steady exhaust flow, not from the pulses a twin-scroll housing harvests. At 1500–2000 RPM the turbo presets make 15–50% less torque than the real engines, and their torque does not stay flat the way a factory torque limit holds it.
-        <br /><br /><b className={styles.em}>Exhaust temperature reads low at full throttle.</b> About 780 °C on an NA engine and 790–820 °C boosted, where production turbos run up to about 950 °C at the turbine. Going richer cools it too little: about 10–15 °C from 13.5 to 11:1, several times less than the model&apos;s own turbine-side figure for the same change.
+        <br /><br /><b className={styles.em}>Fuel used per horsepower runs low.</b> The presets burn about 0.40–0.45 lb of fuel per horsepower-hour at full throttle. Real NA engines use about 0.45–0.50 (the best modern ones about 0.42), and turbo engines about 0.50–0.60. Power is right, so the air and fuel needed to make it read up to about 15% low, and so does injector duty. On a real car, leave more injector headroom than the app says you need.
+        <br /><br /><b className={styles.em}>Turbos spool late.</b> The turbos here take their energy from steady exhaust flow, not from the pulses a twin-scroll housing harvests. At 1500–2000 RPM the turbo presets make 12–50% less torque than the real engines, and their torque does not stay flat the way a factory torque limit holds it.
+        <br /><br /><b className={styles.em}>Exhaust temperature reads low at full throttle.</b> About 780 °C on an NA engine and 800–840 °C boosted, where production turbos run up to about 950 °C at the turbine. Going richer cools it too little: about 9–13 °C from 13.5 to 11:1, several times less than the model&apos;s own turbine-side figure for the same change.
         <br /><br /><b className={styles.em}>The compressor heats the air at one fixed efficiency.</b> A real compressor pushed off the middle of its map heats the charge more, which costs density and knock margin. Here the charge heats as if the compressor were always at 70% efficiency, so past its ceiling you get a warning on the pull log, not hotter air.
-        <br /><br /><b className={styles.em}>Cylinder pressure runs low under boost.</b> The factory turbo engines peak at about 75–90 bar here; practitioners quote about 100–120 for real ones. The app&apos;s own &ldquo;past what the bottom end takes&rdquo; limit is set on the same scale, so its warnings still land in the right place relative to each other.
+        <br /><br /><b className={styles.em}>Cylinder pressure runs low under boost.</b> The factory turbo engines peak at about 64–79 bar here; practitioners quote about 100–120 for real ones. The app&apos;s own &ldquo;past what the bottom end takes&rdquo; limit is set on the same scale, so its warnings still land in the right place relative to each other.
         <br /><br /><b className={styles.em}>Very rich costs almost no power.</b> Going from λ 0.88 to 0.70 costs almost nothing here; on a real engine power falls away that rich. The pull log still flags it, because it washes the bores and fouls plugs.
-        <br /><br /><b className={styles.em}>Best-torque timing.</b> The advisors aim for the textbook best-torque timing (the burn half done 8–10° after top dead centre). The model&apos;s own torque usually peaks about 2° later (occasionally much more, mostly at low RPM); following the advice costs under 3%.
+        <br /><br /><b className={styles.em}>Best-torque timing.</b> The advisors aim for the textbook best-torque timing (the burn half done 8–10° after top dead centre). The model&apos;s own torque usually peaks about 3° later (occasionally much more, mostly at low RPM); following the advice costs under 3%.
         <br /><br /><b className={styles.em}>Cold starts on E85.</b> Flood an engine with fuel and it cranks without firing, as a real one does. But ethanol&apos;s reluctance to evaporate in the cold is not modelled: a real E85 engine is hard to start in freezing weather (which is why winter E85 is blended down to around E70), while here it starts like gasoline.
         <br /><br /><b className={styles.em}>Superchargers make a little more per psi than real kits.</b> About 7 psi on an intercooled engine adds about 46% here; published kits of that boost add 35–50% at the crank (ProCharger quotes 40–44%). The stock exhaust&apos;s backpressure rises in step with the extra flow here, where a real one rises faster, so a supercharged engine breathes out a little too easily.
         <br /><br /><b className={styles.em}>Nitrous adds more than its jet is rated for.</b> A 100 shot adds about 120 hp at the crank here, 1.0–1.35 times the rating across the shots. Nitrous is oxygen, and this model gets 10–15% more power from each pound of oxygen than real engines (see fuel per horsepower above). The flow through the jet is priced as plain liquid through an orifice; real nitrous starts boiling in the jet, which the kit makers&apos; charts account for and this does not. And the extra oxygen does not speed the burn here: its knock comes through pressure and temperature alone. The bottle is one liquid temperature and a wall: a real bottle chills at the liquid&apos;s surface first, so its pressure can sag faster at the start of a pass than it does here.
@@ -429,10 +458,11 @@ function LearnScreenInner({ active, onToggle }) {
         <br /><br /><b className={styles.em}>The shot.</b> A &ldquo;100 shot&rdquo; is a jet sized to add about 100 hp. It flows 5–6 lb of nitrous a minute, so a 10 lb bottle is a handful of passes. A <b className={styles.em}>wet</b> kit sprays its own fuel through a second jet; a <b className={styles.em}>dry</b> kit sprays nitrous only and the ECU adds the fuel through the injectors — which must have room for it.
         <br /><br /><b className={styles.em}>The bottle.</b> Nitrous is stored as a liquid under its own vapour pressure, set by temperature, not by how full it is: about 590 psi at 50 °F, 760 at 70 °F, 920 at 85 °F. The jets are sized for 900–950 psi, so a cold bottle flows short. Spraying makes some of what is left boil to fill the room the spray left, and that cools the bottle, so pressure falls through a pass — far more when the bottle is nearly empty and there is little liquid left to share the cooling. That is why racers run bottle heaters: not to hold the pressure mid-pass, which they are too slow to do, but to start every pass at the same pressure. A wet kit&apos;s fuel does not follow the bottle, so the kit&apos;s own mixture runs rich when the bottle is cold and lean when it is hot.
         <br /><br /><b className={styles.em}>Fuel while it sprays.</b> The nitrous arrives as vapour and takes up room the air would have had. An ECU that works out its air from MAP and the VE table (speed density) cannot see that, so it keeps fuelling for air that is not there, and with a wet kit&apos;s own fuel on top the engine runs richer than either is jetted for — worst low in the rev range, where the nitrous is the biggest share of the charge. Fix it with <b className={styles.em}>Fuel correction while spraying</b> on TUNE › NITROUS, not with VE or the AFR table: those are right the moment the nitrous stops. The pull log suggests the number. Nitrous tuners aim for about 11.5–12:1 while it sprays. Closed loop stands down while it sprays, as on a real ECU, so the trims do not learn it.
-        <br /><br /><b className={styles.em}>Timing.</b> More oxygen burns hotter and pushes cylinder pressure up, so the knock limit drops while it sprays. The rule of thumb is about 2° out for every 50 hp of shot, set on TUNE › NITROUS as the retard while spraying.
+        <br /><br /><b className={styles.em}>Timing.</b> More oxygen burns hotter and pushes cylinder pressure up, so the knock limit drops while it sprays. The rule of thumb is about 2° out for every 50 hp of shot, set on TUNE › NITROUS as the retard while spraying; on pump fuel it can take more, most at the bottom of the spray window, which is why kits start spraying well up the rev range and big shots want race fuel.
         <br /><br /><b className={styles.em}>The window.</b> The controller sprays only at full throttle, on a warm engine, between two speeds. Too low in the rev range and a big shot spikes cylinder pressure and can backfire through the intake; too close to the limiter and a fuel cut leaves oxygen with nothing to burn. A progressive controller ramps the shot in rather than hitting the tyres and the crank with all of it at once.
         <br /><br /><b className={styles.em}>What to do:</b> fit a kit on BUILD › INDUCTION with the heater on, check the window and retard on TUNE › NITROUS, arm it, and pull. Watch the mixture while it sprays: a lean nitrous mixture melts a piston in seconds, which is what the lean cut is for.
       </ExpandableInfo>
+      <LearnDeep />
     </BuildSection>
   );
 }

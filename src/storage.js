@@ -112,3 +112,44 @@ export async function clearCareer() {
     }
   } catch { /* best-effort */ }
 }
+
+/** The career shop's save, kept apart from the pull stats above. */
+const SHOP_KEY = 'shop';
+
+/**
+ * Reads the career shop's save.
+ *
+ * @returns {Promise<unknown>} the parsed save, or null if there is none or it is unreadable
+ */
+export async function loadShop() {
+  try {
+    let raw;
+    switch (storageBackend()) {
+      case 'artifact': raw = (await window.storage.get(SHOP_KEY))?.value ?? null; break;
+      case 'local': raw = localStorage.getItem(SHOP_KEY); break;
+      default: raw = memory.get(SHOP_KEY) ?? null;
+    }
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Writes the career shop's save. Best-effort, like `saveCareer`.
+ *
+ * @param {unknown} shop
+ * @returns {Promise<boolean>} whether it was written
+ */
+export async function saveShop(shop) {
+  try {
+    const raw = JSON.stringify(shop);
+    switch (storageBackend()) {
+      case 'artifact': await window.storage.set(SHOP_KEY, raw); return true;
+      case 'local': localStorage.setItem(SHOP_KEY, raw); return true;
+      default: memory.set(SHOP_KEY, raw); return true;
+    }
+  } catch {
+    return false;
+  }
+}

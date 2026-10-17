@@ -12,8 +12,9 @@ import { Wind } from 'lucide-react';
 import React from 'react';
 
 import {
-  BLOWER_OPTS, COEFF, COMPRESSOR_OPTS, DEFAULT_ECU_HW, ECU_COEFF, KELVIN_OFFSET, LINEAR_SCALES, MOD_INFO, RPM, TURBINE_OPTS,
-  WASTEGATE_OPTS, blowerCurve, blowerOf, bottlePressurePsi, clamp, deriveEngine, envFrom, starterRatio, tankFuel,
+  BLOWER_OPTS, COEFF, COMPRESSOR_OPTS, DEFAULT_ECU_HW, ECU_COEFF, KELVIN_OFFSET, LINEAR_SCALES, MOD_INFO, RPM,
+  TURBINE_OPTS, WASTEGATE_OPTS, blowerCurve, blowerOf, bottlePressurePsi, clamp, compressorWithCount, deriveEngine,
+  envFrom, starterRatio, tankFuel, turboAirflowNeedKgS,
 } from '../../../sim/index.js';
 import { BuildSection } from '../../components/BuildSection.jsx';
 import { SetupNote } from '../../components/ecu/SetupNote.jsx';
@@ -33,6 +34,9 @@ import styles from './InductionScreen.module.css';
 // half. Keep reading label/blurb off MOD_INFO rather than copying the strings, or
 // this list forks from the catalogue it is meant to be a view onto.
 const MODS_HERE = ['intake'];
+
+/** kg/s to lb/min, the unit turbo compressor maps are sold in. */
+const LB_MIN_PER_KG_S = 132.277;
 
 /** What each kind of supercharger is called on the picker. */
 const BLOWER_KIND = { roots: 'Roots', twinscrew: 'Twin-screw', centrifugal: 'Centrifugal' };
@@ -94,6 +98,14 @@ export function InductionScreen({ active, onToggle }) {
   };
 
   const ceiling = COMPRESSOR_OPTS[compressorIdx].boostCeiling;
+  // Sizing by airflow, as a turbo shop does: what the engine asks for at the rev limit
+  // and the peak boost target, against where the fitted compressors choke. The same
+  // measure grades the build (Engineer Score), so the two cannot disagree.
+  const peakPsi = Math.max(...boostCurve);
+  const displacementL = deriveEngine(build.engineConfig).displacementL;
+  const chokeLbMin = compressorWithCount(COMPRESSOR_OPTS[compressorIdx], turbineCount).chokeFlowKgS * LB_MIN_PER_KG_S;
+  const needLbMin = turboAirflowNeedKgS(displacementL, redline, peakPsi) * LB_MIN_PER_KG_S;
+  const chokes = needLbMin > chokeLbMin;
   const gate = build.wastegate ?? DEFAULT_ECU_HW.gate;
   const sensorHw = build.sensorHw ?? DEFAULT_ECU_HW.sensorHw;
   const setGate = (patch) => dispatch({ type: ACTIONS.SET_BUILD_FIELD, field: 'wastegate', value: { ...gate, ...patch } });
@@ -150,9 +162,16 @@ export function InductionScreen({ active, onToggle }) {
           <div className={styles.labelTight}>Compressor Size</div>
           <Seg label="Compressor Size" options={COMPRESSOR_OPTS.map((o) => ({ label: o.label, id: o.label }))} value={COMPRESSOR_OPTS[compressorIdx].label} onChange={(v) => dispatch({ type: ACTIONS.SET_BUILD_FIELD, field: 'compressorIdx', value: COMPRESSOR_OPTS.findIndex((o) => o.label === v) })} />
           <div className={styles.ceilingNote}>Ceiling before it runs outside its efficient range: ~{ceiling} psi</div>
+          <div className={styles.labelTight}>Turbos</div>
+          <Seg label="Number of turbos" options={[{ id: 1, label: 'Single' }, { id: 2, label: 'Twin' }]} value={turbineCount} onChange={(v) => set('turbineCount', Number(v))} equal />
+          <div className={styles.hint} data-testid="turbo-airflow" data-over={chokes ? 'true' : 'false'}>
+            At {redline} RPM and {peakPsi} psi this engine needs about {Math.round(needLbMin)} lb/min of air. {turbineCount > 1 ? 'The two compressors choke' : 'This compressor chokes'} at about {Math.round(chokeLbMin)} lb/min.
+            {chokes && ' It cannot feed that: boost will fall away near redline while exhaust back-pressure climbs. Fit a bigger compressor or a second turbo.'}
+          </div>
           <ExpandableInfo title="Turbine vs. compressor — different jobs">
             The turbine sits in the exhaust and spins from exhaust energy — its size sets how quickly it spools (small = fast but chokes exhaust flow up top; large = laggy but flows more at redline). The compressor sits in the intake and does the actual pressurizing — its size sets a practical boost ceiling before it's forced outside its efficient operating range, where a real compressor makes hot, inefficient, knock-prone air. (This app heats the charge at one fixed compressor efficiency, so past the ceiling it warns you rather than heating the air further — see Learn article 39.)
             <br /><br />Real turbo shops size compressors by required <b className={styles.em}>airflow</b>, not boost pressure. The industry rule of thumb is about <b className={styles.em}>10 crank horsepower per lb/min of air</b> (roughly 8.5 whp after drivetrain loss) — so a 400 whp target needs a compressor good for roughly 47 lb/min, which you then check against the manufacturer's compressor map. (This app's engines get about 10–15% more from each lb/min than real ones — see Learn article 39 — so size real hardware by the rule, not by the app.)
+            <br /><br />Big engines often need more air than any one sensible turbo passes, which is why many run a <b className={styles.em}>twin</b> setup: two turbos in parallel, each with its own compressor, pass twice the air at the same boost, and each smaller turbine spools sooner than one huge one would. The line under the Turbos picker compares what your engine draws at the rev limit with where the fitted compressors choke.
             <br /><br />Note that this figure barely changes with fuel. E85 needs far more fuel by volume, but it also releases almost exactly the same energy per unit of <i>air</i> as gasoline, so airflow — not fuel type — sets the power ceiling. Octane still helps, but through better timing, not through a bigger number here.
           </ExpandableInfo>
 

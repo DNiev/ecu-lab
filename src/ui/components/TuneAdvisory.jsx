@@ -282,7 +282,7 @@ function VeMath({ cell }) {
   const f = (v) => v.toFixed(3);
   const newVe = cell.table * cell.ratio;
   return (
-    <div className={styles.veMath}>
+    <div className={styles.veMath} data-tour="ve-maths">
       <div className={styles.recTitle}>{cell.rpm} RPM · {cell.load} kPa — {cell.samples} samples</div>
       <dl className={styles.cellStats}>
         <dt>Table VE now</dt><dd>{cell.table.toFixed(1)}%</dd>

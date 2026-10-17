@@ -86,6 +86,21 @@ describe('computeEngineerScore turbo sizing', () => {
     expect(build({ displacementL: 5.0, compressor: SMALL_COMPRESSOR }).score).toBe(92);
   });
 
+  it('judges too small by airflow, so a twin setup passes where one of the pair would not', () => {
+    // A 7 L V8 at 10 psi and 7500 RPM needs about 0.60 kg/s; one Medium compressor
+    // chokes at 0.32 and one Large at 0.50. Two Larges pass 1.0.
+    const v8 = { displacementL: 6.9 };
+    const one = build({ ...v8, turbine: S.TURBINE_OPTS[2], compressor: LARGE_COMPRESSOR });
+    const two = build({
+      ...v8,
+      turbine: S.turbineWithCount(S.TURBINE_OPTS[2], 2),
+      compressor: S.compressorWithCount(LARGE_COMPRESSOR, 2),
+    });
+    expect(one.deductions.join(' ')).toMatch(/Turbo too small/);
+    expect(two.deductions.join(' ')).not.toMatch(/Turbo too small/);
+    expect(build({ ...v8, compressor: S.COMPRESSOR_OPTS[1] }).deductions.join(' ')).toMatch(/Turbo too small/);
+  });
+
   it('says nothing about turbo sizing on a naturally aspirated build', () => {
     const na = build({ turboOn: false, displacementL: 2.0, turbine: LARGE_TURBINE });
     expect(na.deductions.join(' ')).not.toMatch(/Turbo sized/);
@@ -140,7 +155,7 @@ describe('computeEngineerScore static compression under boost', () => {
    * rule and would muddy every assertion below.
    */
   const build = (over = {}) => S.computeEngineerScore({
-    engineConfig: { ...S.DEFAULT_ENGINE_CONFIG, compression: 9.5, headMaterial: 'Aluminum' },
+    engineConfig: { ...S.DEFAULT_ENGINE_CONFIG, compression: 9.5, headMaterial: 'Aluminum', injection: 'direct' },
     turboOn: true,
     peakBoostPsi: 10,
     turbine: S.TURBINE_OPTS[1],
@@ -154,7 +169,7 @@ describe('computeEngineerScore static compression under boost', () => {
   });
 
   const at = (compression, over = {}) => build({
-    engineConfig: { ...S.DEFAULT_ENGINE_CONFIG, compression, headMaterial: 'Aluminum' }, ...over,
+    engineConfig: { ...S.DEFAULT_ENGINE_CONFIG, compression, headMaterial: 'Aluminum', injection: 'direct' }, ...over,
   });
   const hit = (r) => r.deductions.find((d) => /static compression/.test(d));
   /** Safe because `build()` is otherwise clean — nothing else deducts. */
@@ -164,6 +179,18 @@ describe('computeEngineerScore static compression under boost', () => {
   // 11.0:1 from the factory, and the old rule called that a 15-point mistake.
   it('leaves a factory-shaped DI turbo build unpenalised', () => {
     expect(hit(at(11.0, { fuel: P93, mods: COOLED }))).toBeUndefined();
+  });
+
+  // The same compression on a PORT-injected engine has not earned it: its fuel boils off
+  // the intake valve rather than cooling the charge, which is why factory port-injected
+  // turbo engines (EJ257, 2JZ-GTE, SR20DET) sit at 8.2-8.5:1.
+  it('charges the same 11.0:1 on port injection, and names direct injection as the fix', () => {
+    const port = build({
+      engineConfig: { ...S.DEFAULT_ENGINE_CONFIG, compression: 11.0, headMaterial: 'Aluminum', injection: 'port' },
+      fuel: P93, mods: COOLED,
+    });
+    expect(hit(port)).toMatch(/direct injection/);
+    expect(hit(at(10.0, { fuel: P93, mods: COOLED }))).toBeUndefined();
   });
 
   // Guards the shipped presets specifically, from the preset data itself rather than
@@ -217,7 +244,18 @@ describe('computeEngineerScore static compression under boost', () => {
       .toBeLessThan(cost(at(12.5, { turboOn: true, peakBoostPsi: 10 })));
   });
 
-  // Octane is the only lever an NA engine has here — no intercooler, no boost to back off.
+  // A port-injected NA engine stops at about 11-11.5:1 on 91; direct injection's charge
+  // cooling earns it about a point more.
+  it('credits direct injection on the naturally-aspirated side', () => {
+    const na = (injection) => build({
+      engineConfig: { ...S.DEFAULT_ENGINE_CONFIG, compression: 12.0, headMaterial: 'Aluminum', injection },
+      turboOn: false, peakBoostPsi: 0,
+    });
+    expect(hit(na('port'))).toMatch(/direct injection/);
+    expect(hit(na('direct'))).toBeUndefined();
+  });
+
+  // Octane and injection are the levers an NA engine has here — no intercooler, no boost.
   it('credits octane on the naturally-aspirated side', () => {
     expect(cost(at(13.0, { turboOn: false, peakBoostPsi: 0, fuel: P93 })))
       .toBeLessThan(cost(at(13.0, { turboOn: false, peakBoostPsi: 0 })));
@@ -301,9 +339,11 @@ describe('computeEngineerScore compression headroom vs boost level', () => {
   const cooled = { ...S.DEFAULT_MODS, intercooler: true };
 
   const at = (psi, compression, fuel = S.OCTANE_OPTS[3]) => S.computeEngineerScore({
-    engineConfig: { ...S.DEFAULT_ENGINE_CONFIG, compression, headMaterial: 'Aluminum' },
+    engineConfig: { ...S.DEFAULT_ENGINE_CONFIG, compression, headMaterial: 'Aluminum', injection: 'direct' },
     turboOn: true, peakBoostPsi: psi,
-    turbine: S.TURBINE_OPTS[1], compressor: S.COMPRESSOR_OPTS[1],
+    // A Large compressor passes this 3.5 L's air at every boost here, so the turbo-sizing
+    // rule stays out of a block that is about compression.
+    turbine: S.TURBINE_OPTS[1], compressor: S.COMPRESSOR_OPTS[2],
     exhaustDiaError: 0, dutyPreview: 80, displacementL: 3.5, fuel, mods: cooled,
   });
 
@@ -343,7 +383,7 @@ describe('computeEngineerScore compression headroom vs boost level', () => {
       const r = S.computeEngineerScore({
         engineConfig: p.engineConfig, turboOn: true,
         peakBoostPsi: Math.max(...p.boostCurve),
-        turbine: S.presetTurbine(preset), compressor: S.COMPRESSOR_OPTS[p.compressorIdx],
+        turbine: S.presetTurbine(preset), compressor: S.presetCompressor(preset),
         exhaustDiaError: 0, dutyPreview: 80,
         displacementL: S.deriveEngine(p.engineConfig).displacementL,
         fuel: S.OCTANE_OPTS[p.octaneIdx], mods: p.mods,

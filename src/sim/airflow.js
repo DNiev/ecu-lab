@@ -80,6 +80,10 @@ export function computeHardwareVE(cfg, mods, hw = {}) {
     ? (fuel.stoich < 12 ? COEFF.VE_E85_CHARGE_COOLING : fuel.stoich < 14.7 ? 1.005 : 1.0)
     : 1.0;
 
+  // Direct injection cools the air while the intake valve is still open (see
+  // VE_DIRECT_INJECTION); a port-injected engine's fuel cools the valve instead.
+  const injectionFactor = cfg.injection === 'direct' ? COEFF.VE_DIRECT_INJECTION : 1.0;
+
   // Camshaft: shifting where the VE peak sits is the honest way to model duration. A
   // longer cam is evaluated as if the engine were running SLOWER than it is, so the
   // whole breathing curve slides up the RPM range — top end gained, bottom lost.
@@ -130,7 +134,7 @@ export function computeHardwareVE(cfg, mods, hw = {}) {
       val *= clamp(1 - (rpm - floatRpm) / COEFF.FLOAT_COLLAPSE_RPM, COEFF.FLOAT_COLLAPSE_FLOOR, 1);
     }
     val *= 1 + cylBreathing * Math.max(0, norm);
-    val *= crFactor * headFactor * fuelFactor;
+    val *= crFactor * headFactor * fuelFactor * injectionFactor;
 
     // Bolt-ons: measured airflow gains, weighted toward the RPM where they work.
     if (mods.intake) val += MOD_BONUS.intake[ci] * loadScale;

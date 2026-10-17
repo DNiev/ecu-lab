@@ -162,9 +162,9 @@ import {
  * @property {number} dynoRpm engine speed the pull is currently at, RPM. Run state, not
  *   view state, for the same reason `revealCount` is: it is produced by the pull's own
  *   clock and read by both the tachometer and the audio.
- * @property {number} journeyStep guided-onboarding progress: BUILD -> TUNE -> LIVE ->
- *   DYNO, then free play (step 4). Survives navigation, so it lives here rather than
- *   as view state.
+ * @property {{id: string, step: number, marks: any[]}|null} mission the tutorial's
+ *   practice mission in progress: which one, how many of its steps are done, and what
+ *   the game looked like as each was done (see tutorial/missions.js). Null when none.
  * @property {number|null} logFocusRpm the RPM a chart band was activated at, so the
  *   pull log can highlight every event whose span covers it. Null means no highlight.
  *   Cleared by BANK_PULL — see that case in reducer.js.
@@ -185,17 +185,9 @@ import {
  *   run on (`dragSignature` in DragScreen.jsx). What lets the time slip say "these are
  *   last run's numbers, from before your change" instead of presenting a time the
  *   current car cannot run — the same rule `pullScores.signature` follows.
- * @property {'sandbox'|'career'} mode which door the player came in by. CAREER is a
- *   run of customer cars, so HOME leads with the jobs board; SANDBOX is free play with
- *   no objectives, so it has no jobs board at all — the split the reference build (v4.8)
- *   made at its start screen.
- * @property {number|null} activeJob index into CAREER_JOBS of the customer car being
- *   worked on, or null in free play. Career progress, which is what this slice holds:
- *   taking a job resets the build and applies that job's fault, and it has to survive
- *   every screen the player visits while diagnosing it.
- * @property {number[]} completedJobs indices of the jobs already passed
- * @property {'pass'|'fail'|null} jobResult how the last pull graded against the active
- *   job's target, or null before one has been run against it
+ * @property {'sandbox'|'career'} mode whose car is on the bench. CAREER is the tuning
+ *   shop (its save is `career` on the store, and its car replaces SANDBOX's in `build`
+ *   and `tune` while it is open); SANDBOX is free play. See ENTER_CAREER in reducer.js.
  * @property {{ambientC: number, altitudeM: number}} env the air the engine breathes, on
  *   the dyno and in LIVE. Session state: it is the day, not the build
  * @property {{ac: boolean, lights: boolean, launch?: boolean, nitrous?: boolean, bottleFills?: number, trimResets?: number}} liveAux accessory loads switched
@@ -233,6 +225,10 @@ import {
  * @property {TuneState} tune
  * @property {SessionState} session
  * @property {HistoryState} history
+ * @property {import('../career/shop.js').Career|null} career the career shop's save,
+ *   once the player has opened the shop this session
+ * @property {{sandbox: {build: BuildState, tune: TuneState, session: Partial<SessionState>}}|null} stash
+ *   SANDBOX's car and bench, put aside while the career has them
  */
 
 /**
@@ -320,7 +316,7 @@ export function makeInitialState() {
       volume: 1,
       dynoPhase: null,
       dynoRpm: 820,
-      journeyStep: 0,
+      mission: null,
       logFocusRpm: null,
       // A fresh object graph, like every other default here: DEFAULT_CAR is not frozen
       // and the DRAG screen writes to a copy of it on every control change.
@@ -331,13 +327,12 @@ export function makeInitialState() {
       dragT: 0,
       treePhase: 0,
       mode: 'sandbox',
-      activeJob: null,
-      completedJobs: [],
-      jobResult: null,
       env: { ...DEFAULT_ENV },
       liveAux: { ac: false, lights: false, nitrous: true },
       faults: {},
     },
     history: { past: [], future: [] },
+    career: null,
+    stash: null,
   };
 }

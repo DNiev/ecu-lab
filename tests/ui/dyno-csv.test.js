@@ -29,7 +29,7 @@ function realPull({ advance = 0 } = {}) {
     octaneLabel: S.OCTANE_OPTS[patch.octaneIdx].label, fuel: S.OCTANE_OPTS[patch.octaneIdx],
     injectorCc: S.INJECTOR_OPTS[patch.injIdx].cc, ecuInjectorCc: patch.ecuInjectorCc,
     injectorLabel: 'stock', mods: patch.mods, mafScalar: 1, derived,
-    turbine: S.presetTurbine(preset), compressor: S.COMPRESSOR_OPTS[patch.compressorIdx],
+    turbine: S.presetTurbine(preset), compressor: S.presetCompressor(preset),
   });
 }
 
@@ -78,10 +78,11 @@ describe('dyno sheet export', () => {
   // The flag is `knockPull > 0`, so it adds no information, but it makes "how many
   // points knocked" a SUM() instead of a threshold the reader has to write themselves.
   // Asserted against the sim's own flag so the two cannot drift. The stock pull never
-  // knocks, which would make the sum 0 against 0; 5° of advance knocks most of the pull
-  // but not all of it, so both values of the flag are on the page.
+  // knocks, which would make the sum 0 against 0. The factory spark sits about 2° under
+  // the knock limit, so 3° of advance knocks most of the pull but not all of it, and both
+  // values of the flag are on the page.
   it('exports the knock flag as a column a spreadsheet can sum', () => {
-    const { points } = realPull({ advance: 5 });
+    const { points } = realPull({ advance: 3 });
     const knocking = points.filter((p) => p.knock).length;
     expect(knocking).toBeGreaterThan(0);
     expect(knocking).toBeLessThan(points.length);

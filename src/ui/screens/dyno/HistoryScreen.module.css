@@ -99,3 +99,6 @@
   background: var(--acc-bg);
   color: var(--acc-ink);
 }
+
+/* A road test measures no power, so there is no power curve to sketch. */
+.spark[data-hidden='true'] { visibility: hidden; }

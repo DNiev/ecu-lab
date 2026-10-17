@@ -28,13 +28,18 @@ const StoreContext = createContext(null);
 
 /**
  * Wraps its children in the store. Mount once, at the app root.
- * @param {{children: React.ReactNode}} props
+ *
+ * `init` is for a sandbox, never the app: the tutorial mounts real screens inside a
+ * store of their own, seeded with a demo engine's pull, so what a player clicks in a
+ * tutorial snippet can never touch their own build or tune.
+ *
+ * @param {{children: React.ReactNode, init?: (state: StoreState) => StoreState}} props
  * @returns {React.ReactElement}
  */
-export function StoreProvider({ children }) {
+export function StoreProvider({ children, init }) {
   // The third argument makes this LAZY init: makeInitialState() runs once, on
   // mount, rather than being recomputed (and thrown away) on every render.
-  const [state, dispatch] = useReducer(reducer, undefined, makeInitialState);
+  const [state, dispatch] = useReducer(reducer, init, (seed) => (seed ? seed(makeInitialState()) : makeInitialState()));
   /** @type {StoreContextValue} */
   const value = [state, dispatch];
   return (
@@ -86,6 +91,35 @@ export function useTune() {
 export function useSession() {
   const [state, dispatch] = useStore();
   return [state.session, dispatch];
+}
+
+/**
+ * The career shop's save (null until the shop has been opened this session).
+ * @returns {[import('../career/shop.js').Career|null, React.Dispatch<StoreAction>]}
+ */
+export function useCareer() {
+  const [state, dispatch] = useStore();
+  return [state.career, dispatch];
+}
+
+/**
+ * SANDBOX's car and bench while CAREER has the store, or null in SANDBOX.
+ * @returns {{build: any, tune: any, session: any}|null}
+ */
+export function useSandboxStash() {
+  const [state] = useStore();
+  return state.stash?.sandbox ?? null;
+}
+
+/**
+ * Whether a pull is a road test: in CAREER, until the shop owns a dyno. A road test logs
+ * everything a wideband and the ECU see, but nothing measures power, so every screen
+ * that would show horsepower asks this first.
+ * @returns {boolean}
+ */
+export function useRoadTest() {
+  const [state] = useStore();
+  return state.session.mode === 'career' && !!state.career && !state.career.owned.includes('dyno');
 }
 
 /**

@@ -53,9 +53,10 @@ export function makeEcuLiveState() {
 }
 
 /** Wall-film fraction and evaporation time constant by coolant temperature. */
-function filmParams(ectC) {
+function filmParams(ectC, injection) {
   const cold = clamp((E.FILM_WARM_C - ectC) / E.FILM_COLD_SPAN_C, 0, 1);
-  return { X: E.FILM_X_WARM + E.FILM_X_COLD_ADD * cold, tau: E.FILM_TAU_WARM_S + E.FILM_TAU_COLD_ADD_S * cold };
+  const k = injection === 'direct' ? E.FILM_DIRECT_SHARE : 1;
+  return { X: k * (E.FILM_X_WARM + E.FILM_X_COLD_ADD * cold), tau: E.FILM_TAU_WARM_S + E.FILM_TAU_COLD_ADD_S * cold };
 }
 
 /** Log channels, in order, recorded every step. Units in `LOG_CHANNELS` below. */
@@ -234,7 +235,8 @@ export function liveStepEcu(st, dt, input, cfg) {
   // valve does not chase the flare down — closing the loop on it winds the controller
   // up for the dip that follows. It will still add air if the engine sags.
   if (s.running && idleZone && pedal < 3) {
-    const holding = e.sinceStart < cal.idle.startHoldS && s.rpm > idleTarget;
+    const starting = e.sinceStart < cal.idle.startHoldS;
+    const holding = starting && s.rpm > idleTarget;
     if (holding) { /* hold base air through the flare */ } else if (s.rpm < E.IDLE_CAPTURE_RPM) {
       const err = idleTarget - s.rpm;
       const gain = err > 0 ? cal.idle.gainUp : cal.idle.gainDown;
@@ -250,6 +252,11 @@ export function liveStepEcu(st, dt, input, cfg) {
       // actually decelerate; it catches the engine again below 2000 RPM.
       s.idleTrim += (E.IDLE_COAST_AIR_PCT - s.idleTrim) * cal.idle.bleed * (dt / 0.05);
     }
+    // Never less than the base air while starting. The step the engine catches on is
+    // still just under the target, and the damping term reads the starter's pull-up as
+    // a flare: without this floor it shut the valve in that one step and the hold then
+    // held it shut, so a warm restart flared, fell through the target and stalled.
+    if (starting) s.idleTrim = Math.max(s.idleTrim, read1(cal.idle.baseAir, e.sEct));
   }
   const idleAir = (s.running ? s.idleTrim : 0) + (aux.ac ? cal.idle.acAirAdd : 0) + (aux.lights ? cal.idle.elecAirAdd : 0);
   e.idleAir = idleAir;
@@ -407,7 +414,7 @@ export function liveStepEcu(st, dt, input, cfg) {
     const decayed = e.aePct * Math.exp(-dt / Math.max(0.02, cal.fuel.accelDecayS));
     e.aePct = aeWant > 0 ? Math.max(decayed, aeWant) : aeWant < 0 ? Math.min(decayed, Math.max(-60, aeWant)) : decayed;
     if (Math.abs(e.aePct) < 0.05) e.aePct = 0;
-    const { X, tau: filmTau } = filmParams(s.coolantC);
+    const { X, tau: filmTau } = filmParams(s.coolantC, derived.injection);
     const injPerCycle = lastPt?.fuelCmd != null && !s.fuelCut ? lastPt.fuelCmd / 1000 : 0;
     const cycles = (s.rpm / 120) * dt;
     const evap = e.film * clamp(dt / filmTau, 0, 1);

@@ -14,7 +14,7 @@ import { RotateCcw, Settings } from 'lucide-react';
 import React from 'react';
 
 import {
-  COIL_OPTS, CONFIG_OPTS, CYL_COUNT, ENGINE_PRESETS, MATERIAL_OPTS, PRESET_GROUPS, VVT_OPTS, applyPreset,
+  COIL_OPTS, CONFIG_OPTS, CYL_COUNT, ENGINE_PRESETS, INJECTION_OPTS, MATERIAL_OPTS, PRESET_GROUPS, VVT_OPTS, applyPreset,
 } from '../../../sim/index.js';
 import { BuildSection } from '../../components/BuildSection.jsx';
 import { ExpandableInfo } from '../../components/ExpandableInfo.jsx';
@@ -85,7 +85,7 @@ export function EngineScreen({ active, onToggle, engineDerived, activePreset, ve
 
   const applyEnginePreset = (preset) => {
     const p = applyPreset(preset);
-    // The whole BUILD slice — including `mafScalar` back to 1.0, and `presetId` SET
+    // The whole BUILD slice — including the preset's own `mafScalar`, and `presetId` SET
     // rather than cleared — lands in ONE pass; see APPLY_PRESET in reducer.js.
     dispatch({ type: ACTIONS.APPLY_PRESET, preset: p });
   };
@@ -163,7 +163,7 @@ export function EngineScreen({ active, onToggle, engineDerived, activePreset, ve
       {presetPrompt && (
         <div className={styles.callout}>
           <div className={styles.calloutText}>
-            <b className={styles.calloutAccent}>This replaces your current tune.</b> Loading {presetPrompt.name} overwrites your VE, spark and fuel tables with its factory calibration. Your career stats are kept.
+            <b className={styles.calloutAccent}>This replaces your current tune.</b> Loading {presetPrompt.name} overwrites your VE, spark and fuel tables with its factory calibration. Your sandbox stats are kept.
           </div>
           <div className={styles.calloutRow}>
             {/* The one `danger` in the app. This prompt is raised ONLY when
@@ -270,6 +270,14 @@ export function EngineScreen({ active, onToggle, engineDerived, activePreset, ve
       <ExpandableInfo title="What a cam phaser does — and what it does not">
         A phaser turns the camshaft against the crank with oil pressure, moving every event on that cam by the same angle. It does not change the lobe: duration and lift are the grind's. What it changes is <i>when</i> — and that is enough to move the torque curve, because the intake valve closing is what decides how much charge is trapped.
         <br /><br />Advance the intake and it closes earlier: at low speed the charge has no momentum to keep filling after bottom dead centre, so closing early traps more of it; at high speed it cuts the ramming short. Every move also changes overlap, and overlap decides how much burned gas stays in the cylinder. The targets live on <b className={styles.em}>TUNE › VVT</b>; parked at zero, a phased engine is exactly the fixed-cam one.
+      </ExpandableInfo>
+
+      <div className={styles.labelSpaced}>Fuel Injection</div>
+      <Seg label="Fuel injection" options={INJECTION_OPTS} value={engineConfig.injection ?? 'port'} onChange={(v) => setCfg({ injection: v })} equal />
+      <ExpandableInfo title="Port injection versus direct injection">
+        <b className={styles.em}>Port injection</b> (multi-point manifold injection) puts one injector in each intake runner, aimed at the back of the intake valve. The fuel boils off that hot valve, so it cools the metal, not the air: the charge reaches the cylinder barely colder than it left the manifold. The Nissan VQs here are port-injected.
+        <br /><br /><b className={styles.em}>Direct injection</b> sprays into the cylinder itself, at far higher pressure. The fuel takes its heat of evaporation from the air, and measured on the same engine that is about 14 °C colder on gasoline and 49 °C on E85. Colder air is denser, so more of it gets in (about 6% on gasoline here), and colder end gas takes longer to light itself, so the knock limit rises. That is how the BMW and VW turbo engines here run their compression under boost. There is no port wall for fuel to soak into, either, so a direct-injected engine needs far less acceleration enrichment.
+        <br /><br />Swap one for the other and the fuel tables stay the engine&apos;s own: re-tune after the change, as you would on a real conversion.
       </ExpandableInfo>
 
       <div className={styles.labelSpaced}>Ignition</div>

@@ -89,9 +89,11 @@ export function trappedChargeK(intakeK, residualFrac) {
 }
 
 /**
- * Charge temperature drop as liquid fuel evaporates into it. The heat comes from the
- * charge, which is why a rich mixture is a knock-control tool rather than just margin on
- * lambda, and why E85 resists knock far beyond what its octane number explains.
+ * Charge temperature drop as liquid fuel evaporates into it. What part of the heat comes
+ * from the charge depends on where the fuel is sprayed: most of it in a direct-injected
+ * cylinder, little of it in a port-injected one, whose fuel boils off the hot valve.
+ * That is why E85 resists knock far beyond what its octane number explains, and does so
+ * most on a direct-injected engine.
  *
  * @param {number} fuelMassG fuel delivered to the cylinder, grams
  * @param {number} airMassG air trapped in the cylinder, grams
@@ -100,12 +102,14 @@ export function trappedChargeK(intakeK, residualFrac) {
  * gasoline/ethanol split on stoichiometric ratio they have always used.
  *
  * @param {{stoich: number, latentHeat?: number}} fuel
+ * @param {number} [share] share of the latent heat drawn from the charge rather than from
+ *   the port and valve: the engine's `evapInCylinder`, set by where its injectors spray
  * @returns {number} temperature drop, K
  */
-export function evaporativeCoolingK(fuelMassG, airMassG, fuel) {
+export function evaporativeCoolingK(fuelMassG, airMassG, fuel, share = COEFF.FUEL_EVAP_IN_CYLINDER_PORT) {
   const latent = fuel.latentHeat ?? (fuel.stoich < COEFF.FUEL_ETHANOL_STOICH_MAX
     ? COEFF.FUEL_LATENT_HEAT_ETHANOL : COEFF.FUEL_LATENT_HEAT_GASOLINE);
-  const heatJ = (fuelMassG / 1000) * latent * COEFF.FUEL_EVAP_IN_CYLINDER;
+  const heatJ = (fuelMassG / 1000) * latent * share;
   return heatJ / Math.max(1e-6, (airMassG / 1000) * COEFF.CHARGE_CP);
 }
 

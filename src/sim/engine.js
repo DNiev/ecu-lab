@@ -159,6 +159,10 @@ export function charMultiplier(rpm, ratio) {
  * @property {number} [redline] rev limit, RPM
  * @property {string} [vvt] cam phasers fitted: 'none', 'intake' or 'dual'. Hardware, like
  *   the cam itself; absent means fixed cams
+ * @property {'port'|'direct'} [injection] where the injectors spray: into each intake port
+ *   (multi-point manifold injection) or into the cylinder. Absent means port
+ * @property {boolean} [boostRatedBottomEnd] a factory turbo engine's bottom end, designed
+ *   for boosted cylinder pressure; absent on a naturally aspirated one
  */
 
 /**
@@ -171,8 +175,12 @@ export function charMultiplier(rpm, ratio) {
  * @property {number} stroke stroke, mm
  * @property {number} boreFlameFactor flame-travel scaling from bore, 1 at the reference
  * @property {number} chamberOffsetK chamber heat added to the charge by head material, K
+ * @property {'port'|'direct'} injection where the fuel is sprayed
+ * @property {number} evapInCylinder share of the fuel's latent heat drawn from the charge
  * @property {number} torqueScale displacement relative to the 3.5 L baseline
  * @property {number} bearingWearMult block material wear multiplier
+ * @property {number} bearingFreeBar average peak pressure the bottom end carries for free, bar
+ * @property {number} bearingEventBar average peak pressure that raises the bottom-end advisory, bar
  * @property {string} character human-readable bore/stroke description
  * @property {number} perCylL per-cylinder displacement, litres
  * @property {number} camDuration crank degrees
@@ -207,6 +215,10 @@ export function deriveEngine(cfg) {
   const boreFlameFactor = cfg.bore / COEFF.BORE_FLAME_REF_MM;
   // An iron head runs a hotter chamber, so the charge in it starts compression hotter.
   const chamberOffsetK = cfg.headMaterial === 'Cast Iron' ? COEFF.IRON_HEAD_CHAMBER_K : 0;
+  // Where the injector sprays decides how much of the fuel's evaporation cools the air
+  // rather than the metal around it (see FUEL_EVAP_IN_CYLINDER_*).
+  const injection = cfg.injection === 'direct' ? 'direct' : 'port';
+  const evapInCylinder = injection === 'direct' ? COEFF.FUEL_EVAP_IN_CYLINDER_DIRECT : COEFF.FUEL_EVAP_IN_CYLINDER_PORT;
   // No thermal-efficiency term any more. Indicated efficiency used to be an ideal
   // Otto-cycle number scaled by a realisation factor, multiplied into fuel energy to get
   // work. The cycle model produces it instead: compression changes the clearance volume,
@@ -214,6 +226,10 @@ export function deriveEngine(cfg) {
   // comes out. Two fitted constants became a consequence of the geometry.
   const torqueScale = displacementL / 3.5;
   const bearingWearMult = cfg.blockMaterial === 'Cast Iron' ? 0.85 : 1.0;
+  // What average peak pressure the bottom end carries for free, and where the advisory
+  // starts: see BEARING_PRESSURE_FREE_BAR.
+  const bearingFreeBar = cfg.boostRatedBottomEnd ? COEFF.BEARING_PRESSURE_FREE_BAR_BOOST_RATED : COEFF.BEARING_PRESSURE_FREE_BAR;
+  const bearingEventBar = cfg.boostRatedBottomEnd ? COEFF.BEARING_EVENT_BAR_BOOST_RATED : COEFF.BEARING_EVENT_BAR;
   // Architecture friction. Zeroed at the V6 baseline so existing builds do not move:
   // an inline six pays for its seven mains, a large four pays for its balance shafts,
   // and the inline six's real advantage is over the four, not over the V6.
@@ -238,8 +254,8 @@ export function deriveEngine(cfg) {
   return {
     cyl, displacementL, ratio, compression: cfg.compression,
     bore: cfg.bore, stroke: cfg.stroke,
-    boreFlameFactor, chamberOffsetK,
-    torqueScale, bearingWearMult, character, perCylL,
+    boreFlameFactor, chamberOffsetK, injection, evapInCylinder,
+    torqueScale, bearingWearMult, bearingFreeBar, bearingEventBar, character, perCylL,
     camDuration, springRate, overlapDeg, floatRpm, springPa,
     bearingFmepPa, balanceShaftFrac, redline,
   };

@@ -44,7 +44,7 @@
  */
 
 import {
-  Activity, Flag, Flame, Gauge, Grid3x3, Info, Search, Settings, Wrench,
+  Activity, Flag, Flame, Gauge, Grid3x3, Home, Info, Search, Settings, Store, Wrench,
 } from 'lucide-react';
 import React, { useMemo } from 'react';
 
@@ -55,7 +55,7 @@ import { BUILD_VERSION } from '../version.js';
 import { Button } from './primitives/Button.jsx';
 import { isApplePlatform } from './commands.js';
 import { TAB_NAMES } from './routing.js';
-import { useBuild, useSession } from './state/StoreProvider.jsx';
+import { useBuild, useRoadTest, useSession } from './state/StoreProvider.jsx';
 import { statusTone } from './theme.js';
 
 import styles from './AppShell.module.css';
@@ -90,6 +90,15 @@ const NAV_ITEMS = [
 ];
 
 /**
+ * CAREER's nav: the shop is home, and there is no drag strip. The customer's car is
+ * the one on the bay, so the working screens are the same ones Sandbox uses.
+ */
+const CAREER_NAV_ITEMS = [
+  { id: 'shop', label: 'SHOP', icon: Store },
+  ...NAV_ITEMS.filter((n) => n.id !== 'dash' && n.id !== 'drag'),
+];
+
+/**
  * The section nav: a bottom bar on a phone, a side rail from the breakpoint up. One
  * component and one stylesheet, not two of each — see AppShell.module.css.
  *
@@ -100,16 +109,19 @@ const NAV_ITEMS = [
  * @param {object} props
  * @param {string|null} props.tab id of the active tab, or null outside the app view
  * @param {(tab: string) => void} props.onNavigate
+ * @param {boolean} [props.career] show CAREER's destinations
  * @returns {React.ReactElement}
  */
-function SideNavInner({ tab, onNavigate }) {
+function SideNavInner({ tab, onNavigate, career = false }) {
   return (
     <nav className={styles.nav} aria-label="Sections">
-      {NAV_ITEMS.map(({ id, label, icon: Icon }) => (
+      {(career ? CAREER_NAV_ITEMS : NAV_ITEMS).map(({ id, label, icon: Icon }) => (
         <button
           key={id}
           type="button"
           className={styles.navItem}
+          // A stable hook for the tutorial's callouts, which point at real screens.
+          data-tour={`nav-${id}`}
           // `undefined`, not "false": aria-current is a token list, and the string
           // "false" is the one spelling that means "not current" while still being
           // present in the DOM. Omitting the attribute is what an assertion can see.
@@ -143,7 +155,7 @@ export const SideNav = React.memo(SideNavInner);
  */
 function StripFieldInner({ label, value, tone }) {
   return (
-    <div className={styles.field}>
+    <div className={styles.field} data-tour={`strip-${label.toLowerCase().replace(/ /g, '-')}`}>
       <span className={styles.fieldLabel}>{label}</span>
       <span className={styles.fieldValue} data-tone={tone}>{value}</span>
     </div>
@@ -163,7 +175,7 @@ const StripField = React.memo(StripFieldInner);
 function HealthFieldInner({ pct }) {
   const tone = statusTone(pct);
   return (
-    <div className={styles.field}>
+    <div className={styles.field} data-tour="strip-health">
       <span className={styles.fieldLabel}>HEALTH</span>
       <span className={styles.healthTrack}>
         <span className={styles.healthFill} data-tone={tone} style={{ width: `${pct}%` }} />
@@ -223,13 +235,15 @@ function fuelLabel(fuel, ethanolPct) {
  * @param {() => void} [props.onTutorial]
  * @param {() => void} [props.onRepair]
  * @param {() => void} [props.onSearch] opens the command palette
+ * @param {() => void} [props.onMenu] back to the start screen
  * @returns {React.ReactElement}
  */
-export function StatusStrip({ onTutorial, onRepair, onSearch }) {
+export function StatusStrip({ onTutorial, onRepair, onSearch, onMenu }) {
   const [build] = useBuild();
   const [session] = useSession();
   const { engineConfig, presetId, turboOn, boostCurve, octaneIdx, injIdx } = build;
   const { health, result } = session;
+  const roadTest = useRoadTest();
 
   // Keyed on `engineConfig` so the 20 Hz re-render does not re-derive the engine
   // twenty times a second to print the same string.
@@ -280,7 +294,7 @@ export function StatusStrip({ onTutorial, onRepair, onSearch }) {
         <div className={styles.readouts}>
           <StripField label="BOOST" value={turboOn || blower ? `${peakBoost.toFixed(1)} psi` : 'N/A'} />
           <HealthField pct={overallHealth} />
-          <StripField label="LAST PULL" value={result ? `${Math.round(result.peakHp)} whp` : '—'} />
+          <StripField label="LAST PULL" value={result ? (roadTest ? 'road test' : `${Math.round(result.peakHp)} whp`) : '—'} />
           <EngineRunLight />
         </div>
         {/* Icon-only, so the label has to be spelled out: `title` alone leaves a
@@ -291,6 +305,11 @@ export function StatusStrip({ onTutorial, onRepair, onSearch }) {
             command palette (issue 63), its tooltip naming the shortcut this platform
             uses (see the Cmd-K handler in EcuLab.jsx). */}
         <div className={styles.actions}>
+          {onMenu && (
+            <Button variant="ghost" size="sm" title="Main menu" aria-label="Main menu" onClick={onMenu}>
+              <Home size={16} aria-hidden="true" />
+            </Button>
+          )}
           <Button
             variant="ghost" size="sm" title={`Search (${apple ? '⌘K' : 'Ctrl+K'})`}
             aria-label="Search pages and actions" aria-keyshortcuts={apple ? 'Meta+K' : 'Control+K'}
@@ -317,18 +336,21 @@ export function StatusStrip({ onTutorial, onRepair, onSearch }) {
  * @param {() => void} [props.onTutorial] what the strip's Tutorial button means
  * @param {() => void} [props.onRepair] what the strip's Repair engine button means
  * @param {() => void} [props.onSearch] what the strip's Search button means
+ * @param {() => void} [props.onMenu] what the strip's Main menu button means
+ * @param {boolean} [props.career] CAREER's nav rather than Sandbox's
+ * @param {React.ReactNode} [props.banner] pinned above the screen (CAREER's job ticket)
  * @param {React.ReactNode} props.children the screen for the current route
  * @returns {React.ReactElement}
  */
 export function AppShell({
-  route, onNavigate, onTutorial, onRepair, onSearch, children,
+  route, onNavigate, onTutorial, onRepair, onSearch, onMenu, career = false, banner = null, children,
 }) {
   return (
     <div className={styles.shell}>
-      <SideNav tab={route.tab} onNavigate={onNavigate} />
+      <SideNav tab={route.tab} onNavigate={onNavigate} career={career} />
       <div className={styles.main}>
-        <StatusStrip onTutorial={onTutorial} onRepair={onRepair} onSearch={onSearch} />
-        <div className={styles.content}>{children}</div>
+        <StatusStrip onTutorial={onTutorial} onRepair={onRepair} onSearch={onSearch} onMenu={onMenu} />
+        <div className={styles.content}>{banner}{children}</div>
       </div>
     </div>
   );
