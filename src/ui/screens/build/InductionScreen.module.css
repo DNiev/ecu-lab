@@ -80,7 +80,7 @@
   margin-top: 4px;
   margin-bottom: var(--sp-md);
   font-size: 11px;
-  color: var(--ink3);
+  color: var(--ink2);
 }
 
 .intercoolerRow { margin-top: 4px; margin-bottom: 14px; }
@@ -163,7 +163,7 @@
   padding: 3px 0;
   font-family: var(--mono);
   font-size: 8px;
-  color: var(--ink3);
+  color: var(--ink2);
 }
 
 .colRpm[data-selected='true'] { color: var(--acc-ink); }
@@ -218,7 +218,7 @@
 .ceilingWarning {
   margin-top: 8px;
   font-size: var(--fs-xs);
-  color: var(--ink3);
+  color: var(--ink2);
 }
 
 .ceilingWarning[data-over='true'] { color: var(--danger); }
@@ -226,5 +226,5 @@
 .hint {
   margin: 6px 0 10px;
   font-size: var(--fs-xs);
-  color: var(--ink3);
+  color: var(--ink2);
 }

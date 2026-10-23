@@ -45,7 +45,7 @@
   font-size: 7px;
   font-weight: 700;
   letter-spacing: 1px;
-  color: var(--ink3);
+  color: var(--ink2);
 }
 
 /* --- ECU state and the two controls beside the dial ---------------------- */
@@ -67,7 +67,7 @@
   border: 1px solid var(--line);
   border-radius: var(--r-md);
   background: var(--panel2);
-  color: var(--ink3);
+  color: var(--ink2);
   font-size: 13px;
   font-weight: 800;
 }
@@ -208,7 +208,7 @@
 .gaugeUnit {
   margin-left: 2px;
   font-size: var(--fs-micro);
-  color: var(--ink3);
+  color: var(--ink2);
 }
 
 /* --- fuel trims --------------------------------------------------------- */

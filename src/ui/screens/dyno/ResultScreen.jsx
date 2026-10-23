@@ -16,10 +16,12 @@
  * threaded down as its own value.
  *
  * The ghost lines take each live series' own colour at half opacity rather than a
- * neutral grey. `T.ink3` — what they used to use — is also the axis, tick-label and
+ * neutral grey. `T.ink3` — what they used to use — was also the axis, tick-label and
  * `afrCommanded` colour, so the previous pull was not too dim to see so much as
- * indistinguishable from the chart's furniture. Hue now carries series identity and
- * opacity carries time.
+ * indistinguishable from the chart's furniture. The axes, tick labels and the
+ * `afrCommanded` reference line are now `T.ink2` (issue 79, text contrast): recharts
+ * colours a series' legend and tooltip text with its stroke, so a series is text too.
+ * Hue now carries series identity and opacity carries time.
  */
 
 import React from 'react';
@@ -128,8 +130,8 @@ export function ResultScreen({ chartData, engineDerived, ghostLabel, bands = [],
             onClick={handleChartClick}
           >
             <CartesianGrid stroke={T.line} />
-            <XAxis dataKey="rpm" stroke={T.ink3} fontSize={10} type="number" domain={[1500, dynoChartMaxRpm]} />
-            <YAxis stroke={T.ink3} fontSize={10} />
+            <XAxis dataKey="rpm" stroke={T.ink2} fontSize={10} type="number" domain={[1500, dynoChartMaxRpm]} />
+            <YAxis stroke={T.ink2} fontSize={10} />
             <Tooltip contentStyle={{ background: T.panel2, border: `1px solid ${T.line}`, fontSize: 11 }} />
             <Legend wrapperStyle={{ fontSize: 11 }} />
             {bands.map((b) => (
@@ -154,8 +156,8 @@ export function ResultScreen({ chartData, engineDerived, ghostLabel, bands = [],
             onClick={handleChartClick}
           >
             <CartesianGrid stroke={T.line} />
-            <XAxis dataKey="rpm" stroke={T.ink3} fontSize={10} type="number" domain={[1500, dynoChartMaxRpm]} />
-            <YAxis stroke={T.ink3} fontSize={10} />
+            <XAxis dataKey="rpm" stroke={T.ink2} fontSize={10} type="number" domain={[1500, dynoChartMaxRpm]} />
+            <YAxis stroke={T.ink2} fontSize={10} />
             <Tooltip contentStyle={{ background: T.panel2, border: `1px solid ${T.line}`, fontSize: 11 }} />
             <Legend wrapperStyle={{ fontSize: 11 }} />
             {bands.map((b) => (
@@ -169,7 +171,7 @@ export function ResultScreen({ chartData, engineDerived, ghostLabel, bands = [],
                 shape={(shapeProps) => <Band {...shapeProps} band={b} onSelectRpm={onSelectRpm} focusable={false} />}
               />
             ))}
-            <Line dataKey="afrCommanded" name="AFR commanded" stroke={T.ink3} strokeDasharray="3 3" dot={false} isAnimationActive={false} />
+            <Line dataKey="afrCommanded" name="AFR commanded" stroke={T.ink2} strokeDasharray="3 3" dot={false} isAnimationActive={false} />
             {/* Series identity colours, not status: both lines are on screen for
                 every pull, so green and amber here reported a health this chart
                 never measures. */}

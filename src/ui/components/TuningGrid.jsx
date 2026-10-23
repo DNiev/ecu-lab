@@ -174,7 +174,7 @@ export function TuningGrid({ data, min, max, decimals, selection, setSelection, 
       onKeyDown={onKeyDown}
       aria-label="Calibration table: arrows move, Shift+arrows select a range, plus and minus adjust"
     >
-    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 9.5, color: T.ink3, fontWeight: 700, letterSpacing: 0.8, marginBottom: 4 }}>
+    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 9.5, color: T.ink2, fontWeight: 700, letterSpacing: 0.8, marginBottom: 4 }}>
       <span>MAP kPa &darr;</span><span>RPM &rarr;</span>
     </div>
     <div style={{ overflowX: 'auto', WebkitOverflowScrolling: 'touch', border: `1px solid ${T.line}`, borderRadius: 10 }}>
@@ -210,7 +210,7 @@ export function TuningGrid({ data, min, max, decimals, selection, setSelection, 
                   width: 51, height: 37, flexShrink: 0,
                   border: isAnchor(ri, ci) ? `2px solid ${T.acc}` : isSelected(ri, ci) ? `2px solid ${T.ink}` : `1px solid ${shadowAlpha(0.35)}`,
                   background: !diff ? heat(val, min, max) : diff[ri][ci] === 0 ? T.panel2 : diffTint(diff[ri][ci], diffScale),
-                  color: diff && diff[ri][ci] === 0 ? T.ink3 : T.ink,
+                  color: diff && diff[ri][ci] === 0 ? T.ink2 : T.ink,
                   fontFamily: T.mono, fontSize: 12, fontWeight: 700,
                   // A mouse drag across cells must not start a text selection.
                   userSelect: 'none',
