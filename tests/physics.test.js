@@ -218,7 +218,12 @@ describe('the injector duty preview', () => {
   it('commands what the point solve commands, with an ideal ECU', () => {
     // TUNE → INJECTORS shows this before a pull. If it drifts from evaluatePoint, the
     // screen promises a duty the dyno does not deliver.
-    [[0, false], [8, true], [15, false]].forEach(([boostPsi, intercooler]) => {
+    const cases = [
+      { boostPsi: 0, intercooler: false },
+      { boostPsi: 8, intercooler: true },
+      { boostPsi: 15, intercooler: false },
+    ];
+    cases.forEach(({ boostPsi, intercooler }) => {
       const rpm = 6500;
       const mapKpa = S.BARO_KPA + boostPsi * S.PSI_TO_KPA;
       const p = S.evaluatePoint({
