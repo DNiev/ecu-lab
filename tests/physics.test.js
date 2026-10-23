@@ -207,6 +207,49 @@ describe('air charge and fuelling', () => {
   });
 });
 
+describe('the injector duty preview', () => {
+  const derived = S.deriveEngine(STOCK);
+  /** The preview at 6500 RPM on the default tables, overridable per test. */
+  const preview = (overrides = {}) => S.injectorDutyPreview({
+    rpm: 6500, boostPsi: 0, intercooler: false, ve: S.DEFAULT_VE, afr: S.DEFAULT_AFR,
+    derived, fuel: S.OCTANE_OPTS[0], ecuInjectorCc: 315, ...overrides,
+  });
+
+  it('commands what the point solve commands, with an ideal ECU', () => {
+    // TUNE → INJECTORS shows this before a pull. If it drifts from evaluatePoint, the
+    // screen promises a duty the dyno does not deliver.
+    [[0, false], [8, true], [15, false]].forEach(([boostPsi, intercooler]) => {
+      const rpm = 6500;
+      const mapKpa = S.BARO_KPA + boostPsi * S.PSI_TO_KPA;
+      const p = S.evaluatePoint({
+        rpm, mapKpa, boostPsi,
+        veVal: S.interp2(S.DEFAULT_VE, rpm, mapKpa), timingVal: 20,
+        afrCommanded: S.interp2(S.DEFAULT_AFR, rpm, mapKpa),
+        fuel: S.OCTANE_OPTS[0], mods: { ...NO_MODS, intercooler, turboFitted: boostPsi > 0 },
+        mafScalar: 1, mafErrorBase: 1, injectorCc: 550, ecuInjectorCc: 550,
+        derived, compressor: S.COMPRESSOR_OPTS[2],
+      });
+      const duty = preview({ boostPsi, intercooler, ecuInjectorCc: 550 });
+      expect(Math.round(duty)).toBe(p.duty);
+      expect(Number(((duty / 100) * (120000 / rpm)).toFixed(2))).toBe(p.pw);
+    });
+  });
+
+  it('falls as the ECU is told of bigger injectors', () => {
+    expect(preview({ ecuInjectorCc: 550 })).toBeLessThan(preview({ ecuInjectorCc: 315 }));
+  });
+
+  it('rises with boost and with a richer mixture', () => {
+    expect(preview({ boostPsi: 10 })).toBeGreaterThan(preview({ boostPsi: 0 }));
+    const rich = S.DEFAULT_AFR.map((row) => row.map((afr) => afr - 1));
+    expect(preview({ afr: rich })).toBeGreaterThan(preview());
+  });
+
+  it('stops at 220%, however far past the injectors the demand goes', () => {
+    expect(preview({ boostPsi: 40, ecuInjectorCc: 50 })).toBe(220);
+  });
+});
+
 describe('knock', () => {
   it('retards timing once commanded advance passes the threshold', () => {
     const safe = point({ timingVal: 10 });

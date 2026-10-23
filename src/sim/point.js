@@ -10,7 +10,7 @@
  * physics layer testable in plain Node.
  */
 
-import { DRIVETRAIN_EFF, INJ_DEADTIME_MS, KELVIN_OFFSET } from './constants.js';
+import { BARO_KPA, DRIVETRAIN_EFF, INJ_DEADTIME_MS, KELVIN_OFFSET, PSI_TO_KPA } from './constants.js';
 import { COEFF } from './coefficients.js';
 import {
   cycleInputsFor, cylinderVolumeM3, knockLimitedSpark, mbtFromBurn, paToBar, runCycle, trappedAirGrams,
@@ -19,7 +19,7 @@ import { ECU_COEFF } from './ecu/ecuCoefficients.js';
 import { exhaustManifoldKpa, rubbingFmepPa, pumpingFmepPa } from './friction.js';
 import { chargeIndexOf } from './knock.js';
 import { bestPowerAfr } from './manifold.js';
-import { clamp } from './math.js';
+import { clamp, interp2 } from './math.js';
 import { OPEN_LOOP_KPA, effectiveMafFactor } from './tables.js';
 import { N2O, N2O_AIR_EQUIV, chargeWithNitrousK, perCylinderEvent } from './nitrous.js';
 import { chargeTempK, exhaustTempK } from './thermo.js';
@@ -419,6 +419,40 @@ export function evaluatePoint({
       blowerOverspeed: blower.overspeed,
     } : {}),
   };
+}
+
+/**
+ * Injector duty the ECU would command at one wide-open-throttle point, read straight
+ * off the calibration tables without solving the point.
+ *
+ * This is `evaluatePoint`'s fuel chain with an ideal ECU: no MAF error or trim, the
+ * fuel it believes is the fuel in the tank, nominal dead time, and the charge
+ * temperature of a turbo compressor. With those, the two give the same duty. TUNE →
+ * INJECTORS shows it and the Engineer Score reads it, both before any pull is run.
+ *
+ * @param {object} input
+ * @param {number} input.rpm engine speed
+ * @param {number} input.boostPsi gauge boost at this RPM, psi
+ * @param {boolean} input.intercooler whether an intercooler is fitted
+ * @param {number[][]} input.ve the ECU's VE table, percent
+ * @param {number[][]} input.afr commanded air:fuel table, gasoline-equivalent
+ * @param {import('./engine.js').DerivedEngine} input.derived
+ * @param {{stoich: number, density: number}} input.fuel the fuel in the tank
+ * @param {number} input.ecuInjectorCc injector size the ECU believes is fitted, cc/min
+ * @returns {number} injector duty, percent, clamped to 0..220
+ */
+export function injectorDutyPreview({ rpm, boostPsi, intercooler, ve, afr, derived, fuel, ecuInjectorCc }) {
+  const mapKpa = BARO_KPA + boostPsi * PSI_TO_KPA;
+  const airChargeG = trappedAirGrams({
+    veActual: interp2(ve, rpm, mapKpa),
+    mapKpa,
+    chargeK: chargeTempK(boostPsi, intercooler),
+    sweptM3: (derived.displacementL / derived.cyl) / 1000,
+  });
+  const lambda = interp2(afr, rpm, mapKpa) / 14.7;
+  const fuelMassG = airChargeG / (lambda * fuel.stoich);
+  const pulseWidthMs = fuelMassG / ((ecuInjectorCc * fuel.density) / 60000) + INJ_DEADTIME_MS;
+  return clamp((pulseWidthMs / (120000 / rpm)) * 100, 0, 220);
 }
 
 /**
