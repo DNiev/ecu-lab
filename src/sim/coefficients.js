@@ -156,10 +156,9 @@ export const COEFF = {
   // THREE ANCHORS, and changing SCALE must keep all three:
   //   1. Every preset reaches published output with its factory calibration knock-free.
   //   2. A stock 10.3:1 on 91 octane runs out of margin lower at low speed than high —
-  //      measured now at about 37 deg at 5500 RPM, 31 at 4000, 29.5 at 3000 and 28.5 at
-  //      2500 — as a real one does. (Emergent: low speed means more milliseconds of
-  //      dwell for the end gas. The old additive envelope needed a term for it. The
-  //      figures this comment once quoted, 36.0 and 23.5, predate later model changes.)
+  //      measured at about 37 deg at 5500 RPM, 31 at 4000, 29.5 at 3000 and 28.5 at
+  //      2500, as a real one does. (Emergent: low speed means more milliseconds of
+  //      dwell for the end gas.)
   //   3. The shipped stock calibration runs knock-free — what a new player meets first.
   // Higher values pass the presets more easily but push the NA limit past anything the
   // app can command, deleting the tutorial's most basic lesson.
@@ -172,8 +171,8 @@ export const COEFF = {
   // How much of the burned zone's temperature the end gas feels, per unit of mass already
   // burned. The zones share a pressure but not a boundary layer: the unburned charge is
   // heated by radiation and conduction from the flame front, not by mixing with it.
-  // Replaces a three-coefficient Gaussian in lambda — the energy balance now produces the
-  // peak on its own rather than being told where it is.
+  // The energy balance produces the temperature peak on its own rather than being told
+  // where it is in lambda.
   ENDGAS_FLAME_COUPLING: 0.035,
   // Ceiling on burned-gas temperature, K. Above this, dissociation absorbs essentially
   // all further heat release, which a fixed-gamma zone cannot represent.
@@ -345,11 +344,11 @@ export const COEFF = {
   N2O_HEATER_W: 250,
   // Backpressure a wastegate relieves while bleeding exhaust around the turbine. This is
   // why a larger turbine is worth power at the same boost: it spends more life gated.
-  // Scales the share of turbine capability above the target (see solveInduction). Fitted
-  // to the turbo presets' published ratings after the gate was corrected to open on
-  // SURPLUS rather than shortfall; at 0.2 every one lands within 5% of its rated power,
-  // with exhaust backpressure at rated power 1.0-1.4x the boost pressure, which is where
-  // small OEM turbos run. It was 0.55 when it acted in the wrong direction.
+  // Scales the share of turbine capability above the target (see solveInduction), so the
+  // gate opens on surplus rather than shortfall. Fitted to the turbo presets' published
+  // ratings: at 0.2 every one lands within 5% of its rated power, with exhaust
+  // backpressure at rated power 1.0-1.4x the boost pressure, which is where small OEM
+  // turbos run.
   WASTEGATE_RELIEF: 0.2,
   // --- Compressor map (see compressorMap in turbo.js) ---
   // How sharply efficiency falls away from the island centre, and how much a unit of
@@ -420,9 +419,8 @@ export const COEFF = {
   MAX_KNOCK_RETARD: 18,
 
   // --- Combustion chamber as a physical object ---
-  // All that survives of the old additive knock envelope (see the note at the foot of
-  // this file). Never corrections in degrees: chamber properties, which reach knock by
-  // moving burn duration and charge temperature for the cycle to integrate.
+  // Not corrections in degrees: chamber properties, which reach knock by moving burn
+  // duration and charge temperature for the cycle to integrate.
   //
   // Reference bore for the burn model, mm. Flame travel scales with bore, which is why a
   // large-bore V8 is more knock-prone than a small four at the same compression.
@@ -462,16 +460,14 @@ export const COEFF = {
   // over a season of pulls, knock does it in an afternoon.
   WEAR_PISTON_PER_BAR: 0.004,
   // Bearings are loaded by peak cylinder pressure every firing stroke, so their wear
-  // tracks a pull's AVERAGE peak pressure, not boost. Boost was the old proxy and a bad
-  // one: it charged a 9.5:1 and a 12.5:1 engine alike for the same manifold pressure.
+  // tracks a pull's average peak pressure, not boost. Boost would be a bad proxy: it
+  // charges a 9.5:1 and a 12.5:1 engine alike for the same manifold pressure.
   //
-  // These are ORDERING numbers: NA cheap, factory turbo about a point, compression-on-
-  // boost whole points per pull. Measured now: a stock NA pull costs about 0.3 and the
-  // N54 about 1.2. They were calibrated at 0.15 and 0.6 under an earlier model; the
-  // ordering holds, the absolute figures have doubled, and nothing downstream relies on
-  // the absolute value beyond the health bar. Below the free threshold the oil film carries the load indefinitely,
-  // so a part-throttle pull costs nothing — deliberate, where the old expression charged
-  // a flat 0.05. Refitted when the cycle replaced the empirical pressure estimate.
+  // These are ordering numbers: NA cheap, factory turbo about a point, compression-on-
+  // boost whole points per pull. On their factory calibrations the NA presets cost about
+  // 0.2-0.25 a pull and the N54 about 1.0; nothing downstream relies on the absolute
+  // value beyond the health bar. Below the free threshold the oil film carries the load
+  // indefinitely, so a part-throttle pull deliberately costs nothing.
   BEARING_PRESSURE_FREE_BAR: 55,
   WEAR_BEARING_PER_BAR: 0.075,
   // Average peak pressure that raises the bottom-end advisory. Just above a healthy NA
@@ -552,10 +548,10 @@ export const COEFF = {
   VE_TURBINE_BACKPRESSURE: 0.97,
 
   // --- Exhaust backpressure against cylinder filling ---
-  // The EXHAUST side, which the flat number above used to stand in for as well — and
-  // could not, because it charged a small turbine at 6500 RPM exactly what it charged
-  // the same turbine at idle. The turbine is a flow restriction, so what it costs the
-  // engine is set by the pressure it holds upstream, which climbs with flow.
+  // The exhaust side. A flat number like the one above cannot stand in for it, because it
+  // would charge a small turbine at 6500 RPM exactly what it charges the same turbine at
+  // idle. The turbine is a flow restriction, so what it costs the engine is set by the
+  // pressure it holds upstream, which climbs with flow.
   //
   // Overlap this is fitted at, crank degrees — the stock V6's.
   VE_BACKPRESSURE_OVERLAP_REF: 24,
@@ -598,30 +594,26 @@ export const COEFF = {
   // Static compression a boosted build may carry on 91 octane with no charge cooling
   // before the score calls the combination incoherent. Factory DI turbo engines ship
   // across 10.2-11.0 (N54 10.2, B58 11.0, Toyota/BMW 2.0 T 11.0); this base clears the
-  // BOTTOM of that band alone, and the credits below clear the top. 10.8 + 0.3 (93
+  // bottom of that band alone, and the credits below clear the top. 10.8 + 0.3 (93
   // octane) + 0.4 (intercooler) = 11.5 is how a B58 as sold comes out unpenalised.
   //
-  // ONE KNOWN SIMPLIFICATION, deferred rather than hidden: a port-injected engine gets
-  // the same allowance as a DI one, which it has not earned — DI evaporates fuel inside
+  // One known simplification, deferred rather than hidden: a port-injected engine gets
+  // the same allowance as a DI one, which it has not earned. DI evaporates fuel inside
   // the cylinder and buys real knock margin from it. Issue #24 tracks modelling
-  // injection type.
-  //
-  // The other simplification that stood here — the headroom not scaling with boost
-  // LEVEL, so that 3 psi and 24 psi were judged alike — is fixed, by
-  // COMPRESSION_PER_BOOST_PSI below.
+  // injection type. (Headroom does scale with boost level, through
+  // COMPRESSION_PER_BOOST_PSI below.)
   COMPRESSION_BOOST_BASE: 10.8,
   // Compression credit per degree of octane bonus, and per intercooler.
   //
-  // Both are steep discounts, on purpose: the physics ALREADY charges for octane and
-  // charge cooling once, so paying full price here bills the decision twice. Their
-  // provenance is the retired flat rate of 2 degrees of knock margin per compression
-  // point — E85's +14 was worth 7 points in that currency, an intercooler's 69 °C was
-  // worth 2.78 — and they pay out roughly a fifth and a seventh of that.
+  // Both are steep discounts, on purpose: the physics already charges for octane and
+  // charge cooling once, so paying full price here bills the decision twice. They were
+  // derived from a flat rate of 2 degrees of knock margin per compression point (E85's
+  // +14 worth 7 points in that currency, an intercooler's 69 °C worth 2.78) and pay out
+  // roughly a fifth and a seventh of that.
   //
-  // THAT EXCHANGE RATE NO LONGER EXISTS: the cycle produces compression's knock cost
-  // emergently and it is not a fixed rate. These two are inherited and DUE A
-  // REVALIDATION, left alone here because retuning them is a scoring decision that
-  // belongs in its own change.
+  // The cycle has no such fixed rate: it produces compression's knock cost emergently.
+  // So these two are due a revalidation, which is a scoring decision that belongs in its
+  // own change.
   COMPRESSION_PER_OCTANE_DEG: 0.1,
   COMPRESSION_INTERCOOLER_GAIN: 0.4,
   // The same headroom, without boost stacked on top (issue #27). An NA engine pays no
@@ -645,32 +637,30 @@ export const COEFF = {
   // level the base above is implicitly calibrated at.
   //
   // Boost level is the single largest determinant of whether high static compression
-  // survives, and until now the rule ignored it entirely: it gated on `peakBoostPsi > 0`
-  // and then responded only to octane and charge cooling — the second and third most
-  // important variables. A 5 psi build and a 25 psi build at 13.0:1 on E85 scored
-  // identically (issue #25).
+  // survives. Without this term the rule would respond only to octane and charge cooling,
+  // the second and third most important variables, and a 5 psi build and a 25 psi build
+  // at 13.0:1 on E85 would score identically (issue #25).
   //
   // 0.1 points per psi is the long-standing shop rule stated as a rate: drop about one
   // point of static compression per ten psi of intended boost. Expressed in the model's
   // own currency it is mild — engine.js prices a compression point at 2 degrees of knock
-  // margin, so this is 0.2 degrees per psi — which is deliberate, for the same reason
+  // margin, so this is 0.2 degrees per psi. That is deliberate, for the same reason
   // the octane and intercooler credits are discounted: the physics already charges for
   // boost against compression through peak pressure and ignition delay, and the Tuning
   // Score already deducts for the knock events that follow. This must not bill it twice.
   //
   // It does not double-count KNOCK_OVERBOOST_PENALTY either. That prices running a
-  // COMPRESSOR outside its efficient map, which is a property of the turbo match and
-  // fires whatever the compression ratio is. This prices boost against the SHORT BLOCK.
+  // compressor outside its efficient map, which is a property of the turbo match and
+  // fires whatever the compression ratio is. This prices boost against the short block.
   //
-  // The term is ONE-SIDED: it only ever takes headroom away, above the reference, and
-  // never hands any back below it. A two-sided swing was tried first and rejected — it
-  // made a 10 psi build MORE permissive than today (11.3:1 on 93 octane with no
-  // intercooler stopped being flagged), and this rule has no evidence for loosening
-  // anything. Widening what counts as sound engineering is not what the issue asked for.
+  // The term is one-sided: it only ever takes headroom away, above the reference, and
+  // never hands any back below it. A two-sided swing would make a 10 psi build more
+  // permissive (11.3:1 on 93 octane with no intercooler would stop being flagged), and
+  // this rule has no evidence for loosening anything.
   //
   // 14 psi is the median peak boost across the shipped factory engines (8.5, 13, 14, 17,
-  // 17), which is the band COMPRESSION_BOOST_BASE was fitted against — so below it a
-  // factory-normal build is judged exactly as it was before, and every shipped engine
+  // 17), which is the band COMPRESSION_BOOST_BASE was fitted against, so below it a
+  // factory-normal build pays nothing for boost, and every shipped engine
   // stays unpenalised: the tightest, the B58 at 11.0:1 and 17 psi, keeps 0.20 points of
   // margin after paying 0.30 for the 3 psi it runs past the reference.
   COMPRESSION_PER_BOOST_PSI: 0.1,
@@ -713,19 +703,4 @@ export const COEFF = {
   DRIVER_REAPPLY_RATE: 1.1,     // throttle fraction restored per second once hooked
   DRIVER_MIN_THROTTLE: 0.30,    // how far the driver will lift before riding it out
   DRIVER_REAPPLY_MARGIN: 0.94,  // fraction of the grip limit they wait to fall under
-
-  // --- Retired, kept here so "didn't this used to have a term for X?" has one answer ---
-  //
-  // ADDITIVE KNOCK ENVELOPE (21 coefficients) — a base timing table plus hand-fitted
-  //   corrections in degrees for charge index, mixture, charge temperature, overboost,
-  //   exhaust work, cylinder size, head material and compression, two pressure clamps and
-  //   a five-term MBT plane. All arrive through the cycle's Livengood-Wu integral now.
-  //   Twenty-one fitted numbers became one: KNOCK_TAU_SCALE. Two were never corrections
-  //   and survive above as chamber properties: BORE_FLAME_REF_MM, IRON_HEAD_CHAMBER_K.
-  // BURN-DURATION CORRELATION — spark-to-50%-burn in RPM and pressure ratio. Conclusion
-  //   kept in full; the integrated burn replaced the formula.
-  // EMPIRICAL PEAK-PRESSURE BLOCK — estimated from boost and compression. Measured off
-  //   the trace now, which is why PEAK_PRESSURE_LIMIT_BAR is on a different scale.
-  // FLAT HEAT-LOSS FRACTION — replaced by Woschni.
-  // SPOOL RAMP — boost as target x spool(RPM) x throttle^2. Replaced by the power balance.
 };

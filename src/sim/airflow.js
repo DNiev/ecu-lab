@@ -58,7 +58,7 @@ export function computeHardwareVE(cfg, mods, hw = {}) {
   const displacementL = (Math.PI / 4 * Math.pow(cfg.bore / 10, 2) * (cfg.stroke / 10) * cyl) / 1000;
   const perCylL = displacementL / cyl;
   // Shared with the advisory and the Engineer Score, so the physics and the advice
-  // can no longer disagree about what "correctly sized" means.
+  // cannot disagree about what "correctly sized" means.
   const idealDia = idealExhaustDiameter(displacementL, turboOn ? peakBoostPsi : 0);
   const diaError = exhaustDia != null ? exhaustDia - idealDia : 0;
 

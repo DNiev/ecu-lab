@@ -203,14 +203,13 @@ export function solveInduction({
   // answer is found the same way: march up from zero while the turbine can sustain it,
   // then close in on the edge.
   //
-  // This replaced three damped passes that started AT the target and relaxed down, which
-  // is not what a turbo does and did not converge: past the surge line the turbine's
-  // answer collapses, so starting high dropped the solve into surge, where it cycled
-  // between two or three values however many passes it was given. The result depended
-  // on how much boost was asked for even when none of it could be made — asking for 16
-  // psi at 1900 RPM gave 2.9 psi where asking for 5 gave 4.2, and the ECU and the
-  // original model, asking for 14.08 and 14.07, landed 1.4 psi apart. Marching from below
-  // is monotone by construction: asking for more never gives less.
+  // Starting at the target and relaxing down is not what a turbo does, and it does not
+  // converge: past the surge line the turbine's answer collapses, so starting high drops
+  // the solve into surge, where it cycles between two or three values however many
+  // passes it is given. The result then depends on how much boost was asked for even
+  // when none of it can be made (a top-down solve asked for 16 psi at 1900 RPM gave 2.9
+  // psi where asking for 5 gave 4.2). Marching from below is monotone by construction:
+  // asking for more never gives less.
   let boostPsi = 0;
   if (target > 0) {
     const step = Math.max(COEFF.INDUCTION_SPOOL_STEP_PSI, target / COEFF.INDUCTION_SPOOL_MAX_STEPS);

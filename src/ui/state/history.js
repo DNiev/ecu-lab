@@ -1,34 +1,31 @@
 /**
  * The undo stack's data model: what one snapshot contains, and how it goes back.
  *
- * Deliberately holds NO action types. `reducer.js` imports this, so importing
- * `ACTIONS` back from there would be a cycle — which is also why `labelFor()`
+ * Deliberately holds no action types. `reducer.js` imports this, so importing
+ * `ACTIONS` back from there would be a cycle, which is also why `labelFor()`
  * lives in the reducer rather than here.
  *
- * CAPTURE is UNIFORM: `snapshot` records the union of every field any undoable
- * action can overwrite, not the subset a particular action happens to touch. That
- * half of the original design is unchanged and stays — one shape means a snapshot
- * cannot be half-taken, and a fourth undoable action added later cannot forget a
- * field.
+ * Capture is uniform: `snapshot` records the union of every field any undoable
+ * action can overwrite, not the subset a particular action happens to touch. One
+ * shape means a snapshot cannot be half-taken, and a new undoable action cannot
+ * forget a field.
  *
- * RESTORE is NOT uniform, and the original argument for making it so was wrong. It
- * read "one shape means one restore path", but a single restore path puts back all
- * thirteen build fields regardless of what the undone action actually wrote — so
- * `SET_TABLE ve` -> `SET_BUILD_FIELD turboOn = true` -> UNDO silently took the turbo
- * back off, under a label reading "Undo VE edit". The snapshot was never wrong; the
- * assumption that every entry should be played back in full was. So an entry now
- * carries a SCOPE alongside its snapshot, and `restore` puts back only as much as
- * that scope names — see {@link RESTORE_ALL} and {@link RESTORE_CALIBRATION}.
+ * Restore is not uniform. A single restore path would put back every build field
+ * regardless of what the undone action actually wrote, so
+ * `SET_TABLE ve` -> `SET_BUILD_FIELD turboOn = true` -> UNDO would silently take the
+ * turbo back off, under a label reading "Undo VE edit". So an entry carries a scope
+ * alongside its snapshot, and `restore` puts back only as much as that scope names;
+ * see {@link RESTORE_ALL} and {@link RESTORE_CALIBRATION}.
  *
  * The scope is a plain string on the entry rather than something derived from the
- * action type here, because deriving it would mean importing `ACTIONS` — the cycle
+ * action type here, because deriving it would mean importing `ACTIONS`, the cycle
  * this file's header opens by ruling out. `reducer.js` names the scope when it
  * records the entry; this file only knows the two names and what each puts back.
  *
- * The union's rule for membership is: HARDWARE AND CALIBRATION, NEVER UI CURSORS.
+ * The union's rule for membership is: hardware and calibration, never UI cursors.
  * Two fields an undoable action does write are deliberately excluded even though
- * that might look like a missed field at a glance — `tune.selection` and
- * `build.presetPrompt` — see the comments on TUNE_KEYS and BUILD_KEYS below for why
+ * that might look like a missed field at a glance, `tune.selection` and
+ * `build.presetPrompt`; see the comments on TUNE_KEYS and BUILD_KEYS below for why
  * each one specifically is a cursor rather than state worth restoring.
  */
 
@@ -39,17 +36,16 @@
 
 /**
  * How many undo steps are kept. A snapshot is roughly 1 KB (144 table numbers plus
- * scalars), so the cap is not about memory — it is that an array which only ever
+ * scalars), so the cap is not about memory: it is that an array which only ever
  * grows is a leak with a long fuse.
  */
 export const HISTORY_LIMIT = 50;
 
 /**
- * BUILD fields an undoable action can overwrite. APPLY_PRESET actually writes
- * FOURTEEN build fields, not the thirteen listed here — it also sets
+ * BUILD fields an undoable action can overwrite. APPLY_PRESET also sets
  * `presetPrompt: null`, which is deliberately absent from this list. `presetPrompt`
- * is a cursor/UI-state field, not hardware — `reducer.js`'s own typedef for
- * `SET_PRESET_PROMPT` already describes it that way — it tracks whether the
+ * is a cursor/UI-state field, not hardware (`reducer.js`'s own typedef for
+ * `SET_PRESET_PROMPT` describes it that way): it tracks whether the
  * overwrite-confirmation modal is open, exactly like `tune.selection` below tracks
  * the grid highlight. Restoring it on undo would re-open a "load this preset?" modal
  * immediately after the player undid loading that preset, which is worse than
@@ -72,7 +68,7 @@ const BUILD_KEYS = [
  * calibration. Restoring it would make undo move the player's highlight around, and the
  * grid's dimensions never change, so a selection is always still valid after a restore.
  *
- * `baseline` IS here, though no edit writes it: APPLY_PRESET and RESET_TO_STOCK do, and
+ * `baseline` is here, though no edit writes it: APPLY_PRESET and RESET_TO_STOCK do, and
  * undoing either must put back the baseline that went with the tables it restores, or
  * the CHANGES view would compare the old tables against the new calibration.
  */
@@ -82,11 +78,12 @@ const TUNE_KEYS = ['ve', 'timing', 'afr', 'ecu', 'maps', 'activeMap', 'tablesDir
  * Does a write to `tune.<field>` touch something a snapshot carries?
  *
  * `reducer.js` asks this so `SET_TUNE_FIELD`'s exclusion from the redo-clearing set is
- * STRUCTURAL rather than a fact about who happens to call it. Every production caller
- * passes `field: 'selection'` today — a cursor, outside the snapshot — but nothing stops
- * a future one passing `'ve'`, and that write would then survive alongside a live redo
- * branch that overwrites exactly it. Asking the key list directly closes that by
- * construction, and keeps the list itself private to this module.
+ * structural rather than a fact about who happens to call it. Production callers pass
+ * cursor and UI fields (`selection`, `rangeMode`, `diffView`), all outside the
+ * snapshot, but nothing stops a future one passing `'ve'`, and that write would then
+ * survive alongside a live redo branch that overwrites exactly it. Asking the key list
+ * directly closes that by construction, and keeps the list itself private to this
+ * module.
  * @param {string} field
  * @returns {boolean}
  */
@@ -110,19 +107,18 @@ export function snapshot(state) {
 }
 
 /**
- * Puts back EVERY snapshotted field — all thirteen build fields and all five tune
- * fields. The scope for an action that replaces the whole calibration and the
- * hardware under it: APPLY_PRESET and RESET_TO_STOCK. Undoing a preset load
- * genuinely means "return to the state before it", so anything the player changed
- * afterwards is meant to go with it.
+ * Puts back every snapshotted field, build and tune. The scope for an action that
+ * replaces the whole calibration and the hardware under it: APPLY_PRESET and
+ * RESET_TO_STOCK. Undoing a preset load genuinely means "return to the state before
+ * it", so anything the player changed afterwards is meant to go with it.
  */
 export const RESTORE_ALL = 'all';
 
 /**
- * Puts back the five tune fields and `build.presetId` ONLY, leaving the other twelve
- * build fields exactly as they are. The scope for SET_TABLE, whose entire build-side
- * write IS `presetId` (a hand edit disowns the preset). Restoring more than that is
- * how a VE edit's undo used to remove a turbo fitted after it.
+ * Puts back the tune fields and `build.presetId` only, leaving every other build
+ * field exactly as it is. The scope for SET_TABLE, whose entire build-side write is
+ * `presetId` (a hand edit disowns the preset). Restoring more than that would let a
+ * VE edit's undo remove a turbo fitted after it.
  *
  * `presetId` is restored rather than left alone for the same reason it is cleared on
  * the way in: put the table back without it and the header goes on disowning a preset
@@ -134,7 +130,7 @@ export const RESTORE_CALIBRATION = 'calibration';
 
 /**
  * Puts a snapshot back, as far as `scope` names, leaving every field it does not
- * touch alone — `session` entirely, `tune.selection`, and under
+ * touch alone: `session` entirely, `tune.selection`, and under
  * {@link RESTORE_CALIBRATION} every build field except `presetId`.
  * @param {StoreState} state
  * @param {Snapshot} before
@@ -142,10 +138,9 @@ export const RESTORE_CALIBRATION = 'calibration';
  * @returns {StoreState}
  */
 export function restore(state, before, scope) {
-  // The tune side is the same under both scopes: SET_TABLE writes a table and
-  // `tablesDirty`, APPLY_PRESET/RESET_TO_STOCK write all five, and putting back a
-  // table the action never touched is a no-op because the snapshot holds the value
-  // that is already there.
+  // The tune side is the same under both scopes: putting back a tune field the
+  // action never touched is a no-op, because the snapshot holds the value that is
+  // already there.
   const tune = { ...state.tune, ...before.tune };
   switch (scope) {
     case RESTORE_ALL:
@@ -162,7 +157,7 @@ export function restore(state, before, scope) {
 }
 
 /**
- * The undo button's label, from the top of `past` — "Undo VE edit", "Undo Preset ·
+ * The undo button's label, from the top of `past`: "Undo VE edit", "Undo Preset ·
  * Stage 2 Turbo". `undefined` when `past` is empty, so an empty stack is the caller's
  * to name ("Nothing to undo" in `UndoControls`, or to leave the command out entirely
  * in the palette) rather than this file's.

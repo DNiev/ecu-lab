@@ -163,8 +163,8 @@ export function turbineWithCount(base, count = 1) {
  *
  * `size` is the stable id the Engineer Score matches on; see {@link TURBINE_OPTS}.
  * `boostCeiling` is retained because the Engineer Score and the datalog's
- * `compressorOver` flag are written against it, but it is no longer what limits the
- * physics — the map is.
+ * `compressorOver` flag are written against it, but it does not limit the physics;
+ * the map does.
  */
 export const COMPRESSOR_OPTS = [
   {
@@ -254,10 +254,10 @@ export const MAX_EXHAUST_DIA = EXHAUST_DIA_OPTS[EXHAUST_DIA_OPTS.length - 1].dia
  * roughly scales power with pressure ratio, so a boosted build genuinely needs more
  * pipe than the same engine naturally aspirated.
  *
- * THIS IS THE SINGLE SOURCE OF TRUTH for exhaust sizing. The VE model, the on-screen
- * advice and the Engineer Score all call it. There was previously a second,
- * displacement-only formula buried in the airflow model, so the score rewarded a
- * diameter the physics then penalised — do not reintroduce one.
+ * This is the single source of truth for exhaust sizing. The VE model, the on-screen
+ * advice and the Engineer Score all call it. Do not add a second formula elsewhere: a
+ * separate displacement-only one in the airflow model would let the score reward a
+ * diameter the physics then penalises.
  *
  * @param {number} displacementL engine displacement, litres
  * @param {number} [peakBoostPsi] peak boost target, psi

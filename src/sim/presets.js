@@ -87,29 +87,18 @@ export const ENGINE_PRESETS = [
       compression: 10.3,
       blockMaterial: 'Aluminum', headMaterial: 'Aluminum',
       // Bore, stroke, compression and redline above are published; `camDuration` and
-      // `springRate` are not — Nissan states only that the Rev-Up revised the cams and
-      // raised the limit — so they are where this preset is fitted, as `vq35hr` is.
+      // `springRate` are not (Nissan states only that the Rev-Up revised the cams and
+      // raised the limit), so they are where this preset is fitted, as `vq35hr` is.
       //
-      // REFITTED for the two-zone cycle. #38 landed 220 degrees against the model of the
-      // day; on this one that reads +8.6% on power, outside the +/-5% floor. 202 centres
-      // the fit instead: 0.0% on power and +2.3% on torque, the best simultaneous fit in
-      // the range. The band is event-free from 198 to 226, so the fit is bounded by the
-      // power tolerance rather than by any advisory.
-      //
-      // Do NOT read 210 here as a published number if you see it in the history — that
-      // was the generic custom-build default left in place, which #38 correctly called
-      // out as a coin toss rather than a fit.
+      // `camDuration` 210 is fitted with the inlet Mach index (#15) in place, which takes
+      // volumetric efficiency out of the top end: power lands on the published figure
+      // (0.0%, torque +5.0%), and the power curve's flat top (within 1 hp of peak) runs
+      // 6500-6900 against a published 6400 rather than climbing into the 7000 limiter.
       //
       // `springRate` 60 does not change power; it sets where the valvetrain gives up.
       // `valveFloatRpm` lands ~8530, about 1530 RPM clear of the 7000 redline, mid-pack
-      // against the rest of the set. No pull should ever show a `float` event here — if
+      // against the rest of the set. No pull should ever show a `float` event here; if
       // one appears that is a bug, not "the character".
-      //
-      // REFITTED from 202 for the inlet Mach index (#15). That term takes volumetric
-      // efficiency out of the top end, so duration comes back up to pay for it: power
-      // lands on the published figure (0.0%, torque +5.0%), and the power curve's flat top
-      // (within 1 hp of peak) now runs 6500-6900 against a published 6400 instead of
-      // climbing into the 7000 limiter.
       camDuration: 210, springRate: 60,
       redline: 7000,
     },
@@ -137,23 +126,19 @@ export const ENGINE_PRESETS = [
       // move. `camDuration` and `springRate` are not published, so they are where this
       // preset is fitted.
       //
-      // REFITTED TWICE. It was 228 degrees against the old algebraic combustion model,
-      // then 214 when work started being integrated from a pressure trace. 218 is the
-      // refit for the inlet Mach index (#15): that term takes real volumetric efficiency
-      // out of the top end, so a little more duration comes back to pay for it. Power
-      // lands on the published figure (-0.0%) and torque +1.8%.
+      // `camDuration` 218 is fitted with the inlet Mach index (#15) in place, which takes
+      // real volumetric efficiency out of the top end. Power lands on the published
+      // figure (-0.0%) and torque +1.8%.
       //
       // The spring rate carries it easily: valve float sits near 8880 RPM, well clear of
       // the 7500 redline, and at 4.4 degrees of overlap this cam never trips the cam
       // advisory.
       //
-      // THE ROLLOFF NOW EXISTS. This preset used to climb monotonically into its limiter
-      // and read peak power at 7500, 700 RPM above the published 6800, because nothing in
-      // the shared physics made VE fall at speed. The Mach index is that term, and the
-      // simulated flat top (within 1 hp of peak) now runs 6400-7100, bracketing the
-      // published 6800 rather than sitting 700 RPM above it. What remains missing is still worth naming: the real
-      // engine's rolloff is cam profile, VVEL variable lift and intake-tract tuning, and
-      // the Mach term stands in for all three at once rather than reproducing any of them.
+      // The Mach index is what makes VE fall at speed, so the simulated flat top (within
+      // 1 hp of peak) runs 6400-7100, bracketing the published 6800 instead of climbing
+      // into the 7500 limiter. The real engine's rolloff is cam profile, VVEL variable
+      // lift and intake-tract tuning; the Mach term stands in for all three at once
+      // rather than reproducing any of them.
       camDuration: 218, springRate: 68,
       redline: 7500,
     },
@@ -182,8 +167,8 @@ export const ENGINE_PRESETS = [
     },
     induction: {
       turboOn: true, turbineIdx: 0, compressorIdx: 1,
-      // TWO of them. Now that backpressure is solved from turbine flow area rather than
-      // assumed proportional to boost, the count is load-bearing: a pair of small
+      // Two of them. Backpressure is solved from turbine flow area, not assumed
+      // proportional to boost, so the count is load-bearing: a pair of small
       // housings passes twice the exhaust of one before it starts choking, which is the
       // whole reason a manufacturer fits two small turbos instead of one big one.
       turbineCount: 2,
@@ -243,20 +228,20 @@ export const ENGINE_PRESETS = [
       // PEAK is the published figure — 13 psi, ~0.9 bar — and does not move. The SHAPE
       // across RPM is not published, and it is the only thing fitted here: 13 psi held
       // to 2500, then a taper down to about 6.75 psi at the 7000 limiter (the curve's
-      // last node, 6.5, sits at 7500 and is never reached — redline cuts the pull
-      // first). That taper is steeper than the
-      // real engine's, and deliberately so. This model was calibrated on a naturally
-      // aspirated V6, and it reports more torque per unit of manifold pressure than a
-      // real high-compression boosted six makes — hold 13 psi flat to 4500 here and the
-      // pull returns about 340 wlb-ft against a 281 target. Everything above the torque peak
+      // last node, 6.5, sits at 7500 and is never reached; redline cuts the pull
+      // first). That taper is steeper than the real engine's, and deliberately so. This
+      // model was calibrated on a naturally aspirated V6, and it reports more torque per
+      // unit of manifold pressure than a real high-compression boosted six makes — hold
+      // 13 psi flat to 4500 here and the pull returns about 340 wlb-ft against a 281
+      // target. Everything above the torque peak
       // is where that error can be absorbed without contradicting a published number,
       // so that is where it is absorbed.
       //
       // WHAT THIS PRESET DOES NOT REPRODUCE: the rated torque plateau. BMW publishes
       // 330 lb-ft flat from 1380 RPM; this preset reaches 64% of its 281 wlb-ft target
       // at 1500 and its target by 3000 (180 / 238 / 285 / 293 wlb-ft at 1500 / 2000 /
-      // 2500 / 3000; measured after the turbo solve was made to spool up from zero). The line above about boost "commanded from just above idle"
-      // describes the curve this preset ASKS for, not torque it delivers down there.
+      // 2500 / 3000). The line above about boost "commanded from just above idle"
+      // describes the curve this preset asks for, not torque it delivers down there.
       // The N54 above has the same gap and no test asserts torque-peak placement, so
       // this is a shared limit of the model rather than a fault in this data — the
       // same absent term tracked as issue #31, which costs nothing for stacking
@@ -485,13 +470,13 @@ export function factoryCalibration(preset) {
     // it: off the fuel table this function just wrote, interpolated to whatever pressure
     // is being asked about, and then un-corrected for the MAF error the table was
     // pre-compensated with. That is `evaluatePoint`'s own arithmetic, so the generator
-    // and the advisor now agree about the mixture at every pressure — including the ones
-    // between rows, which is where they used to part company.
+    // and the advisor agree about the mixture at every pressure, including the ones
+    // between rows.
     //
-    // The old form graded every cell at best-power lambda, including the closed-loop
+    // Grading every cell at best-power lambda instead would include the closed-loop
     // cells where this table commands 14.7 and the O2 sensor holds it there. A
     // stoichiometric charge burns hotter and knocks sooner than a rich one, so those
-    // cells were written for a mixture the engine never receives.
+    // cells would be written for a mixture the engine never receives.
     const afrCommanded = interp2(afr, rpm, loadKpa);
     const lambda = (afrCommanded / 14.7) / effectiveMafFactor(mafFactor, loadKpa);
     const chargeK = chargeTempK(boostPsi, preset.mods.intercooler);
@@ -532,10 +517,9 @@ export function factoryCalibration(preset) {
   // Every cell above is optimal at its own pressure. The ECU does not run there: it
   // reads the table with `interp2`, so between two rows the cylinder gets a blend at a
   // pressure no row sits on, and the knock ceiling falls faster than the blend does.
-  // A table written row-by-row therefore detonates in the gaps — which is exactly what
-  // `calibrationAdvice` reports about it (#43), and why the app's own factory tables
-  // read as dangerous to the app's own advisor once the over-retard that had been
-  // masking it was removed (#46).
+  // A table written row-by-row therefore detonates in the gaps, which is exactly what
+  // `calibrationAdvice` reports about it (#43); without this pass the app's own factory
+  // tables would read as dangerous to the app's own advisor (#46).
   //
   // Same constraint, same reachability helper, same direction of walk as the advisor:
   // from the most boosted row downward, so the tighter row above is already pinned and
@@ -547,10 +531,9 @@ export function factoryCalibration(preset) {
   // off the MAP axis: a factory table has to be a valid surface at every pressure, not
   // only the ones this curve happens to reach at this speed. That is the stricter of the
   // two, so a generated table can never fail the advisor on it. Asking per RPM instead
-  // was measured when this was written: it moved the N54's torque peak further from the
-  // published 3000 RPM (from 3700 to 4200, on the model of the day; the turbo solve has
-  // changed since, and the N54 now plateaus at about 313 lb-ft at the crank from 4000 to
-  // 4500 RPM).
+  // moved the N54's torque peak further from the published 3000 RPM when it was last
+  // measured (3700 to 4200, before a turbo-solve change). The N54 currently plateaus at
+  // about 313 lb-ft at the crank from 3500 to 4500 RPM.
   const peakBoostCurve = RPM.map(() => Math.max(0, ...preset.induction.boost));
   RPM.forEach((rpm, ci) => {
     const reachKpa = reachableKpa({

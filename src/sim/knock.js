@@ -1,18 +1,11 @@
 /**
- * The charge index the datalog reports.
+ * The charge index the datalog reports: a plain description of how full the cylinder
+ * is, used in the datalog and in the exhaust-flow term.
  *
- * WHAT USED TO BE HERE
- * This module held `knockThreshold` and `mbtTiming` — a base timing table plus eight
- * additive corrections, and an RPM-and-load correlation for MBT. Both are gone. The
- * knock limit is now solved from an integrated pressure trace in `cycle.js`
- * (`knockLimitedSpark`), and MBT is derived from burn phasing (`mbtFromBurn`), so every
- * input that used to need its own hand-fitted correction in degrees — octane,
- * compression, charge temperature, boost, mixture, head material, cylinder size —
- * now reaches the answer through the physics instead.
- *
- * What survives is the one thing that was never a correction: the charge index, which
- * is a plain description of how full the cylinder is, useful in the datalog and in the
- * exhaust-flow term.
+ * The knock limit and MBT are not here. They are solved from an integrated pressure
+ * trace in `cycle.js` (`knockLimitedSpark`, `mbtFromBurn`), so octane, compression,
+ * charge temperature, boost, mixture, head material and cylinder size all reach them
+ * through the physics rather than as corrections in degrees.
  */
 
 import { BARO_KPA } from './constants.js';
