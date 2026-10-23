@@ -62,6 +62,10 @@ const BUILD_KEYS = [
   'compressorIdx', 'injIdx', 'ecuInjectorCc', 'octaneIdx', 'exhaustDiaIdx',
   'mafScalar', 'presetId', 'fuelSystem', 'sensorHw', 'wastegate', 'coil', 'plugGapMm',
   'ethanolPct',
+  // APPLY_PRESET takes off any supercharger and nitrous kit (a preset is a factory car).
+  // `blowerRatio` goes with `blowerId`: fitting a blower writes a starter ratio for it,
+  // so restoring the blower without its ratio would put it on another blower's pulley.
+  'blowerId', 'blowerRatio', 'nitrous',
 ];
 
 /**

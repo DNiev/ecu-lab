@@ -1177,6 +1177,45 @@ describe('UNDO / REDO', () => {
     expect(undone.build.presetId).toBeNull();
   });
 
+  // A preset is a factory car, so APPLY_PRESET takes off any supercharger or nitrous kit
+  // (#146). Undoing the load has to put them back like the rest of the hardware.
+  it('brings back a supercharger that APPLY_PRESET took off', () => {
+    const fitted = { ...makeInitialState() };
+    fitted.build = { ...fitted.build, turboOn: false, blowerId: 'tvs1900', blowerRatio: 1.45 };
+    const loaded = reducer(fitted, { type: ACTIONS.APPLY_PRESET, preset: N54_PRESET });
+    expect(loaded.build.blowerId).toBeNull();
+    const undone = reducer(loaded, { type: ACTIONS.UNDO });
+    expect(undone.build.blowerId).toBe('tvs1900');
+    expect(undone.build.blowerRatio).toBe(1.45);
+    expect(undone.build.turboOn).toBe(false);
+  });
+
+  it('brings back a nitrous kit that APPLY_PRESET took off', () => {
+    const kit = { kit: /** @type {const} */ ('wet'), shotHp: 150, heater: true, bottleLb: 10 };
+    const fitted = { ...makeInitialState() };
+    fitted.build = { ...fitted.build, nitrous: kit };
+    const loaded = reducer(fitted, { type: ACTIONS.APPLY_PRESET, preset: N54_PRESET });
+    expect(loaded.build.nitrous).toBeNull();
+    expect(reducer(loaded, { type: ACTIONS.UNDO }).build.nitrous).toBe(kit);
+  });
+
+  it('brings back the supercharger on its own pulley, not one fitted after the preset', () => {
+    // Fitting a blower also writes a starter pulley ratio for it (InductionScreen's
+    // `setBlower`). Undoing the preset restores the old blower, so it has to restore that
+    // blower's ratio too, not leave it on the ratio picked for the one fitted since.
+    const fitted = { ...makeInitialState() };
+    fitted.build = { ...fitted.build, turboOn: false, blowerId: 'tvs1900', blowerRatio: 1.45 };
+    const loaded = reducer(fitted, { type: ACTIONS.APPLY_PRESET, preset: N54_PRESET });
+    const refitted = [
+      { type: ACTIONS.SET_BUILD_FIELD, field: 'turboOn', value: false },
+      { type: ACTIONS.SET_BUILD_FIELD, field: 'blowerId', value: 'm90' },
+      { type: ACTIONS.SET_BUILD_FIELD, field: 'blowerRatio', value: 1.7 },
+    ].reduce(reducer, loaded);
+    const undone = reducer(refitted, { type: ACTIONS.UNDO });
+    expect(undone.build.blowerId).toBe('tvs1900');
+    expect(undone.build.blowerRatio).toBe(1.45);
+  });
+
   it('labels a preset load with the preset name', () => {
     const after = reducer(makeInitialState(), { type: ACTIONS.APPLY_PRESET, preset: N54_PRESET });
     expect(after.history.past[0].label).toBe('Preset · BMW N54');
@@ -1371,6 +1410,21 @@ describe('undo scope — an entry restores only what its action wrote', () => {
     expect(undone.build.exhaustDiaIdx).toBe(5);
     expect(undone.build.injIdx).toBe(4);
     expect(undone.build.mafScalar).toBe(0.88);
+  });
+
+  it('undoing a table edit leaves a supercharger and nitrous kit fitted after it alone', () => {
+    // The snapshot now carries blowerId, blowerRatio and nitrous (#146), for
+    // APPLY_PRESET's undo. A calibration-scoped undo must still leave them alone.
+    const kit = { kit: /** @type {const} */ ('wet'), shotHp: 150, heater: true, bottleLb: 10 };
+    const edit = reducer(makeInitialState(), { type: ACTIONS.SET_TABLE, table: 've', value: [[42]] });
+    const built = { ...edit };
+    built.build = { ...built.build, turboOn: false, blowerId: 'p1sc1', blowerRatio: 1.4, nitrous: kit };
+
+    const undone = reducer(built, { type: ACTIONS.UNDO });
+
+    expect(undone.build.blowerId).toBe('p1sc1');
+    expect(undone.build.blowerRatio).toBe(1.4);
+    expect(undone.build.nitrous).toBe(kit);
   });
 
   it('undoing a table edit still puts the preset label back, the one build field it wrote', () => {
@@ -1663,16 +1717,40 @@ describe('snapshot field coverage', () => {
   // module iterates over would let a key deleted from both the list AND this
   // expectation pass vacuously. That is exactly the vulnerability a reviewer found —
   // cutting BUILD_KEYS to 3 entries and TUNE_KEYS to 2 left all 871 tests green.
-  it('snapshots exactly the documented 19 build and 8 tune fields', () => {
+  it('snapshots exactly the documented 22 build and 8 tune fields', () => {
     const snap = snapshot(makeInitialState());
     expect(Object.keys(snap.build).sort()).toEqual([
-      'boostCurve', 'coil', 'compressorIdx', 'ecuInjectorCc', 'engineConfig', 'ethanolPct',
-      'exhaustDiaIdx', 'fuelSystem', 'injIdx', 'mafScalar', 'mods', 'octaneIdx', 'plugGapMm',
-      'presetId', 'sensorHw', 'turbineCount', 'turbineIdx', 'turboOn', 'wastegate',
+      'blowerId', 'blowerRatio', 'boostCurve', 'coil', 'compressorIdx', 'ecuInjectorCc',
+      'engineConfig', 'ethanolPct', 'exhaustDiaIdx', 'fuelSystem', 'injIdx', 'mafScalar',
+      'mods', 'nitrous', 'octaneIdx', 'plugGapMm', 'presetId', 'sensorHw', 'turbineCount',
+      'turbineIdx', 'turboOn', 'wastegate',
     ]);
     expect(Object.keys(snap.tune).sort()).toEqual([
       'activeMap', 'afr', 'baseline', 'ecu', 'maps', 'tablesDirty', 'timing', 've',
     ]);
+  });
+
+  // The literal list above pins what the snapshot holds; this pins that it holds enough.
+  // A RESTORE_ALL action promises to undo everything it wrote, so every build or tune
+  // field it writes has to be snapshotted, apart from the two cursors history.js
+  // excludes on purpose. Asked of the reducer itself through the sentinel state, so a
+  // field a later change adds to APPLY_PRESET or RESET_TO_STOCK fails here by name
+  // instead of quietly staying changed after an undo (#146: blowerId and nitrous).
+  it.each([
+    ['APPLY_PRESET', { type: ACTIONS.APPLY_PRESET, preset: N54_PRESET }],
+    ['RESET_TO_STOCK', { type: ACTIONS.RESET_TO_STOCK, ve: [[1]] }],
+  ])('snapshots every build and tune field %s writes', (_name, action) => {
+    const before = makeSentinelState();
+    const changed = changedFieldKeys(before, reducer(before, action));
+    const snap = snapshot(before);
+    const snapshotted = new Set([
+      ...Object.keys(snap.build).map((k) => `build.${k}`),
+      ...Object.keys(snap.tune).map((k) => `tune.${k}`),
+    ]);
+    const cursors = new Set(['build.presetPrompt', 'tune.selection']);
+    const missed = [...changed].filter((key) => (key.startsWith('build.') || key.startsWith('tune.'))
+      && !snapshotted.has(key) && !cursors.has(key));
+    expect(missed).toEqual([]);
   });
 
   // Every field below is seeded to a value that differs from BOTH its
@@ -1694,10 +1772,14 @@ describe('snapshot field coverage', () => {
     const beforeTiming = [[33]];
     const beforeAfr = [[7]];
     const beforeBaseline = { ve: [[1]], timing: [[2]], afr: [[3]] };
+    const beforeNitrous = { kit: /** @type {const} */ ('dry'), shotHp: 75, heater: false, bottleLb: 15 };
 
     const start = { ...makeInitialState() };
     start.build = {
       ...start.build,
+      blowerId: 'whipple29',
+      blowerRatio: 1.15,
+      nitrous: beforeNitrous,
       engineConfig: beforeEngineConfig,
       mods: beforeMods,
       turboOn: false,
@@ -1732,9 +1814,14 @@ describe('snapshot field coverage', () => {
     expect(applied.build.mafScalar).toBe(1.0);
     expect(applied.tune.tablesDirty).toBe(false);
     expect(applied.tune.baseline).toEqual({ ve: [[80]], timing: [[20]], afr: [[12]] });
+    expect(applied.build.blowerId).toBeNull();
+    expect(applied.build.nitrous).toBeNull();
 
     const undone = reducer(applied, { type: ACTIONS.UNDO });
 
+    expect(undone.build.blowerId).toBe('whipple29');
+    expect(undone.build.blowerRatio).toBe(1.15);
+    expect(undone.build.nitrous).toBe(beforeNitrous);
     expect(undone.build.engineConfig).toBe(beforeEngineConfig);
     expect(undone.build.mods).toBe(beforeMods);
     expect(undone.build.turboOn).toBe(false);
