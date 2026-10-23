@@ -1,0 +1,62 @@
+# Packaging for the desktop app. Run through `npm run desktop:dist`, or by
+# .github/workflows/desktop.yml on a release tag.
+#
+# Everything the app needs is already inside dist/ (Vite bundles React, recharts and
+# the rest), so node_modules is deliberately left out of the package.
+
+# Changing appId later makes installed copies look like a different app, so settle it
+# before the first public release.
+appId: dniev.ecu.lab
+productName: ECU Lab
+copyright: Copyright © CaribouTuning and Turtle.GTI
+
+directories:
+  output: release
+  # build/icon.png (1024x1024) is the source for every platform's icon; icon.svg is
+  # the original it was rendered from.
+  buildResources: build
+
+files:
+  - dist/**
+  - '!dist/**/*.map'
+  - electron/**
+  - package.json
+  - '!node_modules/**'
+
+asar: true
+publish: null
+
+# File names carry no version on purpose: the release they are attached to already
+# names it, and a fixed name makes each file easy to recognise and to link to.
+# Every target is a plain file (no zips), so each one is visible on the release page.
+
+win:
+  target:
+    - { target: nsis, arch: [x64] }
+    - { target: portable, arch: [x64] }
+nsis:
+  artifactName: ECU-Lab-windows-installer.${ext}
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  # The installer asks about the desktop shortcut itself (build/installer.nsh), so the
+  # builder must not create one unconditionally.
+  createDesktopShortcut: false
+  createStartMenuShortcut: true
+portable:
+  artifactName: ECU-Lab-windows-portable.${ext}
+
+mac:
+  category: public.app-category.education
+  target:
+    - { target: dmg, arch: [x64, arm64] }
+  artifactName: ECU-Lab-mac-${arch}.${ext}
+
+linux:
+  category: Education
+  executableName: ecu-lab
+  # The .deb needs a maintainer address; this is a placeholder, so put a real one here.
+  maintainer: CaribouTuning <noreply@users.noreply.github.com>
+  target:
+    - { target: AppImage, arch: [x64] }
+    - { target: deb, arch: [x64] }
+  artifactName: ECU-Lab-linux-${arch}.${ext}

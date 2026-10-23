@@ -1,0 +1,136 @@
+name: Desktop
+
+# Packages ECU Lab as a desktop app for Windows, macOS and Linux and attaches the
+# installers to a GitHub Release.
+#
+# A tag does both jobs at once: deploy.yml publishes the site, this publishes the
+# installers. Run it by hand from the Actions tab to get the installers as downloadable
+# run artifacts without cutting a release, which is the way to try a build.
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: desktop-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  # Once, on Linux only. The fingerprint is a float-sensitive hash, so the suite is
+  # only meaningful on the platform it is pinned on. A tag can sit on any commit, so
+  # nothing is packaged without passing it.
+  test:
+    runs-on: ubuntu-latest
+    env:
+      # This job never runs Electron, so do not download its binary. The build jobs
+      # below leave it unset: electron-builder needs the real thing.
+      ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - run: npm ci
+
+      - name: Test
+        run: npm test
+
+      # The same gates the site goes through in ci.yml, so an installer is never
+      # built from a commit the site would have refused.
+      - name: Lint
+        run: npm run lint
+
+      - name: Typecheck
+        run: npm run typecheck
+
+  build:
+    needs: test
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: windows-latest, name: windows, flag: --win }
+          - { os: macos-latest, name: macos, flag: --mac }
+          - { os: ubuntu-latest, name: linux, flag: --linux }
+    runs-on: ${{ matrix.os }}
+    env:
+      # The installers are unsigned. Say so, rather than let the builder go looking
+      # for a certificate that is not there.
+      CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - run: npm ci
+
+      # `desktop:dist` builds the web app first, then packages it.
+      - name: Package
+        run: npm run desktop:dist -- ${{ matrix.flag }}
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: desktop-${{ matrix.name }}
+          path: |
+            release/*.exe
+            release/*.dmg
+            release/*.AppImage
+            release/*.deb
+          if-no-files-found: error
+
+  # Tags only. Runs even when a platform failed, so one broken build does not hold back
+  # the others: a plain `needs: build` would skip this job unless every leg passed.
+  # A failed `test` still stops everything, because `build` is then skipped and this
+  # job's condition below refuses a skipped build.
+  #
+  # The run still shows red when a leg failed, and a warning says which release is
+  # partial. "Re-run failed jobs" rebuilds only the broken platform and runs this again;
+  # the upload below replaces files, so the missing installer is added to the same release.
+  release:
+    needs: build
+    if: ${{ !cancelled() && github.ref_type == 'tag' && (needs.build.result == 'success' || needs.build.result == 'failure') }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: desktop-*
+          merge-multiple: true
+          path: files
+
+      - name: Check what was built
+        env:
+          BUILD_RESULT: ${{ needs.build.result }}
+        run: |
+          COUNT=$(find files -type f 2>/dev/null | wc -l)
+          if [ "$COUNT" -eq 0 ]; then
+            echo "::error::No platform produced an installer, so there is nothing to release."
+            exit 1
+          fi
+          if [ "$BUILD_RESULT" != 'success' ]; then
+            echo "::warning::At least one platform failed. Publishing the ones that built; fix the failure and use 'Re-run failed jobs' to add the rest."
+          fi
+
+      - name: Attach to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          # A tag name may legally contain shell metacharacters, so it travels as an
+          # environment variable and is only ever quoted in the script.
+          TAG: ${{ github.ref_name }}
+        run: |
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$TAG" files/* --repo "$GITHUB_REPOSITORY" --clobber
+          else
+            gh release create "$TAG" files/* --repo "$GITHUB_REPOSITORY" \
+              --title "ECU Lab $TAG" --generate-notes --verify-tag
+          fi

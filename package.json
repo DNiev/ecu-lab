@@ -17,6 +17,7 @@
   ],
   "license": "MIT",
   "type": "module",
+  "main": "electron/main.js",
   "private": false,
   "engines": {
     "node": ">=20 <23"
@@ -25,6 +26,8 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
+    "desktop:dev": "vite build && electron .",
+    "desktop:dist": "vite build && electron-builder --publish never",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:fingerprint:update": "node scripts/update-fingerprint.js",
@@ -45,6 +48,8 @@
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1",
     "@vitejs/plugin-react": "^4.3.3",
+    "electron": "^45.0.0",
+    "electron-builder": "^26.15.3",
     "eslint": "^9.15.0",
     "eslint-plugin-react": "^7.37.5",
     "eslint-plugin-react-hooks": "^5.0.0",

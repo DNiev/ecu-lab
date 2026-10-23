@@ -4,7 +4,7 @@ import reactHooks from 'eslint-plugin-react-hooks';
 
 export default [
   {
-    ignores: ['dist/**', 'node_modules/**', 'coverage/**', 'ECULab.jsx', 'fingerprint.report.json'],
+    ignores: ['dist/**', 'release/**', 'node_modules/**', 'coverage/**', 'ECULab.jsx', 'fingerprint.report.json'],
   },
   js.configs.recommended,
   {
