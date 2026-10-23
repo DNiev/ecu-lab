@@ -74,7 +74,7 @@ export class ErrorBoundary extends React.Component {
             RELOAD
           </button>
         </div>
-        <div style={{ fontSize: 10.5, color: T.ink3, fontFamily: T.mono }}>{BUILD_VERSION}</div>
+        <div style={{ fontSize: 10.5, color: T.ink2, fontFamily: T.mono }}>{BUILD_VERSION}</div>
       </div>
     );
   }

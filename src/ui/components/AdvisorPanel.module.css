@@ -37,7 +37,7 @@
   font-size: 10px;
   letter-spacing: 1px;
   font-weight: 800;
-  color: var(--ink3);
+  color: var(--ink2);
 }
 
 .headline {
@@ -48,7 +48,7 @@
 
 .chevron {
   flex-shrink: 0;
-  color: var(--ink3);
+  color: var(--ink2);
   transition: transform 0.15s ease;
 }
 

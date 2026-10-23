@@ -15,7 +15,7 @@
 .idealNote {
   margin-bottom: 4px;
   font-size: 11px;
-  color: var(--ink3);
+  color: var(--ink2);
 }
 
 .raisedByBoost { color: var(--acc-ink); }
