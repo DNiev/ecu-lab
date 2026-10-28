@@ -21,13 +21,12 @@ import {
 } from 'lucide-react';
 
 import {
-  BARO_KPA, COMPRESSOR_OPTS,
+  COMPRESSOR_OPTS,
   DEFAULT_MODS, EXHAUST_DIA_OPTS, GEARBOX_OPTS,
-  INJ_DEADTIME_MS, INJECTOR_OPTS,
-  PSI_TO_KPA,
-  R_AIR, RPM, TURBINE_OPTS, acousticDrive, blowerCurve, blowerOf, blowerSpeedRpm, calibrationAdvice, chargeTempK, clamp,
+  INJECTOR_OPTS,
+  RPM, TURBINE_OPTS, acousticDrive, blowerCurve, blowerOf, blowerSpeedRpm, calibrationAdvice, clamp,
   computeEngineerScore, computeHardwareVE, computePullScore, computeTuningScore,
-  deriveEngine, exhaustGeometry, idealExhaustDiameter, interp1, interp2, isLocatable, presetById,
+  deriveEngine, exhaustGeometry, idealExhaustDiameter, injectorDutyPreview, interp1, isLocatable, presetById,
   simulateDragRun, simulateSweep, torqueCurveFromSweep, turbineWithCount,
   veRecommendations, defaultEcuCalibration, dynoConditions, ecuHardwareOf, tankFuel,
   veTruthByPhaseFor, read1, applyVeCorrections, veCorrections, veSamplesFromLive, veSamplesFromPull,
@@ -511,20 +510,14 @@ export function EcuLabApp() {
     [ve, engineConfig, mods, hwForVe]
   );
 
-  // Same real-units chain the sim uses, evaluated at WOT / 6500 RPM as a preview.
+  // Injector duty at WOT / 6500 RPM, from the tables as they stand, before any pull.
   const dutyPreview = useMemo(() => {
     const rpm = 6500;
-    const boostPsi = turboOn ? boostCurve[RPM.indexOf(6500)]
+    const boostPsi = turboOn ? boostCurve[RPM.indexOf(rpm)]
       : blowerWot.length ? interp1(blowerWot.map((p) => p.rpm), blowerWot.map((p) => p.boostPsi), rpm) : 0;
-    const mapKpa = BARO_KPA + boostPsi * PSI_TO_KPA;
-    const chargeK = chargeTempK(boostPsi, mods.intercooler);
-    const vCylM3 = (engineDerived.displacementL / engineDerived.cyl) / 1000;
-    const airDensity = (mapKpa * 1000) / (R_AIR * chargeK);
-    const airChargeG = (interp2(ve, rpm, mapKpa) / 100) * vCylM3 * airDensity * 1000;
-    const lambda = interp2(afr, rpm, mapKpa) / 14.7;
-    const fuelMassG = airChargeG / (lambda * fuel.stoich);
-    const pw = fuelMassG / ((ecuInjectorCc * fuel.density) / 60000) + INJ_DEADTIME_MS;
-    return clamp((pw / (120000 / rpm)) * 100, 0, 220);
+    return injectorDutyPreview({
+      rpm, boostPsi, intercooler: mods.intercooler, ve, afr, derived: engineDerived, fuel, ecuInjectorCc,
+    });
   }, [ve, afr, turboOn, boostCurve, ecuInjectorCc, fuel, mods.intercooler, engineDerived, blowerWot]);
   // `dutyPreview` is computed here, not in InjectorsScreen, because the score breakdown
   // and dyno payload below read it too.
