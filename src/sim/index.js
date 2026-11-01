@@ -34,4 +34,5 @@ export * from './drivetrain.js';
 export * from './advisors.js';
 export * from './veLearn.js';
 export * from './scoring.js';
+export * from './rig.js';
 export * from './ecu/index.js';
