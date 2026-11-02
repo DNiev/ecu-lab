@@ -30,12 +30,17 @@ function repo() {
   }
   git('init', '-q');
   git('-c', 'user.email=t@t', '-c', 'user.name=t', 'add', '.');
-  git('-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-qm', 'base');
+  git('-c', 'user.email=t@t', '-c', 'user.name=t', '-c', 'commit.gpgsign=false', 'commit', '-qm', 'base');
+}
+
+/** Rewrites each file and commits them together, so one commit touches all of them. */
+function changeAll(files) {
+  for (const file of files) writeFileSync(join(dir, file), '2\n');
+  git('-c', 'user.email=t@t', '-c', 'user.name=t', '-c', 'commit.gpgsign=false', 'commit', '-qam', `change ${files.join(', ')}`);
 }
 
 function change(file) {
-  writeFileSync(join(dir, file), '2\n');
-  git('-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-qam', `change ${file}`);
+  changeAll([file]);
 }
 
 function run(ref) {
@@ -60,7 +65,12 @@ describe('should-build.sh', () => {
   }
 
   it('skips main when nothing the bot uses changed', () => {
-    repo(); change('README.md'); change('src/ui/other.js');
+    repo(); changeAll(['README.md', 'src/ui/other.js']);
     expect(run('main')).toBe(0);
+  });
+
+  it('builds when there is no parent commit to diff against', () => {
+    repo();
+    expect(run('main')).toBe(1);
   });
 });

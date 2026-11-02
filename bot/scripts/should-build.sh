@@ -16,6 +16,8 @@ if [ "${VERCEL_GIT_COMMIT_REF:-}" != "main" ]; then
   exit 0
 fi
 
+# main advances by merge commits ("Merge pull request #N"), so HEAD^ is the previous tip of
+# main and HEAD^..HEAD spans the whole merged PR, not just its last commit.
 if git diff --quiet HEAD^ HEAD -- . ../src/sim ../src/ui/tokens.js ../scripts/discord-notify.js; then
   echo "Nothing the bot uses changed: skipping."
   exit 0

@@ -38,6 +38,11 @@ None of these involve putting a secret in the repo.
    `https://<your-project>.vercel.app/api/interactions` into the application's
    **Interactions Endpoint URL**. Discord sends a signed check when you save. If it
    refuses, the function log in Vercel says why.
+
+   If the first deployment shows as **Canceled**, the ignore step skipped it: the latest
+   commit on `main` touched nothing the bot uses (a release bump or docs change can land
+   after the bot does). Open the project's **Deployments** tab and choose **Redeploy** on
+   that deployment to start it by hand.
 4. **Register the command**, from a shell on your own machine. The bot token is on the
    application's **Bot** page; reset it there if you ever think it has leaked.
 
