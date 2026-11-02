@@ -48,7 +48,9 @@ function change(file) {
 
 /** Runs the script as Vercel would. `previousSha` is the last successful deployment's commit. */
 function run(ref, previousSha) {
+  /** @type {Record<string, string | undefined>} */
   const env = { ...process.env, VERCEL_GIT_COMMIT_REF: ref };
+  // A stray value from the developer's shell must not leak into the "no previous SHA" case.
   delete env.VERCEL_GIT_PREVIOUS_SHA;
   if (previousSha) env.VERCEL_GIT_PREVIOUS_SHA = previousSha;
   return spawnSync('bash', ['scripts/should-build.sh'], { cwd: join(dir, 'bot'), encoding: 'utf8', env }).status;
