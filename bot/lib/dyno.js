@@ -8,7 +8,7 @@
  * `buildRig`, the app's own assembly, never a simplified one.
  */
 
-import { OCTANE_OPTS, buildRig, presetById } from '../../src/sim/index.js';
+import { FUEL_CHOICES, OCTANE_OPTS, buildRig, presetById } from '../../src/sim/index.js';
 
 /** The bolt-ons `/dyno` can fit or remove, as named in a preset's `mods`. */
 export const MOD_KEYS = ['intake', 'exhaust', 'headers'];
@@ -36,6 +36,9 @@ export function runDyno({ engine, intake, exhaust, headers, fuel }) {
   const preset = presetById(engine);
   if (!preset) throw new DynoInputError(`Unknown engine "${engine}"`, engine);
 
+  // `octaneIdx` indexes FUEL_CHOICES (as buildRig does), which can hold a preset's own fuel
+  // that OCTANE_OPTS lacks (Flex). The user's `fuel` option is only ever a pump fuel, so
+  // it is looked up in OCTANE_OPTS, whose indices are the same in both lists.
   let octaneIdx = preset.parts.octaneIdx;
   if (fuel !== undefined) {
     octaneIdx = OCTANE_OPTS.findIndex((o) => o.label === fuel);
@@ -59,5 +62,5 @@ export function runDyno({ engine, intake, exhaust, headers, fuel }) {
     }
   }
 
-  return { preset, mods, fuel: OCTANE_OPTS[octaneIdx], isStock, stock, modified };
+  return { preset, mods, fuel: FUEL_CHOICES[octaneIdx], isStock, stock, modified };
 }

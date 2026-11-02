@@ -36,6 +36,16 @@ describe('replyTitle', () => {
   });
 });
 
+describe('replyTitle for a preset whose own fuel is not a pump fuel', () => {
+  it('does not throw for a preset shipping on Flex, and says stock', () => {
+    const base = S.presetById('vq35hr');
+    const preset = { ...base, parts: { ...base.parts, octaneIdx: 4 } };
+    const title = () => replyTitle({ preset, mods: base.mods, fuel: S.FUEL_CHOICES[4] });
+    expect(title).not.toThrow();
+    expect(title()).toContain('stock');
+  });
+});
+
 describe('footerText', () => {
   it('names the unreleased main commit, or a local build', () => {
     expect(footerText(SHA)).toBe('main @ 27db48c (unreleased) · ECU Lab sim');

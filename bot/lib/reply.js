@@ -11,7 +11,7 @@
  * limits are enforced by the same code the workflows use.
  */
 
-import { MOD_INFO, OCTANE_OPTS } from '../../src/sim/index.js';
+import { FUEL_CHOICES, MOD_INFO } from '../../src/sim/index.js';
 import { tokens } from '../../src/ui/tokens.js';
 import { buildPayload } from '../../scripts/discord-notify.js';
 import { MOD_KEYS } from './dyno.js';
@@ -44,7 +44,9 @@ export function replyTitle({ preset, mods, fuel }) {
     if (mods[k] && !preset.mods[k]) changes.push(MOD_INFO[k].label);
     if (!mods[k] && preset.mods[k]) changes.push(`no ${MOD_INFO[k].label}`);
   }
-  if (fuel.label !== OCTANE_OPTS[preset.parts.octaneIdx].label) changes.push(fuel.label);
+  // The preset's own fuel comes from FUEL_CHOICES, as buildRig reads it: a preset shipping
+  // on Flex has no OCTANE_OPTS entry.
+  if (fuel.label !== FUEL_CHOICES[preset.parts.octaneIdx].label) changes.push(fuel.label);
   return `${preset.name} · ${changes.length ? changes.join(' + ') : 'stock'} · factory tune`;
 }
 
