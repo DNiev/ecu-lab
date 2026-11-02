@@ -106,13 +106,26 @@ describe('createHandler', () => {
     expect(log.error).toHaveBeenCalled();
   });
 
+  // Each stub puts the token into what the handler logs, so the test fails if `redact` is
+  // removed. A stub that never echoes the URL would pass with or without redaction.
   it('logs a refused edit without ever logging the token', async () => {
-    const fetch = vi.fn(async (_url, _init) => new Response('nope', { status: 404 }));
+    const fetch = vi.fn(async (url, _init) => new Response(`unknown webhook ${url}`, { status: 404 }));
     const { handle, log, settle } = setup({ fetch });
     await handle(signedRequest(dynoInteraction({ engine: 'vq35hr' })));
     await settle();
     const logged = JSON.stringify(log.error.mock.calls);
     expect(logged).toContain('404');
+    expect(logged).toContain('[token]');
+    expect(logged).not.toContain('TOKEN-SECRET');
+  });
+
+  it('logs a network failure without ever logging the token', async () => {
+    const fetch = vi.fn(async (url, _init) => { throw new Error(`connect failed for ${url}`); });
+    const { handle, log, settle } = setup({ fetch });
+    await handle(signedRequest(dynoInteraction({ engine: 'vq35hr' })));
+    await settle();
+    const logged = JSON.stringify(log.error.mock.calls);
+    expect(logged).toContain('[token]');
     expect(logged).not.toContain('TOKEN-SECRET');
   });
 

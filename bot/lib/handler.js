@@ -95,7 +95,7 @@ async function completeDyno({ interaction, render, fetch, sha, log, dyno }) {
     } catch (err) {
       log.error('dyno: the chart failed to render', err);
     }
-    message = dynoReply({ ...run, sha, chart: png !== null });
+    message = dynoReply({ ...run, sha, chart: Boolean(png) });
   } catch (err) {
     if (err instanceof DynoInputError) {
       log.warn(`dyno: ${err.message}`);
