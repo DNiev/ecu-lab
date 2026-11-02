@@ -60,8 +60,11 @@ None of these involve putting a secret in the repo.
 ## Deploys
 
 Vercel deploys from `main` only. `scripts/should-build.sh` skips every other branch and
-pull request, forks included, and skips `main` unless the bot, `src/sim`,
-`src/ui/tokens.js` or `scripts/discord-notify.js` changed.
+pull request, forks included. On `main` it compares against the last successful deployment
+(Vercel's `VERCEL_GIT_PREVIOUS_SHA`), not the previous commit, and builds only if the bot,
+`src/sim`, `src/ui/tokens.js` or `scripts/discord-notify.js` changed in between. So several
+merges since the last deploy, or a failed deploy followed by a docs-only commit, still
+build; the first deploy has nothing to compare with and always builds.
 
 ## Working on it
 
