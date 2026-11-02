@@ -30,19 +30,22 @@ None of these involve putting a secret in the repo.
    only, with no bot permissions: it never reads messages. Use the install link to add it
    to the server.
 2. **Vercel.** Create a Hobby account and import `DNiev/ecu-lab`, letting Vercel's GitHub
-   app see that one repository only. In the project settings:
+   app see that one repository only. Importing a repo deploys straight away, so set both of
+   these on the import screen, **before** pressing Deploy:
    - **Root Directory:** `bot`, with "Include files outside the Root Directory" left on
    - **Environment variable:** `DISCORD_PUBLIC_KEY` = the application's public key
      (Discord's **General Information** page). It's public by design.
+
+   If either is changed afterwards, **Redeploy** (Deployments tab): environment variables
+   only reach new deployments, so the running one keeps the old value.
 3. **The endpoint.** After the first deploy, paste
    `https://<your-project>.vercel.app/api/interactions` into the application's
-   **Interactions Endpoint URL**. Discord sends a signed check when you save. If it
-   refuses, the function log in Vercel says why.
-
-   If the first deployment shows as **Canceled**, the ignore step skipped it: the latest
-   commit on `main` touched nothing the bot uses (a release bump or docs change can land
-   after the bot does). Open the project's **Deployments** tab and choose **Redeploy** on
-   that deployment to start it by hand.
+   **Interactions Endpoint URL**. Discord sends a signed check when you save. If Discord
+   refuses the URL, check the function log in Vercel for a `DISCORD_PUBLIC_KEY` error: the
+   bot logs one, once per start, when the variable is missing or isn't 64 hex characters.
+   Otherwise check that the key was pasted exactly and that the deployment is the current
+   one. The bot deliberately logs nothing for a rejected signature, because Discord's own
+   check sends one on purpose.
 4. **Register the command**, from a shell on your own machine. The bot token is on the
    application's **Bot** page; reset it there if you ever think it has leaked.
 

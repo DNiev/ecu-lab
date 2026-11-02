@@ -71,6 +71,22 @@ export function optionsOf(interaction) {
  * @returns {(request: Request) => Promise<Response>}
  */
 export function createHandler({ publicKey, waitUntil, render, fetch, sha, log = console, dyno = runDyno }) {
+  // Checked once, at creation (a cold start on Vercel). A bad key makes every request fail
+  // closed with 401, and the rejection itself is deliberately never logged (Discord's own
+  // endpoint check sends a bad signature on purpose), so without this line the first deploy
+  // would fail with nothing in the function log. The key is public, but only its state is
+  // printed, never its value.
+  if (typeof publicKey !== 'string' || !/^[0-9a-f]{64}$/i.test(publicKey)) {
+    const problem = typeof publicKey === 'string' && publicKey !== ''
+      ? `is malformed (${publicKey.length} characters, expected 64 hex)`
+      : 'is missing';
+    log.error(
+      `dyno: DISCORD_PUBLIC_KEY ${problem}, so every request will be rejected with 401. ` +
+      'Set it in the Vercel project (Settings, Environment Variables), then Redeploy: ' +
+      'environment variables only reach new deployments.',
+    );
+  }
+
   return async function handle(request) {
     const body = await request.text();
     const authentic = verifyDiscordRequest({

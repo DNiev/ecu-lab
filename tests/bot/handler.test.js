@@ -170,6 +170,24 @@ describe('createHandler', () => {
     expect(logged).not.toContain('TOKEN-SECRET');
   });
 
+  it('logs once at creation when the public key is missing, and never prints a key', () => {
+    const log = { error: vi.fn(), warn: vi.fn() };
+    createHandler({ publicKey: undefined, waitUntil: () => {}, render: () => PNG, fetch: vi.fn(), log });
+    expect(log.error).toHaveBeenCalledTimes(1);
+    expect(log.error.mock.calls[0][0]).toContain('DISCORD_PUBLIC_KEY');
+    const malformed = { error: vi.fn(), warn: vi.fn() };
+    createHandler({ publicKey: 'abc123', waitUntil: () => {}, render: () => PNG, fetch: vi.fn(), log: malformed });
+    expect(malformed.error).toHaveBeenCalledTimes(1);
+    expect(malformed.error.mock.calls[0][0]).toContain('DISCORD_PUBLIC_KEY');
+    expect(malformed.error.mock.calls[0][0]).not.toContain('abc123');
+  });
+
+  it('logs nothing at creation when the public key is well-formed', () => {
+    const { log } = setup();
+    expect(log.error).not.toHaveBeenCalled();
+    expect(log.warn).not.toHaveBeenCalled();
+  });
+
   it('turns away any other command, privately', async () => {
     const { handle } = setup();
     const res = await handle(signedRequest({ type: 2, application_id: 'APP', token: 'T', data: { name: 'other' } }));
