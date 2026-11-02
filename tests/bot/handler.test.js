@@ -8,7 +8,7 @@ import { generateKeyPairSync, sign } from 'node:crypto';
 import { describe, expect, it, vi } from 'vitest';
 
 import { DISCORD_API, createHandler } from '../../bot/lib/handler.js';
-import { DynoInputError } from '../../bot/lib/dyno.js';
+import { DynoInputError, runDyno } from '../../bot/lib/dyno.js';
 
 const { publicKey: pub, privateKey } = generateKeyPairSync('ed25519');
 const publicKey = Buffer.from(pub.export({ format: 'jwk' }).x, 'base64url').toString('hex');
@@ -75,6 +75,22 @@ describe('createHandler', () => {
     expect(new Uint8Array(await file.arrayBuffer())).toEqual(PNG);
   });
 
+  // The bug this guards: `waitUntil(completeDyno(...))` calls completeDyno at once, and the
+  // pulls and the renderer are synchronous CPU work. They would run (and the PATCH would be
+  // sent) before handle() returned the deferral, eating Discord's 3-second budget and
+  // letting the edit reach Discord before the reply it edits exists.
+  it('hands back the deferral before any of the work starts', async () => {
+    const dyno = vi.fn((o) => runDyno(o));
+    const { handle, fetch, settle } = setup({ dyno });
+    const res = await handle(signedRequest(dynoInteraction({ engine: 'vq35hr' })));
+    expect(await res.json()).toEqual({ type: 5 });
+    expect(dyno).toHaveBeenCalledTimes(0);
+    expect(fetch).toHaveBeenCalledTimes(0);
+    await settle();
+    expect(dyno).toHaveBeenCalledTimes(1);
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
   it('still replies, without the image, when the chart fails to render', async () => {
     const { handle, fetch, log, settle } = setup({ render: () => { throw new Error('resvg broke'); } });
     await handle(signedRequest(dynoInteraction({ engine: 'vq35hr' })));
@@ -116,6 +132,31 @@ describe('createHandler', () => {
     const logged = JSON.stringify(log.error.mock.calls);
     expect(logged).toContain('404');
     expect(logged).toContain('[token]');
+    expect(logged).not.toContain('TOKEN-SECRET');
+  });
+
+  it('retries the edit once when Discord says 404, and logs nothing if the retry lands', async () => {
+    const fetch = vi.fn()
+      .mockResolvedValueOnce(new Response('unknown webhook', { status: 404 }))
+      .mockResolvedValueOnce(new Response('{}', { status: 200 }));
+    const { handle, log, settle } = setup({ fetch });
+    await handle(signedRequest(dynoInteraction({ engine: 'vq35hr' })));
+    await settle();
+    expect(fetch).toHaveBeenCalledTimes(2);
+    // The retry's body must be rebuilt: a consumed FormData can't be sent twice.
+    expect(fetch.mock.calls[1][1].body).toBeInstanceOf(FormData);
+    expect(fetch.mock.calls[1][1].body).not.toBe(fetch.mock.calls[0][1].body);
+    expect(log.error).not.toHaveBeenCalled();
+  });
+
+  it('logs a 404 that survives the retry, without the token', async () => {
+    const fetch = vi.fn(async (url, _init) => new Response(`unknown webhook ${url}`, { status: 404 }));
+    const { handle, log, settle } = setup({ fetch });
+    await handle(signedRequest(dynoInteraction({ engine: 'vq35hr' })));
+    await settle();
+    expect(fetch).toHaveBeenCalledTimes(2);
+    const logged = JSON.stringify(log.error.mock.calls);
+    expect(logged).toContain('404');
     expect(logged).not.toContain('TOKEN-SECRET');
   });
 

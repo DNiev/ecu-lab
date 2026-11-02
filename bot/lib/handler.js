@@ -21,6 +21,24 @@ import { verifyDiscordRequest } from './verify.js';
 
 export const DISCORD_API = 'https://discord.com/api/v10';
 
+/**
+ * How long to wait, after handing back the deferral, before the work starts.
+ *
+ * The pulls and the renderer are synchronous CPU work (about 300 ms or more) that blocks
+ * the event loop. Starting them in a microtask would not help: microtasks run before the
+ * runtime gets another turn, so they would block the loop before the `{type: 5}` response
+ * was flushed to the socket. That eats Discord's 3-second budget, and lets the edit reach
+ * Discord before the reply it edits exists (a 404, leaving "thinking…" on screen forever).
+ * A timer lets the response go out first. The delay is slack for the runtime to write it.
+ */
+export const WORK_START_DELAY_MS = 100;
+
+/**
+ * Belt and braces: if Discord still answers 404 to the edit (the deferral hadn't landed
+ * yet), wait this long and try once more before giving up.
+ */
+export const EDIT_RETRY_DELAY_MS = 1000;
+
 // Interaction types Discord sends, and response types it accepts.
 const PING = 1;
 const APPLICATION_COMMAND = 2;
@@ -72,7 +90,12 @@ export function createHandler({ publicKey, waitUntil, render, fetch, sha, log = 
 
     if (interaction.type === PING) return json({ type: PONG });
     if (interaction.type === APPLICATION_COMMAND && interaction.data?.name === 'dyno') {
-      waitUntil(completeDyno({ interaction, render, fetch, sha, log, dyno }));
+      // A timer, not a bare call: see WORK_START_DELAY_MS for why the work must wait.
+      waitUntil(
+        new Promise((resolve) => setTimeout(resolve, WORK_START_DELAY_MS)).then(() =>
+          completeDyno({ interaction, render, fetch, sha, log, dyno }),
+        ),
+      );
       return json({ type: DEFERRED_CHANNEL_MESSAGE });
     }
     return json({ type: CHANNEL_MESSAGE, data: { content: 'Unknown command.', flags: EPHEMERAL } });
@@ -116,22 +139,29 @@ async function completeDyno({ interaction, render, fetch, sha, log, dyno }) {
   await editReply({ interaction, message, png, fetch, log });
 }
 
-/** PATCHes the deferred reply. Multipart when there's a PNG to attach, JSON otherwise. */
+/**
+ * PATCHes the deferred reply. Multipart when there's a PNG to attach, JSON otherwise. A 404
+ * is retried once after EDIT_RETRY_DELAY_MS, in case the edit overtook the deferral.
+ */
 async function editReply({ interaction, message, png, fetch, log }) {
   const url = `${DISCORD_API}/webhooks/${interaction.application_id}/${interaction.token}/messages/@original`;
-  /** @type {RequestInit} */
-  let init;
-  if (png) {
-    const form = new FormData();
-    form.append('payload_json', JSON.stringify(message));
-    form.append('files[0]', new Blob([new Uint8Array(png)], { type: 'image/png' }), 'dyno.png');
-    init = { method: 'PATCH', body: form };
-  } else {
-    init = { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify(message) };
-  }
+  // Built per attempt: a request body is consumed when sent, so a retry needs a fresh one.
+  const makeInit = () => {
+    if (png) {
+      const form = new FormData();
+      form.append('payload_json', JSON.stringify(message));
+      form.append('files[0]', new Blob([new Uint8Array(png)], { type: 'image/png' }), 'dyno.png');
+      return /** @type {RequestInit} */ ({ method: 'PATCH', body: form });
+    }
+    return /** @type {RequestInit} */ ({ method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify(message) });
+  };
   const redact = (/** @type {unknown} */ text) => String(text).split(interaction.token).join('[token]');
   try {
-    const res = await fetch(url, init);
+    let res = await fetch(url, makeInit());
+    if (res.status === 404) {
+      await new Promise((resolve) => setTimeout(resolve, EDIT_RETRY_DELAY_MS));
+      res = await fetch(url, makeInit());
+    }
     if (!res.ok) log.error(`dyno: Discord refused the edit (${res.status}): ${redact(await res.text())}`);
   } catch (err) {
     log.error(`dyno: could not reach Discord: ${redact(err?.message ?? err)}`);
