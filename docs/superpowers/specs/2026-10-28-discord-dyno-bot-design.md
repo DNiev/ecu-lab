@@ -220,8 +220,12 @@ preset or fuel is added; the bot's `DynoInputError` reply says so.
   when the command exits 1 and skips when it exits 0. The script:
   - exits 0 if `VERCEL_GIT_COMMIT_REF` isn't `main`, so branches and pull requests,
     forks included, never get a live preview bot
-  - otherwise exits 1 if `git diff --quiet HEAD^ HEAD -- . ../src/sim ../src/ui/tokens.js
-    ../scripts/discord-notify.js` finds changes (everything the bot imports), and 0 if not
+  - exits 1 on the first deploy, when Vercel has no `VERCEL_GIT_PREVIOUS_SHA` (the last
+    successful deployment of `main`)
+  - otherwise exits 1 if `git diff --quiet "$VERCEL_GIT_PREVIOUS_SHA" HEAD -- . ../src/sim
+    ../src/ui/tokens.js ../scripts/discord-notify.js` finds changes (everything the bot
+    imports) or can't run, and 0 if not. Diffing against the last deploy rather than
+    `HEAD^` covers several merges since then, and a failed or superseded deploy
 - `maxDuration` is 15 s. The work takes about 1 s, and Discord allows 15 minutes for the
   edit.
 

@@ -175,6 +175,8 @@ async function editReply({ interaction, message, png, fetch, log }) {
   try {
     let res = await fetch(url, makeInit());
     if (res.status === 404) {
+      // Release the refused response's connection rather than leaving it for the GC.
+      await res.body?.cancel();
       await new Promise((resolve) => setTimeout(resolve, EDIT_RETRY_DELAY_MS));
       res = await fetch(url, makeInit());
     }
