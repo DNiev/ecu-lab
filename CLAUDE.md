@@ -107,8 +107,8 @@ remaining risk is the same Node major with a different libm, which is what step 
   too. The Vercel project and the Discord app belong to the owner; agents never handle
   their keys or tokens.
 - **Tags are production.** A `v*` tag deploys to GitHub Pages, and the `github-pages`
-  environment accepts only `v*` tags, so `main` cannot deploy. There is no `develop`
-  branch.
+  environment accepts only `v*` tags, so `main` cannot deploy the app (the `/dyno` bot is the exception; see the bullet
+  above). There is no `develop` branch.
 - **Weekly release traps.**
   - If a `release/vX.Y.Z` branch is never opened as a PR, every later weekly run computes
     the same version, and its push fails as non-fast-forward. Delete the stale branch (it
