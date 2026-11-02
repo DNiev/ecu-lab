@@ -1,0 +1,10 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "ignoreCommand": "bash scripts/should-build.sh",
+  "functions": {
+    "api/interactions.js": {
+      "maxDuration": 15,
+      "includeFiles": "fonts/**"
+    }
+  }
+}

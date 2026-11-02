@@ -100,6 +100,12 @@ remaining risk is the same Node major with a different libm, which is what step 
   If a third-party Action is really needed, say so in the PR: the owner has to add it to
   the allow list (Settings → Actions → General) before it can run. Workflow runs from
   outside contributors' fork PRs also wait for the owner's approval.
+- **The `/dyno` Discord bot (`bot/`) deploys from `main`, not from tags.** Vercel's GitHub
+  app rebuilds it when `main` changes the bot, `src/sim`, `src/ui/tokens.js` or
+  `scripts/discord-notify.js` (`bot/scripts/should-build.sh`). It runs `buildRig` from
+  `src/sim/rig.js`, so anything that stops `src/sim` running in plain Node breaks `/dyno`
+  too. The Vercel project and the Discord app belong to the owner; agents never handle
+  their keys or tokens.
 - **Tags are production.** A `v*` tag deploys to GitHub Pages, and the `github-pages`
   environment accepts only `v*` tags, so `main` cannot deploy. There is no `develop`
   branch.
