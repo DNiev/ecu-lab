@@ -25,6 +25,14 @@ describe('verifyDiscordRequest', () => {
     expect(verifyDiscordRequest({ publicKey, signature, timestamp, body: '{"type":2}' })).toBe(false);
   });
 
+  it('rejects a request signed by a different key', () => {
+    // A forger with their own key pair can produce a perfectly valid signature, just not
+    // one that verifies against the application's public key.
+    const forger = generateKeyPairSync('ed25519');
+    const forged = sign(null, Buffer.from(timestamp + body), forger.privateKey).toString('hex');
+    expect(verifyDiscordRequest({ publicKey, signature: forged, timestamp, body })).toBe(false);
+  });
+
   it('rejects a changed timestamp', () => {
     expect(verifyDiscordRequest({ publicKey, signature, timestamp: '1730000001', body })).toBe(false);
   });
