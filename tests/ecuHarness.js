@@ -73,6 +73,8 @@ export function makeEngine({ preset, build: patch = {}, cal: calPatch = {}, env,
       ...sweepArgs(loadKpa),
       ...(legacy ? {} : { ecu: gear ? { ...ecu(), cond: { ...ecu().cond, gear } } : ecu() }),
     }),
+    /** TUNE → INJECTORS' duty at an RPM of a full-throttle pull, as EcuLab asks for it. */
+    dutyPreview: (rpm = 6500) => S.injectorDutyPreview({ ...sweepArgs(100), ecu: ecu(), rpm }),
     /** The live engine config, as EcuLab builds it. */
     liveCfg: (aux = {}) => ({
       ...sweepArgs(), ve: tables.ve, timing: tables.timing, afr: tables.afr,

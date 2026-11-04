@@ -466,7 +466,7 @@ export function ecuSteadyPoint({ cal, hw, cond, tables, rpm, loadKpa }) {
   const throttlePct = throttleFrac * 100;
   const gear = cond.gear ?? DYNO_GEAR;
   const protect = new Set();
-  const mod = { boostCutPsi: 0, extraFuelPct: 0, extraRetardDeg: 0, cutFrac: 0, cutType: 'fuel', loadScale: 1, highDet: false, nitrousFrac: 0 };
+  const mod = { ...NO_INTERVENTION };
 
   // Nitrous: the controller's window and, on the dyno, its progressive ramp in RPM — the
   // pull sweeps at a known rate, so seconds since the window opened are RPM travelled.
@@ -492,17 +492,8 @@ export function ecuSteadyPoint({ cal, hw, cond, tables, rpm, loadKpa }) {
 
   let last = null;
   for (let iter = 0; iter < 4; iter += 1) {
-    const solved = solveOperatingPoint({ cal, hw, cond, rpm, loadKpa: loadKpa * mod.loadScale, throttlePct, gear, boostCutPsi: mod.boostCutPsi });
-    const dyn = {
-      steadyTrims: true, extraFuelPct: mod.extraFuelPct, extraRetardDeg: mod.extraRetardDeg,
-      cutFrac: mod.cutFrac, cutType: mod.cutType, highDet: mod.highDet, nitrousFrac: mod.nitrousFrac,
-    };
-    const { pt, resolved } = evaluateEcu({
-      cal, hw, cond, tables, rpm, mapKpa: solved.man.mapKpa, boostPsi: solved.man.boostPsi,
-      veActual: solved.veActual, cam: solved.cam, empKpa: solved.man.empKpa, dyn,
-      ...(solved.man.blower ? { blower: solved.man.blower } : {}),
-    });
-    last = { pt, resolved, solved };
+    last = settle({ cal, hw, cond, tables, rpm, loadKpa, throttlePct, gear }, mod);
+    const { pt, resolved, solved } = last;
 
     // ---- PROTECTIONS. Each acts on what the ECU can measure.
     let changed = false;
@@ -587,6 +578,62 @@ export function ecuSteadyPoint({ cal, hw, cond, tables, rpm, loadKpa }) {
 }
 
 /**
+ * What the limiter, the protections and the torque limit change at a settled point.
+ * @typedef {{boostCutPsi: number, extraFuelPct: number, extraRetardDeg: number, cutFrac: number,
+ *   cutType: string, loadScale: number, highDet: boolean, nitrousFrac: number}} Interventions
+ */
+
+/** @type {Readonly<Interventions>} none of them acting */
+const NO_INTERVENTION = Object.freeze({
+  boostCutPsi: 0, extraFuelPct: 0, extraRetardDeg: 0, cutFrac: 0, cutType: 'fuel', loadScale: 1, highDet: false, nitrousFrac: 0,
+});
+
+/**
+ * One pass of a settled point: the operating point the hardware reaches with these
+ * interventions in force, and the ECU's resolve of it.
+ *
+ * @param {object} at the point: `{cal, hw, cond, tables, rpm, loadKpa, throttlePct, gear}`
+ * @param {Interventions} m the interventions in force
+ * @returns {{pt: object, resolved: ReturnType<typeof resolveEcuPoint>, solved: ReturnType<typeof solveOperatingPoint>}}
+ */
+function settle({ cal, hw, cond, tables, rpm, loadKpa, throttlePct, gear }, m) {
+  const solved = solveOperatingPoint({ cal, hw, cond, rpm, loadKpa: loadKpa * m.loadScale, throttlePct, gear, boostCutPsi: m.boostCutPsi });
+  const { pt, resolved } = evaluateEcu({
+    cal, hw, cond, tables, rpm, mapKpa: solved.man.mapKpa, boostPsi: solved.man.boostPsi,
+    veActual: solved.veActual, cam: solved.cam, empKpa: solved.man.empKpa,
+    dyn: {
+      steadyTrims: true, extraFuelPct: m.extraFuelPct, extraRetardDeg: m.extraRetardDeg, cutFrac: m.cutFrac,
+      cutType: m.cutType, highDet: m.highDet, nitrousFrac: m.nitrousFrac,
+    },
+    ...(solved.man.blower ? { blower: solved.man.blower } : {}),
+  });
+  return { pt, resolved, solved };
+}
+
+/**
+ * What the tune asks of the engine at one settled point, before anything answers it.
+ *
+ * The same point as `ecuSteadyPoint` (boost control, cam phasing, sensors, the fuel the
+ * ECU believes in, its injector model) with no limiter, protection or torque limit
+ * acting and the nitrous off. A protection that trips on a demand hides it: duty
+ * protection cuts boost until duty is back under its limit, so the settled point says
+ * the injectors cope when the tune is asking more of them than they can give.
+ *
+ * @param {object} input
+ * @param {object} input.cal
+ * @param {EcuHardware} input.hw
+ * @param {EcuConditions} input.cond
+ * @param {{ve: number[][], timing: number[][], afr: number[][]}} input.tables
+ * @param {number} input.rpm
+ * @param {number} input.loadKpa the dyno's throttle, as sea-level kPa
+ * @returns {object} the datalog record of `evaluatePoint`
+ */
+export function ecuDemandPoint({ cal, hw, cond, tables, rpm, loadKpa }) {
+  const throttlePct = clamp(loadKpa / BARO_KPA, 0, 1) * 100;
+  return settle({ cal, hw, cond, tables, rpm, loadKpa, throttlePct, gear: cond.gear ?? DYNO_GEAR }, NO_INTERVENTION).pt;
+}
+
+/**
  * @param {string} action
  * @param {object} mod
  * @param {number} cutPsi
@@ -664,19 +711,7 @@ export function solveOperatingPoint({ cal, hw, cond, rpm, loadKpa, throttlePct, 
  */
 function limitTorque({ cal, hw, cond, tables, rpm, loadKpa, throttlePct, gear, mod, limitNm }) {
   const method = cal.torque.method;
-  const run = (m) => {
-    const solved = solveOperatingPoint({ cal, hw, cond, rpm, loadKpa: loadKpa * m.loadScale, throttlePct, gear, boostCutPsi: m.boostCutPsi });
-    const { pt, resolved } = evaluateEcu({
-      cal, hw, cond, tables, rpm, mapKpa: solved.man.mapKpa, boostPsi: solved.man.boostPsi,
-      veActual: solved.veActual, cam: solved.cam, empKpa: solved.man.empKpa,
-      dyn: {
-        steadyTrims: true, extraFuelPct: m.extraFuelPct, extraRetardDeg: m.extraRetardDeg, cutFrac: m.cutFrac,
-        cutType: m.cutType, highDet: m.highDet, nitrousFrac: m.nitrousFrac,
-      },
-      ...(solved.man.blower ? { blower: solved.man.blower } : {}),
-    });
-    return { pt, resolved, solved };
-  };
+  const run = (m) => settle({ cal, hw, cond, tables, rpm, loadKpa, throttlePct, gear }, m);
   const nm = (r) => r.pt.torque * NM_PER_LBFT / DRIVETRAIN_EFF;
   if (method === 'fuel') {
     const base = run(mod);

@@ -24,9 +24,9 @@ import {
   COMPRESSOR_OPTS,
   DEFAULT_MODS, EXHAUST_DIA_OPTS, GEARBOX_OPTS,
   INJECTOR_OPTS,
-  RPM, TURBINE_OPTS, acousticDrive, blowerCurve, blowerOf, blowerSpeedRpm, calibrationAdvice, clamp,
+  TURBINE_OPTS, acousticDrive, blowerCurve, blowerOf, blowerSpeedRpm, calibrationAdvice, clamp,
   computeEngineerScore, computeHardwareVE, computePullScore, computeTuningScore,
-  deriveEngine, exhaustGeometry, idealExhaustDiameter, injectorDutyPreview, interp1, isLocatable, presetById,
+  deriveEngine, exhaustGeometry, idealExhaustDiameter, injectorDutyPreview, isLocatable, presetById,
   simulateDragRun, simulateSweep, torqueCurveFromSweep, turbineWithCount,
   veRecommendations, defaultEcuCalibration, dynoConditions, ecuHardwareOf, tankFuel,
   veTruthByPhaseFor, read1, applyVeCorrections, veCorrections, veSamplesFromLive, veSamplesFromPull,
@@ -510,15 +510,14 @@ export function EcuLabApp() {
     [ve, engineConfig, mods, hwForVe]
   );
 
-  // Injector duty at WOT / 6500 RPM, from the tables as they stand, before any pull.
-  const dutyPreview = useMemo(() => {
-    const rpm = 6500;
-    const boostPsi = turboOn ? boostCurve[RPM.indexOf(rpm)]
-      : blowerWot.length ? interp1(blowerWot.map((p) => p.rpm), blowerWot.map((p) => p.boostPsi), rpm) : 0;
-    return injectorDutyPreview({
-      rpm, boostPsi, intercooler: mods.intercooler, ve, afr, derived: engineDerived, fuel, ecuInjectorCc,
-    });
-  }, [ve, afr, turboOn, boostCurve, ecuInjectorCc, fuel, mods.intercooler, engineDerived, blowerWot]);
+  // Injector duty at WOT / 6500 RPM, from the tables as they stand, before any pull. The
+  // same inputs as the pull (`sweepArgs` below), so the point is the one the pull solves.
+  const dutyPreview = useMemo(() => injectorDutyPreview({
+    rpm: 6500, loadKpa: 100, ve, veTruth, timing, afr, turboOn, boostCurve, fuel, injectorCc, ecuInjectorCc,
+    mods, mafScalar, derived: engineDerived, turbine, compressor: COMPRESSOR_OPTS[compressorIdx], ecu: ecuBundle,
+    ...(blower ? { blower, blowerRatio } : {}), ...(nitrous ? { nitrous } : {}),
+  }), [ve, veTruth, timing, afr, turboOn, boostCurve, fuel, injectorCc, ecuInjectorCc, mods, mafScalar,
+       engineDerived, turbine, compressorIdx, ecuBundle, blower, blowerRatio, nitrous]);
   // `dutyPreview` is computed here, not in InjectorsScreen, because the score breakdown
   // and dyno payload below read it too.
 
