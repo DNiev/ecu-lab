@@ -241,3 +241,24 @@ describe('factory calibration validates against real published figures', () => {
     });
   });
 });
+
+describe('a preset shipping on a flex tank', () => {
+  // No shipped preset does, but `octaneIdx` indexes FUEL_CHOICES, whose fifth entry (Flex)
+  // has no OCTANE_OPTS counterpart. A calibration that looked its fuel up in OCTANE_OPTS
+  // got `undefined` there and threw on the first cell that read the fuel's stoich.
+  const base = S.ENGINE_PRESETS.find((p) => p.induction.turboOn && p.parts.octaneIdx === 1);
+  const flexIdx = S.FUEL_CHOICES.findIndex((f) => f.flex);
+  const onFlex = { ...base, parts: { ...base.parts, octaneIdx: flexIdx } };
+
+  it('gets a factory calibration, with every cell a number', () => {
+    const cal = S.factoryCalibration(onFlex);
+    for (const table of [cal.ve, cal.timing, cal.afr]) {
+      expect(table.flat().every(Number.isFinite)).toBe(true);
+    }
+  });
+
+  it('is calibrated for what the tank holds: with no ethanol, the 93 it is blended from', () => {
+    // A preset carries no ethanol content, so its tank is at E0, as `buildRig` fills it.
+    expect(S.factoryCalibration(onFlex)).toEqual(S.factoryCalibration(base));
+  });
+});

@@ -17,7 +17,7 @@
  */
 
 import {
-  EXHAUST_DIA_OPTS, INJECTOR_OPTS, OCTANE_OPTS, TURBINE_OPTS, turbineWithCount,
+  EXHAUST_DIA_OPTS, INJECTOR_OPTS, TURBINE_OPTS, turbineWithCount,
 } from './hardware.js';
 import { BARO_KPA, PSI_TO_KPA } from './constants.js';
 import { computeHardwareVE } from './airflow.js';
@@ -28,7 +28,7 @@ import { bestPowerAfr, reachableKpa } from './manifold.js';
 import { mafErrorFactor } from './sweep.js';
 import { chargeTempK, exhaustTempK } from './thermo.js';
 import { defaultEcuCalibration } from './ecu/calibration.js';
-import { DEFAULT_ECU_HW } from './ecu/context.js';
+import { DEFAULT_ECU_HW, tankFuel } from './ecu/context.js';
 import { deriveEngine } from './engine.js';
 import { clamp, interp2 } from './math.js';
 import {
@@ -397,6 +397,19 @@ export function presetTurbine(preset) {
   return turbineWithCount(TURBINE_OPTS[turbineIdx], turbineCount);
 }
 
+/**
+ * The fuel in a preset's tank, read the way `buildRig` reads a build's.
+ *
+ * `octaneIdx` indexes FUEL_CHOICES, not OCTANE_OPTS: a preset could ship on Flex, which
+ * has no OCTANE_OPTS entry. A preset carries no ethanol content, so a flex tank is at E0.
+ * For a pump fuel this is the OCTANE_OPTS entry itself.
+ *
+ * @param {Preset} preset
+ */
+function presetFuel(preset) {
+  return tankFuel({ octaneIdx: preset.parts.octaneIdx });
+}
+
 /** The induction hardware bundle `computeHardwareVE` expects. */
 function hardwareFor(preset) {
   const { turboOn, turbineIdx, boost } = preset.induction;
@@ -404,7 +417,7 @@ function hardwareFor(preset) {
     turboOn,
     turbine: turboOn ? TURBINE_OPTS[turbineIdx] : null,
     exhaustDia: EXHAUST_DIA_OPTS[preset.parts.exhaustDiaIdx].dia,
-    fuel: OCTANE_OPTS[preset.parts.octaneIdx],
+    fuel: presetFuel(preset),
     peakBoostPsi: turboOn ? Math.max(...boost) : 0,
   };
 }
@@ -420,7 +433,7 @@ function hardwareFor(preset) {
  */
 export function factoryCalibration(preset) {
   const derived = deriveEngine(preset.engine);
-  const fuel = OCTANE_OPTS[preset.parts.octaneIdx];
+  const fuel = presetFuel(preset);
   const hw = hardwareFor(preset);
   const ve = computeHardwareVE(preset.engine, preset.mods, hw);
 
