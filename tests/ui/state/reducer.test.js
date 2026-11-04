@@ -19,7 +19,7 @@ import {
   RESTORE_ALL, RESTORE_CALIBRATION, restore, snapshot,
 } from '../../../src/ui/state/history.js';
 import { makeInitialState } from '../../../src/ui/state/initialState.js';
-import { ACTIONS, reducer } from '../../../src/ui/state/reducer.js';
+import { ACTIONS, reducer, UNDO_SCOPE } from '../../../src/ui/state/reducer.js';
 import { RUN_LIMIT } from '../../../src/ui/state/runLog.js';
 
 /**
@@ -70,7 +70,10 @@ function makeSentinelState() {
 function changedFieldKeys(before, after) {
   const changed = new Set();
   for (const slice of Object.keys(before)) {
-    for (const field of Object.keys(before[slice])) {
+    // Both sides' keys: a write to a field the starting state never seeded (an optional
+    // one such as `blowerId` before it had a default) changes the state just the same.
+    const fields = new Set([...Object.keys(before[slice]), ...Object.keys(after[slice] ?? {})]);
+    for (const field of fields) {
       if (before[slice][field] !== after[slice][field]) {
         changed.add(`${slice}.${field}`);
       }
@@ -1199,6 +1202,18 @@ describe('UNDO / REDO', () => {
     expect(reducer(loaded, { type: ACTIONS.UNDO }).build.nitrous).toBe(kit);
   });
 
+  it('takes the supercharger and nitrous kit off again on redo', () => {
+    const kit = { kit: /** @type {const} */ ('wet'), shotHp: 150, heater: true, bottleLb: 10 };
+    const fitted = { ...makeInitialState() };
+    fitted.build = { ...fitted.build, turboOn: false, blowerId: 'tvs1900', blowerRatio: 1.45, nitrous: kit };
+    const loaded = reducer(fitted, { type: ACTIONS.APPLY_PRESET, preset: N54_PRESET });
+    const redone = [{ type: ACTIONS.UNDO }, { type: ACTIONS.REDO }].reduce(reducer, loaded);
+    expect(redone.build.blowerId).toBeNull();
+    expect(redone.build.nitrous).toBeNull();
+    expect(redone.build.turboOn).toBe(true);
+    expect(redone.build.presetId).toBe(loaded.build.presetId);
+  });
+
   it('brings back the supercharger on its own pulley, not one fitted after the preset', () => {
     // Fitting a blower also writes a starter pulley ratio for it (InductionScreen's
     // `setBlower`). Undoing the preset restores the old blower, so it has to restore that
@@ -1736,10 +1751,28 @@ describe('snapshot field coverage', () => {
   // excludes on purpose. Asked of the reducer itself through the sentinel state, so a
   // field a later change adds to APPLY_PRESET or RESET_TO_STOCK fails here by name
   // instead of quietly staying changed after an undo (#146: blowerId and nitrous).
-  it.each([
-    ['APPLY_PRESET', { type: ACTIONS.APPLY_PRESET, preset: N54_PRESET }],
-    ['RESET_TO_STOCK', { type: ACTIONS.RESET_TO_STOCK, ve: [[1]] }],
-  ])('snapshots every build and tune field %s writes', (_name, action) => {
+  //
+  // One example of each undoable action, keyed by type. The actions are walked from
+  // UNDO_SCOPE rather than listed here, so a new undoable action fails the first test
+  // below until it has an example, and is then checked against its scope like the rest.
+  const UNDOABLE_EXAMPLES = {
+    [ACTIONS.APPLY_PRESET]: { type: ACTIONS.APPLY_PRESET, preset: N54_PRESET },
+    [ACTIONS.RESET_TO_STOCK]: { type: ACTIONS.RESET_TO_STOCK, ve: [[1]] },
+    [ACTIONS.SET_TABLE]: { type: ACTIONS.SET_TABLE, table: 've', value: [[42]] },
+    [ACTIONS.SET_ECU]: { type: ACTIONS.SET_ECU, value: { loaded: true } },
+    [ACTIONS.SWITCH_MAP]: { type: ACTIONS.SWITCH_MAP, index: 1 },
+    [ACTIONS.COPY_MAP]: { type: ACTIONS.COPY_MAP, to: 1 },
+    [ACTIONS.SWAP_MAPS]: { type: ACTIONS.SWAP_MAPS, a: 0, b: 1 },
+  };
+  const examplesIn = (scope) => Object.keys(UNDO_SCOPE)
+    .filter((type) => UNDO_SCOPE[type] === scope)
+    .map((type) => [type, UNDOABLE_EXAMPLES[type]]);
+
+  it('has an example of every undoable action', () => {
+    expect(Object.keys(UNDOABLE_EXAMPLES).sort()).toEqual(Object.keys(UNDO_SCOPE).sort());
+  });
+
+  it.each(examplesIn(RESTORE_ALL))('snapshots every build and tune field %s writes', (_name, action) => {
     const before = makeSentinelState();
     const changed = changedFieldKeys(before, reducer(before, action));
     const snap = snapshot(before);
@@ -1751,6 +1784,18 @@ describe('snapshot field coverage', () => {
     const missed = [...changed].filter((key) => (key.startsWith('build.') || key.startsWith('tune.'))
       && !snapshotted.has(key) && !cursors.has(key));
     expect(missed).toEqual([]);
+  });
+
+  // The other scope's promise: RESTORE_CALIBRATION puts back `presetId` and no other
+  // build field, so an action under it must write no other build field, or its undo
+  // would leave that write in place. Real tune, sentinel build: the map actions need a
+  // real `activeMap` to do anything, and only the build side is under test.
+  it.each(examplesIn(RESTORE_CALIBRATION))('%s writes no build field but presetId', (_name, action) => {
+    const before = { ...makeSentinelState(), tune: makeInitialState().tune };
+    const after = reducer(before, action);
+    expect(after.tune).not.toBe(before.tune);
+    const written = [...changedFieldKeys(before, after)].filter((key) => key.startsWith('build.'));
+    expect(written.filter((key) => key !== 'build.presetId')).toEqual([]);
   });
 
   // Every field below is seeded to a value that differs from BOTH its

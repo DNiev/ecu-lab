@@ -27,6 +27,10 @@
  * that might look like a missed field at a glance, `tune.selection` and
  * `build.presetPrompt`; see the comments on TUNE_KEYS and BUILD_KEYS below for why
  * each one specifically is a cursor rather than state worth restoring.
+ *
+ * One field no undoable action writes is included: `build.blowerRatio`. A field that
+ * only makes sense alongside a restored one has to come back with it, or the restore
+ * pairs old hardware with a setting chosen for new hardware. See BUILD_KEYS.
  */
 
 /** @typedef {import('./initialState.js').StoreState} StoreState */
@@ -59,8 +63,9 @@ const BUILD_KEYS = [
   'mafScalar', 'presetId', 'fuelSystem', 'sensorHw', 'wastegate', 'coil', 'plugGapMm',
   'ethanolPct',
   // APPLY_PRESET takes off any supercharger and nitrous kit (a preset is a factory car).
-  // `blowerRatio` goes with `blowerId`: fitting a blower writes a starter ratio for it,
-  // so restoring the blower without its ratio would put it on another blower's pulley.
+  // `blowerRatio` goes with `blowerId` although no undoable action writes it: fitting a
+  // blower writes a starter ratio for it, so restoring the blower without its ratio
+  // would put it on another blower's pulley.
   'blowerId', 'blowerRatio', 'nitrous',
 ];
 
