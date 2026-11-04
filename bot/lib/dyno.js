@@ -30,6 +30,23 @@ export class DynoInputError extends Error {
 }
 
 /**
+ * Stock pulls by preset id. A preset's stock pull never changes, so a warm instance runs
+ * each one once. Callers only read the result; nothing may mutate it.
+ * @type {Map<string, ReturnType<ReturnType<typeof buildRig>['pull']>>}
+ */
+const stockPulls = new Map();
+
+/** @param {string} id */
+function stockPull(id) {
+  let pull = stockPulls.get(id);
+  if (!pull) {
+    pull = buildRig({ preset: id }).pull();
+    stockPulls.set(id, pull);
+  }
+  return pull;
+}
+
+/**
  * @param {{ engine: string, intake?: boolean, exhaust?: boolean, headers?: boolean, fuel?: string }} options
  */
 export function runDyno({ engine, intake, exhaust, headers, fuel }) {
@@ -51,7 +68,7 @@ export function runDyno({ engine, intake, exhaust, headers, fuel }) {
   for (const k of MOD_KEYS) if (typeof given[k] === 'boolean') mods[k] = given[k];
 
   const isStock = octaneIdx === preset.parts.octaneIdx && MOD_KEYS.every((k) => mods[k] === preset.mods[k]);
-  const stock = buildRig({ preset: preset.id }).pull();
+  const stock = stockPull(preset.id);
   const modified = isStock ? stock : buildRig({ preset: preset.id, build: { mods, octaneIdx } }).pull();
 
   // A NaN peak would render as "NaN whp" and an empty chart. That is a sim bug, and

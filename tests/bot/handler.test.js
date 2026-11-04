@@ -111,6 +111,16 @@ describe('createHandler', () => {
     expect(log.warn).toHaveBeenCalled();
   });
 
+  it('still edits the reply when the options arrive in a shape it does not expect', async () => {
+    const { handle, fetch, log, settle } = setup();
+    const interaction = { ...dynoInteraction({}), data: { name: 'dyno', options: { engine: 'vq35hr' } } };
+    await handle(signedRequest(interaction));
+    await settle();
+    const payload = JSON.parse(fetch.mock.calls[0][1].body);
+    expect(payload.embeds[0].title).toBe('The pull crashed');
+    expect(log.error).toHaveBeenCalled();
+  });
+
   it('reports a crashed pull as a bug, with the build line', async () => {
     const dyno = () => { throw new Error('NaN everywhere'); };
     const { handle, fetch, log, settle } = setup({ dyno });

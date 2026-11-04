@@ -17,7 +17,7 @@ const moddedRun = runDyno({ engine: 'vq35hr', intake: true, headers: true });
 
 describe('dynoChartSvg', () => {
   it('is a well-formed SVG of the agreed size', () => {
-    const doc = parse(dynoChartSvg({ stock: stockRun.stock, modified: stockRun.modified, title: 'T' }));
+    const doc = parse(dynoChartSvg({ stock: stockRun.stock, modified: stockRun.modified, isStock: stockRun.isStock, title: 'T' }));
     expect(doc.getElementsByTagName('parsererror')).toHaveLength(0);
     const root = doc.documentElement;
     expect(root.tagName).toBe('svg');
@@ -26,7 +26,7 @@ describe('dynoChartSvg', () => {
   });
 
   it('draws power and torque, and no stock overlay for a stock pull', () => {
-    const doc = parse(dynoChartSvg({ stock: stockRun.stock, modified: stockRun.modified, title: 'T' }));
+    const doc = parse(dynoChartSvg({ stock: stockRun.stock, modified: stockRun.modified, isStock: stockRun.isStock, title: 'T' }));
     expect(doc.querySelector('[data-series="hp"]')).not.toBeNull();
     expect(doc.querySelector('[data-series="torque"]')).not.toBeNull();
     expect(doc.querySelector('[data-series="stock-hp"]')).toBeNull();
@@ -34,7 +34,7 @@ describe('dynoChartSvg', () => {
   });
 
   it('overlays the stock curves, dashed, when the build differs', () => {
-    const doc = parse(dynoChartSvg({ stock: moddedRun.stock, modified: moddedRun.modified, title: 'T' }));
+    const doc = parse(dynoChartSvg({ stock: moddedRun.stock, modified: moddedRun.modified, isStock: moddedRun.isStock, title: 'T' }));
     for (const s of ['stock-hp', 'stock-torque']) {
       const line = doc.querySelector(`[data-series="${s}"]`);
       expect(line).not.toBeNull();
@@ -43,25 +43,25 @@ describe('dynoChartSvg', () => {
   });
 
   it('plots one vertex per point of the pull', () => {
-    const doc = parse(dynoChartSvg({ stock: stockRun.stock, modified: stockRun.modified, title: 'T' }));
+    const doc = parse(dynoChartSvg({ stock: stockRun.stock, modified: stockRun.modified, isStock: stockRun.isStock, title: 'T' }));
     const d = doc.querySelector('[data-series="hp"]').getAttribute('d');
     expect(d.match(/[ML]/g)).toHaveLength(stockRun.modified.points.length);
   });
 
   it('escapes the title', () => {
-    const svg = dynoChartSvg({ stock: stockRun.stock, modified: stockRun.modified, title: 'A <b> & "c"' });
+    const svg = dynoChartSvg({ stock: stockRun.stock, modified: stockRun.modified, isStock: stockRun.isStock, title: 'A <b> & "c"' });
     expect(parse(svg).getElementsByTagName('parsererror')).toHaveLength(0);
     expect(svg).toContain('A &lt;b&gt; &amp; &quot;c&quot;');
   });
 
   it('uses only the app\'s token colours', () => {
-    const svg = dynoChartSvg({ stock: moddedRun.stock, modified: moddedRun.modified, title: 'T' });
+    const svg = dynoChartSvg({ stock: moddedRun.stock, modified: moddedRun.modified, isStock: moddedRun.isStock, title: 'T' });
     const allowed = new Set(Object.values(tokens).filter((v) => typeof v === 'string').map((v) => v.toLowerCase()));
     for (const hex of svg.match(/#[0-9a-f]{3,8}\b/gi) ?? []) expect(allowed).toContain(hex.toLowerCase());
   });
 
   it('names its font, since resvg sees only the bundled one', () => {
-    const svg = dynoChartSvg({ stock: stockRun.stock, modified: stockRun.modified, title: 'T' });
+    const svg = dynoChartSvg({ stock: stockRun.stock, modified: stockRun.modified, isStock: stockRun.isStock, title: 'T' });
     expect(svg).toContain('font-family="Roboto"');
   });
 });

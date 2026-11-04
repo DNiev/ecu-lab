@@ -30,6 +30,11 @@ export const DISCORD_API = 'https://discord.com/api/v10';
  * was flushed to the socket. That eats Discord's 3-second budget, and lets the edit reach
  * Discord before the reply it edits exists (a 404, leaving "thinking…" on screen forever).
  * A timer lets the response go out first. The delay is slack for the runtime to write it.
+ *
+ * The timer only protects this request's own deferral. Another request on the same
+ * instance would wait behind the work, so `vercel.json` turns Fluid compute off: each
+ * instance then serves one request at a time, and a second tester gets an instance of
+ * their own instead of queueing past Discord's 3 seconds.
  */
 export const WORK_START_DELAY_MS = 100;
 
@@ -124,13 +129,14 @@ export function createHandler({ publicKey, waitUntil, render, fetch, sha, log = 
  * be reached.
  */
 async function completeDyno({ interaction, render, fetch, sha, log, dyno }) {
-  const options = optionsOf(interaction);
+  let options;
   let message;
   let png = null;
   try {
+    options = optionsOf(interaction);
     const run = dyno(/** @type {any} */ (options));
     try {
-      png = await render(dynoChartSvg({ stock: run.stock, modified: run.modified, title: replyTitle(run) }));
+      png = await render(dynoChartSvg({ stock: run.stock, modified: run.modified, isStock: run.isStock, title: replyTitle(run) }));
     } catch (err) {
       log.error('dyno: the chart failed to render', err);
     }

@@ -1,6 +1,7 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "ignoreCommand": "bash scripts/should-build.sh",
+  "fluid": false,
   "functions": {
     "api/interactions.js": {
       "maxDuration": 15,

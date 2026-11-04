@@ -19,9 +19,6 @@ import { MOD_KEYS } from './dyno.js';
 /** How many pull-log events a reply lists before counting the rest. */
 export const MAX_EVENTS = 3;
 
-/** A token's `#rrggbb` as the integer Discord wants. */
-const embedColour = (/** @type {string} */ hex) => parseInt(hex.slice(1), 16);
-
 /**
  * A whole-number difference with its sign. A real minus sign (U+2212), as a printed
  * dyno sheet would have it, and ±0 for no change.
@@ -96,7 +93,7 @@ export function dynoReply({ preset, mods, fuel, isStock, stock, modified, sha, c
   const { embeds: [embed] } = buildPayload({
     title: replyTitle({ preset, mods, fuel }),
     description: lines.join('\n'),
-    color: embedColour(colour),
+    color: colour,
     footer: footerText(sha),
   });
   if (chart) embed.image = { url: 'attachment://dyno.png' };
@@ -113,6 +110,6 @@ export function dynoReply({ preset, mods, fuel, isStock, stock, modified, sha, c
  * @param {{ title: string, description: string, sha?: string }} problem
  */
 export function problemReply({ title, description, sha }) {
-  const { embeds } = buildPayload({ title, description, color: embedColour(tokens.danger), footer: footerText(sha) });
+  const { embeds } = buildPayload({ title, description, color: tokens.danger, footer: footerText(sha) });
   return { embeds, attachments: [], allowed_mentions: { parse: [] } };
 }

@@ -12,12 +12,17 @@ import { describe, expect, it } from 'vitest';
 
 import * as S from '../src/sim/index.js';
 
-/** A preset's dyno pull, assembled the way EcuLab.jsx assembles it from its state. */
-function appPull(presetId) {
+/**
+ * A preset's dyno pull, assembled the way EcuLab.jsx assembles it from its state, after
+ * the user has changed any of `change` (the parts and fuel `/dyno` can change) in the UI.
+ * @param {string} presetId
+ * @param {{ mods?: object, octaneIdx?: number }} [change]
+ */
+function appPull(presetId, change = {}) {
   const p = S.applyPreset(S.presetById(presetId));
   const build = {
-    engineConfig: p.engineConfig, mods: p.mods, turboOn: p.turboOn, boostCurve: p.boostCurve,
-    octaneIdx: p.octaneIdx, injIdx: p.injIdx, ecuInjectorCc: p.ecuInjectorCc,
+    engineConfig: p.engineConfig, mods: change.mods ?? p.mods, turboOn: p.turboOn, boostCurve: p.boostCurve,
+    octaneIdx: change.octaneIdx ?? p.octaneIdx, injIdx: p.injIdx, ecuInjectorCc: p.ecuInjectorCc,
     turbineIdx: p.turbineIdx, turbineCount: p.turbineCount, compressorIdx: p.compressorIdx,
     exhaustDiaIdx: p.exhaustDiaIdx, ethanolPct: 0,
   };
@@ -49,6 +54,16 @@ describe('buildRig', () => {
   S.ENGINE_PRESETS.forEach((preset) => {
     it(`pulls ${preset.name} exactly as the app does`, () => {
       expect(S.buildRig({ preset: preset.id }).pull()).toEqual(appPull(preset.id));
+    });
+
+    // What `/dyno` mostly runs: the factory tune with parts and fuel changed. Stock parity
+    // alone would miss a change that reaches one part of the assembly but not another.
+    it(`pulls ${preset.name} with bolt-ons and another fuel exactly as the app does`, () => {
+      const change = {
+        mods: { ...preset.mods, intake: true, exhaust: true, headers: true },
+        octaneIdx: preset.parts.octaneIdx === 2 ? 1 : 2,
+      };
+      expect(S.buildRig({ preset: preset.id, build: change }).pull()).toEqual(appPull(preset.id, change));
     });
   });
 

@@ -7,12 +7,12 @@
 import { generateKeyPairSync, sign } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
 
-import { verifyDiscordRequest } from '../../bot/lib/verify.js';
+import { MAX_CLOCK_SKEW_S, verifyDiscordRequest } from '../../bot/lib/verify.js';
 
 const { publicKey: pub, privateKey } = generateKeyPairSync('ed25519');
 // Discord shows the public key as 64 hex characters: the raw 32-byte key.
 const publicKey = Buffer.from(pub.export({ format: 'jwk' }).x, 'base64url').toString('hex');
-const timestamp = '1730000000';
+const timestamp = String(Math.floor(Date.now() / 1000));
 const body = '{"type":1}';
 const signature = sign(null, Buffer.from(timestamp + body), privateKey).toString('hex');
 
@@ -34,12 +34,28 @@ describe('verifyDiscordRequest', () => {
   });
 
   it('rejects a changed timestamp', () => {
-    expect(verifyDiscordRequest({ publicKey, signature, timestamp: '1730000001', body })).toBe(false);
+    expect(verifyDiscordRequest({ publicKey, signature, timestamp: String(Number(timestamp) + 1), body })).toBe(false);
   });
 
   it('rejects a changed signature', () => {
     const flipped = (signature[0] === '0' ? '1' : '0') + signature.slice(1);
     expect(verifyDiscordRequest({ publicKey, signature: flipped, timestamp, body })).toBe(false);
+  });
+
+  it('rejects a correctly signed request that is no longer fresh', () => {
+    // A replay: the signature still checks out, but the request is too old to accept.
+    const later = (Number(timestamp) + MAX_CLOCK_SKEW_S + 1) * 1000;
+    expect(verifyDiscordRequest({ publicKey, signature, timestamp, body, now: later })).toBe(false);
+    const earlier = (Number(timestamp) - MAX_CLOCK_SKEW_S - 1) * 1000;
+    expect(verifyDiscordRequest({ publicKey, signature, timestamp, body, now: earlier })).toBe(false);
+    const withinSkew = (Number(timestamp) + MAX_CLOCK_SKEW_S - 1) * 1000;
+    expect(verifyDiscordRequest({ publicKey, signature, timestamp, body, now: withinSkew })).toBe(true);
+  });
+
+  it('rejects a timestamp that is not a whole number of seconds', () => {
+    const odd = `${timestamp}.5`;
+    const signed = sign(null, Buffer.from(odd + body), privateKey).toString('hex');
+    expect(verifyDiscordRequest({ publicKey, signature: signed, timestamp: odd, body })).toBe(false);
   });
 
   it('rejects a missing header', () => {

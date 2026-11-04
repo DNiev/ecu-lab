@@ -46,10 +46,13 @@ function change(file) {
   changeAll([file]);
 }
 
-/** Runs the script as Vercel would. `previousSha` is the last successful deployment's commit. */
-function run(ref, previousSha) {
+/**
+ * Runs the script as Vercel would. `previousSha` is the last successful deployment's commit.
+ * Vercel sets VERCEL_ENV to `production` only for this project's production branch.
+ */
+function run(ref, previousSha, vercelEnv = ref === 'main' ? 'production' : 'preview') {
   /** @type {Record<string, string | undefined>} */
-  const env = { ...process.env, VERCEL_GIT_COMMIT_REF: ref };
+  const env = { ...process.env, VERCEL_GIT_COMMIT_REF: ref, VERCEL_ENV: vercelEnv };
   // A stray value from the developer's shell must not leak into the "no previous SHA" case.
   delete env.VERCEL_GIT_PREVIOUS_SHA;
   if (previousSha) env.VERCEL_GIT_PREVIOUS_SHA = previousSha;
@@ -62,6 +65,11 @@ describe('should-build.sh', () => {
   it('skips any branch but main, even when the bot changed', () => {
     repo(); change('bot/a.js');
     expect(run('feature')).toBe(0);
+  });
+
+  it("skips a fork's pull request from a branch the fork calls main", () => {
+    repo(); change('bot/a.js');
+    expect(run('main', baseSha, 'preview')).toBe(0);
   });
 
   for (const file of ['bot/a.js', 'src/sim/x.js', 'src/ui/tokens.js', 'scripts/discord-notify.js']) {

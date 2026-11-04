@@ -21,7 +21,7 @@ for (const preset of ENGINE_PRESETS) {
   for (const [suffix, options] of [['stock', {}], ['bolt-ons', { intake: true, exhaust: true, headers: true }]]) {
     const run = runDyno({ engine: preset.id, ...options });
     const file = join(dir, `${preset.id}-${suffix}.png`);
-    writeFileSync(file, svgToPng(dynoChartSvg({ stock: run.stock, modified: run.modified, title: replyTitle(run) })));
+    writeFileSync(file, svgToPng(dynoChartSvg({ stock: run.stock, modified: run.modified, isStock: run.isStock, title: replyTitle(run) })));
     console.log(file);
   }
 }

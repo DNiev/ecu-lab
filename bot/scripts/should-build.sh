@@ -2,7 +2,10 @@
 # Vercel's "Ignored Build Step" for the /dyno bot: exit 0 skips the deploy, exit 1 builds it.
 #
 # Only main gets a live bot. Branches and pull requests, forks included, are skipped
-# outright, so nobody's unmerged code ever answers in the testers' server.
+# outright, so nobody's unmerged code ever answers in the testers' server. The branch name
+# alone isn't enough for that: a fork's pull request can come from a branch the fork also
+# calls main. Vercel marks only deployments of this project's own production branch as
+# production, so both are checked.
 #
 # On main, build only when something the bot runs changed: the bot itself, the sim, the
 # colour tokens the chart reads, or the embed builder the reply uses. Anything else (the
@@ -17,8 +20,8 @@
 # ahead, the safe way to fail.
 set -u
 
-if [ "${VERCEL_GIT_COMMIT_REF:-}" != "main" ]; then
-  echo "Not main (${VERCEL_GIT_COMMIT_REF:-unset}): skipping. Only main gets a live bot."
+if [ "${VERCEL_ENV:-}" != "production" ] || [ "${VERCEL_GIT_COMMIT_REF:-}" != "main" ]; then
+  echo "Not a production deploy of main (${VERCEL_ENV:-unset}, ${VERCEL_GIT_COMMIT_REF:-unset}): skipping. Only main gets a live bot."
   exit 0
 fi
 

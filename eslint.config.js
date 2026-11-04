@@ -31,11 +31,6 @@ export default [
         AbortSignal: 'readonly',
         Blob: 'readonly',
         AudioWorkletNode: 'readonly',
-        Buffer: 'readonly',
-        Response: 'readonly',
-        Request: 'readonly',
-        Headers: 'readonly',
-        FormData: 'readonly',
       },
     },
     plugins: { react, 'react-hooks': reactHooks },
@@ -54,6 +49,20 @@ export default [
       }],
       eqeqeq: ['error', 'always', { null: 'ignore' }],
       'no-implicit-coercion': ['warn', { boolean: false }],
+    },
+  },
+  {
+    // The /dyno bot and its tests run in Node, never in the browser. These globals are
+    // scoped here so browser code under src/ still fails lint if it reaches for them.
+    files: ['bot/**/*.js', 'tests/bot/**/*.js'],
+    languageOptions: {
+      globals: {
+        Buffer: 'readonly',
+        Response: 'readonly',
+        Request: 'readonly',
+        Headers: 'readonly',
+        FormData: 'readonly',
+      },
     },
   },
 ];

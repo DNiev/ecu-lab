@@ -18,7 +18,11 @@ The design is in `docs/superpowers/specs/2026-10-28-discord-dyno-bot-design.md`.
   then runs the pulls, draws the chart and edits that reply.
 - `lib/` is all the logic. It imports nothing from `bot/node_modules`, so the root
   `npm test`, `npm run lint` and `npm run typecheck` cover it.
-- `render.js` turns the SVG chart into a PNG with resvg and the bundled Roboto font.
+- `render.js` turns the SVG chart into a PNG with resvg and the bundled Roboto font. The
+  handler loads it on first use, inside the deferred work, so resvg's native binary isn't
+  on the path that has to answer Discord within 3 seconds.
+- `vercel.json` turns Fluid compute off. The pulls block the event loop, so each instance
+  serves one request at a time rather than make a second tester's request wait.
 - The pull is `buildRig` from `src/sim/rig.js`: the same assembly the app uses.
 
 ## Setting it up (the owner's steps)
@@ -60,7 +64,8 @@ None of these involve putting a secret in the repo.
 ## Deploys
 
 Vercel deploys from `main` only. `scripts/should-build.sh` skips every other branch and
-pull request, forks included. On `main` it compares against the last successful deployment
+pull request, forks included (it checks `VERCEL_ENV` as well as the branch name, since a
+fork's branch can also be called `main`). On `main` it compares against the last successful deployment
 (Vercel's `VERCEL_GIT_PREVIOUS_SHA`), not the previous commit, and builds only if the bot,
 `src/sim`, `src/ui/tokens.js` or `scripts/discord-notify.js` changed in between. So several
 merges since the last deploy, or a failed deploy followed by a docs-only commit, still

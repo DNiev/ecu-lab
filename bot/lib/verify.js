@@ -10,21 +10,29 @@
  * Node's own crypto does Ed25519, so this needs no dependency. Discord gives the public key
  * as 64 hex characters (the raw 32-byte key); Node wants a key object, which a JWK with that
  * key as `x` provides.
+ *
+ * A signature alone never expires, so a captured request could be replayed for ever, each
+ * copy running two pulls. The timestamp is inside what was signed, so a request is only
+ * accepted while it is fresh.
  */
 
 import { createPublicKey, verify } from 'node:crypto';
 
 const HEX_KEY = /^[0-9a-f]{64}$/i;
 const HEX_SIGNATURE = /^[0-9a-f]{128}$/i;
+/** How far a request's timestamp may be from this machine's clock, either way. */
+export const MAX_CLOCK_SKEW_S = 300;
 
 /**
- * @param {{ publicKey?: string | null, signature?: string | null, timestamp?: string | null, body: string }} request
- * @returns {boolean} true only for a well-formed, correctly signed request
+ * @param {{ publicKey?: string | null, signature?: string | null, timestamp?: string | null, body: string, now?: number }} request
+ *   `now` is the current time in milliseconds
+ * @returns {boolean} true only for a well-formed, correctly signed, fresh request
  */
-export function verifyDiscordRequest({ publicKey, signature, timestamp, body }) {
+export function verifyDiscordRequest({ publicKey, signature, timestamp, body, now = Date.now() }) {
   if (!publicKey || !HEX_KEY.test(publicKey)) return false;
   if (!signature || !HEX_SIGNATURE.test(signature)) return false;
-  if (!timestamp) return false;
+  if (!timestamp || !/^\d+$/.test(timestamp)) return false;
+  if (Math.abs(now / 1000 - Number(timestamp)) > MAX_CLOCK_SKEW_S) return false;
   try {
     const key = createPublicKey({
       key: { kty: 'OKP', crv: 'Ed25519', x: Buffer.from(publicKey, 'hex').toString('base64url') },

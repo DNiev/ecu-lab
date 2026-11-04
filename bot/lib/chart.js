@@ -32,11 +32,11 @@ export function escapeXml(text) {
 }
 
 /**
- * @param {{ stock: {points: object[]}, modified: {points: object[]}, title: string }} input
+ * @param {{ stock: {points: object[]}, modified: {points: object[]}, isStock: boolean, title: string }} input
  * @returns {string}
  */
-export function dynoChartSvg({ stock, modified, title }) {
-  const showStock = stock !== modified;
+export function dynoChartSvg({ stock, modified, isStock, title }) {
+  const showStock = !isStock;
   const pulls = showStock ? [stock, modified] : [modified];
   /** @param {{points: any[]}} pull */
   const plotted = (pull) => pull.points.filter((p) => Number.isFinite(p.hp) && Number.isFinite(p.torque));
