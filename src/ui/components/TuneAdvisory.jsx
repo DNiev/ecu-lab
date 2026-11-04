@@ -137,8 +137,8 @@ function TimingAdvisory({ report }) {
         </div>
       );
 
-    // A selected row or column. Severity already picked the tone and headline
-    // (Task 3); the body just points at the fix.
+    // A selected row or column. Severity already picked the tone and headline;
+    // the body just points at the fix.
     case 'group-over':
     case 'group-past-mbt':
     case 'group-under':

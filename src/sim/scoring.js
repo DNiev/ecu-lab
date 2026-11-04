@@ -164,14 +164,14 @@ export function computeEngineerScore({
     // The physics already charges for compression separately: it shortens the clearance
     // volume the cycle integrates over, which raises peak pressure and shortens the
     // ignition delay of the end gas, so the tune goes knock-limited and the Tuning Score
-    // deducts for the events that follow. This rule is deliberately gentler than the
-    // flat penalty it replaced so the same decision is not billed twice at full price.
+    // deducts for the events that follow. This rule is deliberately gentle so the same
+    // decision is not billed twice at full price.
     //
-    // And it moves with HOW MUCH boost, not merely whether there is any. Boost level is
-    // the largest single determinant of whether high compression survives, and this rule
-    // used to ignore it: 5 psi and 25 psi were graded identically. The reference is a
-    // swing about the boost the base was fitted at, so a factory-level build sits exactly
-    // where it always did while a 25 psi build on the same short block is charged for it.
+    // And it moves with how much boost, not merely whether there is any. Boost level is
+    // the largest single determinant of whether high compression survives, so 5 psi and
+    // 25 psi must not be graded alike. Boost only costs headroom above the level the base
+    // was fitted at, so a factory-level build pays nothing for it while a 25 psi build on
+    // the same short block is charged.
     const headroom = COEFF.COMPRESSION_BOOST_BASE
       + fuel.bonus * COEFF.COMPRESSION_PER_OCTANE_DEG
       + (mods.intercooler ? COEFF.COMPRESSION_INTERCOOLER_GAIN : 0)
@@ -182,8 +182,8 @@ export function computeEngineerScore({
       const cooling = mods.intercooler ? 'an intercooler' : 'no charge cooling';
       // Name the levers this build has NOT already pulled. Telling someone on E85 with
       // an intercooler that higher octane and charge cooling would buy it back is
-      // advice they cannot act on — and now that the headroom moves with boost level,
-      // backing the boost off is a real answer where before it did nothing.
+      // advice they cannot act on. Because the headroom moves with boost level, backing
+      // the boost off is a real answer.
       //
       // Boost is only offered ABOVE the reference, because that is the only place it
       // buys anything: the term is one-sided, so a build already at or under the
@@ -203,10 +203,10 @@ export function computeEngineerScore({
     }
   }
   if (!turboOn && !supercharged) {
-    // The naturally-aspirated branch used to fire only BELOW 9.0:1, so a turbo build at
-    // 10.9:1 on 91 was charged a point while an NA build at 13.0:1 on the same fuel —
-    // reachable on the same slider — was charged nothing (issue #27). Both ends of the
-    // slider are now judged, against the same headroom idea as the boosted branch.
+    // Both ends of the slider are judged, against the same headroom idea as the boosted
+    // branch. Judging only below 9.0:1 would charge a turbo build at 10.9:1 on 91 a point
+    // while an NA build at 13.0:1 on the same fuel, reachable on the same slider, paid
+    // nothing (issue #27).
     if (engineConfig.compression < 9.0) {
       score -= 10; deductions.push('-10 Low compression leaves naturally-aspirated efficiency on the table');
     } else {

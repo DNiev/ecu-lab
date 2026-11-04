@@ -2,12 +2,12 @@
  * Engine acoustics — the physics of what the engine SOUNDS like.
  *
  * Sound is the one output of this simulation the player perceives directly rather than
- * reading off a gauge, and until now it was invented in the UI: pitch from RPM, volume
- * from throttle, "V8-ness" from a hand-typed pattern of pulse spacings. None of that is
- * wrong-sounding, but none of it is connected to the engine, so tuning could not change
- * it and the sound could contradict the physics on screen.
+ * reading off a gauge. Invented in the UI (pitch from RPM, volume from throttle,
+ * "V8-ness" from a hand-typed pattern of pulse spacings) it would not be connected to
+ * the engine, so tuning could not change it and the sound could contradict the physics
+ * on screen.
  *
- * This module closes that gap. The same rule the rest of `src/sim/` lives by applies:
+ * So the same rule the rest of `src/sim/` lives by applies:
  * NOTHING ADDS SOUND. Every audible property is derived from a quantity the cycle model
  * already produces, and the UI layer only renders what comes out of here.
  *
@@ -493,12 +493,12 @@ export function evoPressureKpa({ peakPressureBar, peakPressureDeg, compression, 
 export function cyclicVariation({ rpm, overlapDeg = 0 }) {
   // VALVE OVERLAP, NOT RESIDUAL FRACTION, AND THAT IS A COMPROMISE WORTH READING.
   //
-  // Residual is the better physical basis and this function used to use it. It does not
-  // work against the residual model we have: `residualFraction` in thermo.js is dominated
-  // by the pressure ratio across the cylinder, so at a 40 kPa idle it reports 0.12 for a
-  // stock cam and 0.13 for a 290-degree race cam — a 9% spread, where the audible
-  // difference between those two engines is total. Worse, it reports a HIGH number for a
-  // stock engine at deep vacuum, so driving lope from it made every engine loaf at idle.
+  // Residual is the better physical basis, but it does not work against the residual
+  // model we have: `residualFraction` in thermo.js is dominated by the pressure ratio
+  // across the cylinder, so at a 40 kPa idle it reports 0.12 for a stock cam and 0.13
+  // for a 290-degree race cam — a 9% spread, where the audible difference between those
+  // two engines is total. Worse, it reports a HIGH number for a stock engine at deep
+  // vacuum, so driving lope from it would make every engine loaf at idle.
   // A stock engine does not loaf. It idles smoothly, and it must sound like it.
   //
   // Overlap separates them cleanly (0 degrees against 44) because overlap is the actual
