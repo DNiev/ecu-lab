@@ -1,0 +1,13 @@
+{
+  "name": "ecu-lab-dyno-bot",
+  "private": true,
+  "type": "module",
+  "description": "The /dyno Discord command: runs ECU Lab's sim from main, on Vercel. See README.md.",
+  "engines": {
+    "node": "22.x"
+  },
+  "dependencies": {
+    "@resvg/resvg-js": "2.6.2",
+    "@vercel/functions": "3.10.1"
+  }
+}
