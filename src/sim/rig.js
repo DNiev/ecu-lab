@@ -24,7 +24,7 @@ import { deriveEngine } from './engine.js';
 import { COMPRESSOR_OPTS, EXHAUST_DIA_OPTS, INJECTOR_OPTS, TURBINE_OPTS, turbineWithCount } from './hardware.js';
 import { clone2D } from './math.js';
 import { applyPreset, presetById } from './presets.js';
-import { mafErrorFactor, simulateSweep } from './sweep.js';
+import { injectorDutyPreview, mafErrorFactor, simulateSweep } from './sweep.js';
 import { DEFAULT_AFR, DEFAULT_BOOST, DEFAULT_ENGINE_CONFIG, DEFAULT_MODS, DEFAULT_TIMING } from './tables.js';
 
 /**
@@ -97,6 +97,8 @@ export function buildRig({ preset, build: patch = {}, cal: calPatch = {}, env, f
       ...sweepArgs(loadKpa),
       ...(legacy ? {} : { ecu: gear ? { ...ecu(), cond: { ...ecu().cond, gear } } : ecu() }),
     }),
+    /** TUNE → INJECTORS' duty at an RPM of a full-throttle pull, as EcuLab asks for it. */
+    dutyPreview: (rpm = 6500) => injectorDutyPreview({ ...sweepArgs(100), ecu: ecu(), rpm }),
     /** The live engine config, as EcuLab builds it. */
     liveCfg: (aux = {}) => ({
       ...sweepArgs(), ve: tables.ve, timing: tables.timing, afr: tables.afr,
