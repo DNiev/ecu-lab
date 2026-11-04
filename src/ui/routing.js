@@ -2,11 +2,11 @@
  * Pure route <-> hash conversion for the app shell.
  *
  * No DOM, no React, no `location` — this module only converts between a
- * `window.location.hash` string and a plain route object. Task 3 wires this
+ * `window.location.hash` string and a plain route object. `useRoute` wires this
  * into the shell; nothing here reads or writes the actual URL.
  *
- * `appView` (`'start' | 'tutorial' | 'app'`) does not exist as a separate
- * piece of state after this: `route.view` derives entirely from the hash.
+ * There is no separate `appView` state: `route.view`
+ * (`'start' | 'tutorial' | 'app'`) derives entirely from the hash.
  * `#/` is 'start', `#/tutorial` is 'tutorial', anything else recognized is
  * 'app'.
  */

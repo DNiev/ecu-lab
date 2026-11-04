@@ -4,21 +4,13 @@
  * The physics core. Indicated work, peak pressure, MBT and the knock limit are all read
  * off one integrated pressure trace, from intake valve close to exhaust valve open.
  *
- * WHY A TRACE. Torque used to be fuel energy times three efficiency scalars, with spark
- * entering through a parabola on a correlated MBT. That cannot express burn PHASING —
- * spark does not scale the work done, it moves WHEN the heat arrives relative to a piston
- * that is somewhere different at every crank angle. Too early and rising pressure fights
- * the piston still coming up; too late and the burn happens into a cylinder already
- * expanding. MBT is where those two losses balance, and it falls out of the integration
- * instead of being asserted.
- *
- * WHY A TRACE. Torque used to be fuel energy times three efficiency scalars, with spark
- * entering through a parabola on a correlated MBT. That cannot express burn PHASING —
- * spark does not scale the work done, it moves WHEN the heat arrives relative to a piston
- * that is somewhere different at every crank angle. Too early and rising pressure fights
- * the piston still coming up; too late and the burn happens into a cylinder already
- * expanding. MBT is where those two losses balance, and it falls out of the integration
- * instead of being asserted.
+ * WHY A TRACE. Fuel energy times efficiency scalars, with spark entering through a
+ * parabola on a correlated MBT, cannot express burn phasing. Spark does not scale the
+ * work done: it moves when the heat arrives relative to a piston that is somewhere
+ * different at every crank angle. Too early and rising pressure fights the piston still
+ * coming up; too late and the burn happens into a cylinder already expanding. MBT is
+ * where those two losses balance, and it falls out of the integration instead of being
+ * asserted.
  *
  * THE MODEL. TWO ZONES sharing a pressure and carrying their own temperatures, which is
  * what lets it say anything honest about end-gas heating and exhaust temperature:
@@ -120,13 +112,13 @@ export function ivcAfterBdcDeg(camDuration) {
  * @returns {number} burn duration, crank degrees
  */
 export function burnDurationDeg({ rpm, lambda, residualFrac, boreFlameFactor = 1 }) {
-  // Mixture: fastest a little rich of stoichiometric, slower in both directions — but
-  // NOT symmetrically. Laminar flame speed falls away far faster on the lean side, where
+  // Mixture: fastest a little rich of stoichiometric, slower in both directions, but
+  // not symmetrically. Laminar flame speed falls away far faster on the lean side, where
   // there is surplus air to heat and nothing extra burning to heat it, than on the rich
   // side, where the surplus fuel at least keeps the flame temperature up. Treating the
-  // two the same made a lean charge burn almost as fast as a rich one, which is what let
-  // the model conclude that lean-under-load was SAFER — the burn stayed short, so the end
-  // gas had no more time to light itself. It is not safer, and the asymmetry is why.
+  // two the same would make a lean charge burn almost as fast as a rich one, and let the
+  // model conclude that lean-under-load is safer: the burn stays short, so the end gas
+  // has no more time to light itself. It is not safer, and the asymmetry is why.
   const lambdaOff = lambda - COEFF.BURN_FASTEST_LAMBDA;
   const penalty = lambdaOff > 0 ? COEFF.BURN_LAMBDA_PENALTY_LEAN : COEFF.BURN_LAMBDA_PENALTY_RICH;
   const mixtureFactor = 1 + lambdaOff * lambdaOff * penalty;
@@ -314,8 +306,8 @@ export function runCycle({
 
     // BURNED: an energy balance on the burned mass. Charge crosses the flame at the
     // unburned temperature with its fuel energy, then does displacement work and loses
-    // its share to the wall. Replaces the fitted Gaussian that used to assert where flame
-    // temperature peaks; the balance now produces that on its own.
+    // its share to the wall. Nothing asserts where flame temperature peaks; the balance
+    // produces that on its own.
     if (burned > 0) {
       const dBurned = burned - prevBurned;
       // Seed the zone at the unburned temperature the instant it first has mass in it,
@@ -365,25 +357,24 @@ export function runCycle({
   // from a correlation. What leaves the port is the burned zone after blowdown to the
   // manifold: an irreversible expansion from cylinder pressure, which cools it.
   //
-  // This is what the DATALOG reports as EGT. It is not what the turbine balance uses —
+  // This is what the datalog reports as EGT. It is not what the turbine balance uses:
   // that needs an answer before the cycle can run, so it has `exhaustTempK` in thermo.js
-  // instead. An earlier comment here claimed this was "the number the turbine should
-  // see", which is a statement about what ought to be true rather than what is, and it
-  // cost time when issue #47 was being tracked down.
-  // The ratio is capped at 1 because blowdown is an EXPANSION — it can only cool. Below
+  // instead.
+  // The ratio is capped at 1 because blowdown is an expansion, so it can only cool. Below
   // roughly half throttle the cylinder is still under manifold pressure when the valve
-  // opens, and the uncapped ratio inverted into an isentropic COMPRESSION that heated
-  // the exhaust: a 20 kPa cruise point came out at 2.25x and left the port ~250 K hotter
-  // than the burned gas that fed it, so the datalog read EGT climbing as the driver
-  // lifted. There is no expansion to have in that case; the charge is simply pushed out.
+  // opens, and uncapped the ratio would invert into an isentropic compression that heats
+  // the exhaust: a 20 kPa cruise point would come out at 2.25x and leave the port ~250 K
+  // hotter than the burned gas that fed it, so the datalog would read EGT climbing as the
+  // driver lifted. There is no expansion to have in that case; the charge is simply
+  // pushed out.
   //
-  // And it blows down INTO THE EXHAUST MANIFOLD, not into the atmosphere. On a naturally
+  // And it blows down into the exhaust manifold, not into the atmosphere. On a naturally
   // aspirated engine the two are within a few kPa of each other. Ahead of a turbine they
   // are not: the manifold sits at two to two-and-a-half bar, so the gas expands through
   // less than half the pressure ratio and arrives far hotter. Expanding it to 1 bar
-  // instead read a boosted engine 150-200 °C cooler than the same engine unboosted,
-  // which is backwards, and left the gauge ~200 °C under the turbine-inlet temperature
-  // `exhaustTempK` gives the turbine for the same point.
+  // instead would read a boosted engine 150-200 °C cooler than the same engine
+  // unboosted, which is backwards, and leave the gauge ~200 °C under the turbine-inlet
+  // temperature `exhaustTempK` gives the turbine for the same point.
   const blowdownRatio = Math.min(1, exhaustManifoldPa / Math.max(p, 1));
   const blowdownK = tB * Math.pow(
     Math.max(0.05, blowdownRatio),
@@ -403,8 +394,8 @@ export function runCycle({
   // above the manifold at valve opening, so about 70% of the charge leaves as a hot
   // blowdown pulse. At 40 kPa it is barely above the manifold at all, so only about 18%
   // does and the other 82% is pushed out slowly against the walls. Same fuel-air ratio,
-  // same burned-gas temperature, very different exhaust temperature — which is exactly
-  // what a real engine does, and the opposite of what this model used to report.
+  // same burned-gas temperature, very different exhaust temperature, which is exactly
+  // what a real engine does.
   //
   //     f_blowdown = 1 - (p_man / p_evo)^(1/gamma)
   //
@@ -555,8 +546,8 @@ export function cycleInputsFor({
   // below the vapour's dew point, the fuel never evaporated and cooled nothing: it is
   // liquid on the walls and the plug, which is what a flooded engine is. The bound is
   // that dew point carried back down the compression stroke. Without it a flooded
-  // charge was cooled below absolute zero and the cycle returned NaN; a running engine
-  // never comes near it.
+  // charge would be cooled below absolute zero and the cycle would return NaN; a running
+  // engine never comes near it.
   const crEff = vIvc / clearanceM3;
   const nComp = COEFF.GAMMA_UNBURNED;
   const floorK = fuelDewPointK(fuelIn, airChargeG, mapKpa * Math.pow(crEff, nComp), fuel)
@@ -569,13 +560,13 @@ export function cycleInputsFor({
   // pressure is what lets volumetric efficiency above 100% — ram and scavenging — show
   // up as genuinely higher cylinder pressure.
   //
-  // Deliberately NOT re-derived at the residual-mixed temperature. The manifold sets the
-  // pressure at IVC; hot residual raises the charge TEMPERATURE at that pressure, it
+  // Deliberately not re-derived at the residual-mixed temperature. The manifold sets the
+  // pressure at IVC; hot residual raises the charge temperature at that pressure, it
   // does not pressurise the cylinder further. Computing p from the mixed temperature at
-  // fixed mass inflated trapped pressure by about a tenth under boost, and since
-  // ignition delay goes as pressure to the -1.7 power, that alone made boosted engines
-  // far more knock-prone than they are. Pressure comes from the fresh charge; the mixed
-  // temperature below is what the thermal history and the end gas run on.
+  // fixed mass would inflate trapped pressure by about a tenth under boost, and since
+  // ignition delay goes as pressure to the -1.7 power, that alone would make boosted
+  // engines far more knock-prone than they are. Pressure comes from the fresh charge;
+  // the mixed temperature below is what the thermal history and the end gas run on.
   // Nitrous vapour is gas in the cylinder too, at its own gas constant (R / 44 g/mol).
   const trappedPa = n2oG > 0
     ? (((airChargeG / 1000) * R_AIR + (n2oG / 1000) * N2O.gasConstant) * cooledK) / vIvc
@@ -637,7 +628,7 @@ export function mbtForCell(input) {
  * Best torque lands with 50% of the mass burned 8-10 degrees after TDC across engine
  * types. Given the Wiebe shape, 50% burn is a fixed fraction of the duration after
  * ignition, so the timing that puts it there is written down rather than fitted — which
- * makes MBT respond to mixture, dilution and speed, as the old correlation could not.
+ * makes MBT respond to mixture, dilution and speed, as a correlation could not.
  *
  * @param {number} burnDeg burn duration, crank degrees
  * @returns {number} MBT spark advance, degrees BTDC

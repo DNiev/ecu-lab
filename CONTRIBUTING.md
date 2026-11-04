@@ -127,6 +127,14 @@ git push origin v1.3.0
 The tag fires `.github/workflows/deploy.yml`, which reruns the tests, builds, and
 publishes to GitHub Pages.
 
+The same tag fires `.github/workflows/desktop.yml`, which tests once on Linux, packages
+the app on Windows, macOS and Linux, and attaches the installers to a GitHub Release for
+the tag. The installers are unsigned, so Windows SmartScreen and macOS Gatekeeper will
+warn on first launch. Run the workflow by hand from the Actions tab to get the installers
+as run artifacts without cutting a release. Locally, `npm run desktop:dev` opens the app
+in a desktop window and `npm run desktop:dist` makes installers for the
+current platform in `release/`.
+
 `--no-git-tag-version` suppresses the commit and tag but still runs npm's `version`
 lifecycle hook, so `scripts/sync-version.js` regenerates `src/version.js` — the
 `BUILD_VERSION` shown in the app header and quoted in bug reports — from

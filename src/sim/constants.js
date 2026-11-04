@@ -44,10 +44,8 @@ export const SONIC_AMBIENT_MS = Math.sqrt(GAMMA_AIR * R_AIR * AMBIENT_K);
 /**
  * The same ambient temperature in Celsius, 24.85 °C.
  *
- * Derived rather than written out, because two places used to state ambient
- * independently — `AMBIENT_K` here and a bare `25` in the knock model's IAT penalty —
- * and they did not agree. Everything that needs ambient in Celsius must come through
- * this, so the model cannot hold two ambients at once.
+ * Derived rather than written out, so the model cannot hold two ambients at once.
+ * Everything that needs ambient in Celsius must come through this, not a bare `25`.
  */
 export const AMBIENT_C = AMBIENT_K - KELVIN_OFFSET;
 

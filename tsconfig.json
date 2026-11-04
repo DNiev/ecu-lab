@@ -30,7 +30,8 @@
     "src/globals.d.ts",
     "src/css-modules.d.ts",
     "tests",
-    "scripts"
+    "scripts",
+    "electron"
   ],
   "//exclude": "`exclude` only filters `include` — it does not stop tsc following an import. Nothing under src/ui opts out of typechecking via `@ts-nocheck` any more.",
   "exclude": ["node_modules", "dist"]

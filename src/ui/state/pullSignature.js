@@ -7,18 +7,14 @@
  * banked numbers cannot answer by themselves: is the car on screen still the car they
  * were measured on? {@link pullSignature} answers exactly that.
  *
- * WHY THIS FILE NOW ANSWERS "WHICH ONE" TOO
- * This header used to state that the module answers "has any measured input moved?"
- * and never "which one", on the grounds that a hand-written field-by-field comparison
- * would drift out of sync with the signature as fields were added. That reasoning was
- * right about the hazard and wrong about the conclusion. The run-history timeline needs
- * "which one" — it reports what changed between one pull and the one before it — and
- * the drift is avoided by keeping BOTH answers here, over ONE private key list, rather
- * than by refusing to answer. Add a field to MEASURED_BUILD_KEYS and it is signed and
- * diffed in the same edit. The alternative that was rejected — exporting the key arrays
- * so another module could diff — would have let a test derive its expectations from the
- * thing under test, which is the trap `history.js` keeps its own key lists private to
- * avoid.
+ * WHY THIS FILE ALSO ANSWERS "WHICH ONE"
+ * The run-history timeline reports what changed between one pull and the one before
+ * it. A field-by-field comparison written anywhere else would drift out of sync with
+ * the signature as fields are added, so both answers live here, over one private key
+ * list: add a field to MEASURED_BUILD_KEYS and it is signed and diffed in the same
+ * edit. Exporting the key arrays so another module could diff would let a test derive
+ * its expectations from the thing under test, which is the trap `history.js` keeps its
+ * own key lists private to avoid.
  *
  * WHAT COUNTS AS "THE SAME CAR"
  * Every input the pull was actually computed from — everything `simulateSweep` reads
@@ -36,7 +32,7 @@
  *
  * WHY A SIGNATURE AND NOT A DEEP COMPARE
  * The only question asked of `pullSignature` itself is "has any measured input moved?",
- * never "which one" — {@link diffMeasuredInputs} answers that separately, and over the
+ * never "which one"; {@link diffMeasuredInputs} answers that separately, and over the
  * same key lists so the two can never disagree. A string compare answers the "has it
  * moved" question in one operation and cannot drift out of sync with a hand-written
  * field-by-field comparison as fields are added.

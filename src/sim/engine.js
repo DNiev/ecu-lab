@@ -198,20 +198,19 @@ export function deriveEngine(cfg) {
   const displacementL = (Math.PI / 4 * boreCm * boreCm * strokeCm * cyl) / 1000;
   const ratio = cfg.bore / cfg.stroke;
   const perCylL = displacementL / cyl;
-  // What the ARCHITECTURE contributes to combustion, expressed as the two physical
+  // What the architecture contributes to combustion, expressed as the two physical
   // quantities the cycle model reads rather than as bonuses in degrees. Compression
-  // needs no term at all any more: it changes the clearance volume, and the cycle
-  // integrates what follows.
+  // needs no term at all: it changes the clearance volume, and the cycle integrates
+  // what follows.
   //
   // Flame travel scales with bore, so a big cylinder burns slower.
   const boreFlameFactor = cfg.bore / COEFF.BORE_FLAME_REF_MM;
   // An iron head runs a hotter chamber, so the charge in it starts compression hotter.
   const chamberOffsetK = cfg.headMaterial === 'Cast Iron' ? COEFF.IRON_HEAD_CHAMBER_K : 0;
-  // No thermal-efficiency term any more. Indicated efficiency used to be an ideal
-  // Otto-cycle number scaled by a realisation factor, multiplied into fuel energy to get
-  // work. The cycle model produces it instead: compression changes the clearance volume,
-  // which changes the expansion the integration runs over, and efficiency is whatever
-  // comes out. Two fitted constants became a consequence of the geometry.
+  // No thermal-efficiency term. The cycle model produces indicated efficiency:
+  // compression changes the clearance volume, which changes the expansion the
+  // integration runs over, and efficiency is whatever comes out. It is a consequence of
+  // the geometry, not a fitted constant.
   const torqueScale = displacementL / 3.5;
   const bearingWearMult = cfg.blockMaterial === 'Cast Iron' ? 0.85 : 1.0;
   // Architecture friction. Zeroed at the V6 baseline so existing builds do not move:
