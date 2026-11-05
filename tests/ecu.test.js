@@ -334,6 +334,45 @@ describe('protections intervene, and say why', () => {
   });
 });
 
+describe('the injector duty preview is the pull\'s own point', () => {
+  // TUNE → INJECTORS shows this before a pull, and the Engineer Score reads it. If it
+  // drifts from the pull, the screen promises a duty the dyno does not deliver.
+  const FUELLED = { injIdx: 3, ecuInjectorCc: 650, octaneIdx: 1 };
+  const INTERCOOLED = { ...S.DEFAULT_MODS, intercooler: true };
+  const n54 = S.applyPreset(S.presetById('n54'));
+  const builds = [
+    { name: 'the default build', opts: {} },
+    ...S.ENGINE_PRESETS.map((p) => ({ name: `the ${p.id} preset`, opts: { preset: p.id } })),
+    // A blower heats its charge at its own efficiency, not the turbo's.
+    ...S.BLOWER_OPTS.map((b) => ({ name: `a ${b.id} blower`, opts: { build: { ...FUELLED, mods: INTERCOOLED, blowerId: b.id } } })),
+    { name: '2000 m of altitude', opts: { env: { ambientC: 24.85, altitudeM: 2000 } } },
+    { name: 'a 40 °C day', opts: { env: { ambientC: 40, altitudeM: 0 } } },
+    // More boost asked for than the turbo makes: the fuel is for the boost it makes.
+    { name: '30 psi asked of an N54', opts: { preset: 'n54', build: { boostCurve: n54.boostCurve.map((v, i) => (S.RPM[i] >= 5500 ? 30 : v)) } } },
+    { name: 'a 2 ms dead time', opts: { cal: { 'injector.deadTime': S.curve(S.VOLT_AXIS, () => 2) } } },
+  ];
+
+  it.each(builds)('commands at 6500 RPM what the pull logs there, on $name', ({ opts }) => {
+    const eng = makeEngine(opts);
+    const point = at(eng.pull(), 6500);
+    // Guard the setup: where a protection acts, the two are meant to differ (below).
+    expect(point.protect).toEqual([]);
+    expect(eng.dutyPreview()).toBe(point.duty);
+  });
+
+  it('shows the demand that duty protection hides by cutting boost', () => {
+    const eng = makeEngine({ build: { turboOn: true, boostCurve: S.DEFAULT_BOOST.map((v, i) => (S.RPM[i] >= 5500 ? 25 : v)) } });
+    const point = at(eng.pull(), 6500);
+    expect(point.protect).toContain('duty');
+    expect(point.duty).toBeLessThanOrEqual(eng.cal.protect.dutyLimitPct);
+    expect(eng.dutyPreview()).toBeGreaterThan(eng.cal.protect.dutyLimitPct);
+  });
+
+  it('falls as the ECU is told of bigger injectors', () => {
+    expect(makeEngine({ build: { ecuInjectorCc: 550 } }).dutyPreview()).toBeLessThan(makeEngine().dutyPreview());
+  });
+});
+
 describe('the day matters', () => {
   it('makes less power at altitude and on a hot day', () => {
     const sea = makeEngine().pull().peakHp;

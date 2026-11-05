@@ -21,13 +21,12 @@ import {
 } from 'lucide-react';
 
 import {
-  BARO_KPA, COMPRESSOR_OPTS,
+  COMPRESSOR_OPTS,
   DEFAULT_MODS, EXHAUST_DIA_OPTS, GEARBOX_OPTS,
-  INJ_DEADTIME_MS, INJECTOR_OPTS,
-  PSI_TO_KPA,
-  R_AIR, RPM, TURBINE_OPTS, acousticDrive, blowerCurve, blowerOf, blowerSpeedRpm, calibrationAdvice, chargeTempK, clamp,
+  INJECTOR_OPTS,
+  TURBINE_OPTS, acousticDrive, blowerCurve, blowerOf, blowerSpeedRpm, calibrationAdvice, clamp,
   computeEngineerScore, computeHardwareVE, computePullScore, computeTuningScore,
-  deriveEngine, exhaustGeometry, idealExhaustDiameter, interp1, interp2, isLocatable, presetById,
+  deriveEngine, exhaustGeometry, idealExhaustDiameter, injectorDutyPreview, isLocatable, presetById,
   simulateDragRun, simulateSweep, torqueCurveFromSweep, turbineWithCount,
   veRecommendations, defaultEcuCalibration, dynoConditions, ecuHardwareOf, tankFuel,
   veTruthByPhaseFor, read1, applyVeCorrections, veCorrections, veSamplesFromLive, veSamplesFromPull,
@@ -511,21 +510,14 @@ export function EcuLabApp() {
     [ve, engineConfig, mods, hwForVe]
   );
 
-  // Same real-units chain the sim uses, evaluated at WOT / 6500 RPM as a preview.
-  const dutyPreview = useMemo(() => {
-    const rpm = 6500;
-    const boostPsi = turboOn ? boostCurve[RPM.indexOf(6500)]
-      : blowerWot.length ? interp1(blowerWot.map((p) => p.rpm), blowerWot.map((p) => p.boostPsi), rpm) : 0;
-    const mapKpa = BARO_KPA + boostPsi * PSI_TO_KPA;
-    const chargeK = chargeTempK(boostPsi, mods.intercooler);
-    const vCylM3 = (engineDerived.displacementL / engineDerived.cyl) / 1000;
-    const airDensity = (mapKpa * 1000) / (R_AIR * chargeK);
-    const airChargeG = (interp2(ve, rpm, mapKpa) / 100) * vCylM3 * airDensity * 1000;
-    const lambda = interp2(afr, rpm, mapKpa) / 14.7;
-    const fuelMassG = airChargeG / (lambda * fuel.stoich);
-    const pw = fuelMassG / ((ecuInjectorCc * fuel.density) / 60000) + INJ_DEADTIME_MS;
-    return clamp((pw / (120000 / rpm)) * 100, 0, 220);
-  }, [ve, afr, turboOn, boostCurve, ecuInjectorCc, fuel, mods.intercooler, engineDerived, blowerWot]);
+  // Injector duty at WOT / 6500 RPM, from the tables as they stand, before any pull. The
+  // same inputs as the pull (`sweepArgs` below), so the point is the one the pull solves.
+  const dutyPreview = useMemo(() => injectorDutyPreview({
+    rpm: 6500, loadKpa: 100, ve, veTruth, timing, afr, turboOn, boostCurve, fuel, injectorCc, ecuInjectorCc,
+    mods, mafScalar, derived: engineDerived, turbine, compressor: COMPRESSOR_OPTS[compressorIdx], ecu: ecuBundle,
+    ...(blower ? { blower, blowerRatio } : {}), ...(nitrous ? { nitrous } : {}),
+  }), [ve, veTruth, timing, afr, turboOn, boostCurve, fuel, injectorCc, ecuInjectorCc, mods, mafScalar,
+       engineDerived, turbine, compressorIdx, ecuBundle, blower, blowerRatio, nitrous]);
   // `dutyPreview` is computed here, not in InjectorsScreen, because the score breakdown
   // and dyno payload below read it too.
 
