@@ -27,6 +27,10 @@
  * that might look like a missed field at a glance, `tune.selection` and
  * `build.presetPrompt`; see the comments on TUNE_KEYS and BUILD_KEYS below for why
  * each one specifically is a cursor rather than state worth restoring.
+ *
+ * One field no undoable action writes is included: `build.blowerRatio`. A field that
+ * only makes sense alongside a restored one has to come back with it, or the restore
+ * pairs old hardware with a setting chosen for new hardware. See BUILD_KEYS.
  */
 
 /** @typedef {import('./initialState.js').StoreState} StoreState */
@@ -57,7 +61,12 @@ const BUILD_KEYS = [
   'engineConfig', 'mods', 'turboOn', 'boostCurve', 'turbineIdx', 'turbineCount',
   'compressorIdx', 'injIdx', 'ecuInjectorCc', 'octaneIdx', 'exhaustDiaIdx',
   'mafScalar', 'presetId', 'fuelSystem', 'sensorHw', 'wastegate', 'coil', 'plugGapMm',
-  'ethanolPct',
+  'ethanolPct', 'engineReady', 'assumed',
+  // APPLY_PRESET takes off any supercharger and nitrous kit (a preset is a factory car).
+  // `blowerRatio` goes with `blowerId` although no undoable action writes it: fitting a
+  // blower writes a starter ratio for it, so restoring the blower without its ratio
+  // would put it on another blower's pulley.
+  'blowerId', 'blowerRatio', 'nitrous',
 ];
 
 /**
@@ -65,14 +74,15 @@ const BUILD_KEYS = [
  *
  * `selection` is deliberately absent, for the same "hardware and calibration, never UI
  * cursors" reason `presetPrompt` is absent from BUILD_KEYS above: it is a cursor, not
- * calibration. Restoring it would make undo move the player's highlight around, and the
- * grid's dimensions never change, so a selection is always still valid after a restore.
+ * calibration. Restoring it would make undo move the player's highlight around. The
+ * grid's dimensions change only with the table layout (`layout`, below), and `restore`
+ * clears the selection when an undo crosses a layout change.
  *
  * `baseline` is here, though no edit writes it: APPLY_PRESET and RESET_TO_STOCK do, and
  * undoing either must put back the baseline that went with the tables it restores, or
  * the CHANGES view would compare the old tables against the new calibration.
  */
-const TUNE_KEYS = ['ve', 'timing', 'afr', 'ecu', 'maps', 'activeMap', 'tablesDirty', 'baseline'];
+const TUNE_KEYS = ['ve', 'timing', 'afr', 'ecu', 'maps', 'activeMap', 'tablesDirty', 'baseline', 'layout'];
 
 /**
  * Does a write to `tune.<field>` touch something a snapshot carries?
@@ -142,6 +152,8 @@ export function restore(state, before, scope) {
   // action never touched is a no-op, because the snapshot holds the value that is
   // already there.
   const tune = { ...state.tune, ...before.tune };
+  // A different layout is a different grid: a cell selected on it may not exist here.
+  if ((before.tune.layout ?? null) !== (state.tune.layout ?? null)) tune.selection = null;
   switch (scope) {
     case RESTORE_ALL:
       return { ...state, build: { ...state.build, ...before.build }, tune };

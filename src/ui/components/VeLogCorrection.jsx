@@ -10,7 +10,7 @@
 
 import React from 'react';
 
-import { LOAD, RPM } from '../../sim/index.js';
+import { GAME_LAYOUT } from '../../sim/index.js';
 import { Button } from '../primitives/Button.jsx';
 import { Note } from '../primitives/Note.jsx';
 import { VE_LOG_GOOD_PCT } from './advisorReports.js';
@@ -36,9 +36,12 @@ const PULL_NOTE = {
  * @param {number} props.mafPct the MAF's own reading error across the samples, percent
  * @param {'blend'|'sd'|'maf'} props.airModel the ECU's air-mass strategy
  * @param {(share: number) => void} props.onApply applies that share of the correction
+ * @param {import('../../sim/layouts.js').TableAxes} [props.axes] the VE table's breakpoints
  * @returns {React.ReactElement}
  */
-export function VeLogCorrection({ corr, pullCount, liveCount, pullInfo, mafPct, airModel, onApply }) {
+export function VeLogCorrection({ corr, pullCount, liveCount, pullInfo, mafPct, airModel, onApply, axes = GAME_LAYOUT.ve }) {
+  const RPM = axes.rpm;
+  const LOAD = axes.load;
   const pullNote = pullInfo.state === 'stale'
     ? `The last pull was run before you changed ${pullInfo.changed?.length ? pullInfo.changed.join(', ') : 'the conditions'} — a log only describes the tune it was taken on, so run another pull.`
     : PULL_NOTE[/** @type {keyof typeof PULL_NOTE} */ (pullInfo.state)] ?? null;
@@ -70,7 +73,7 @@ export function VeLogCorrection({ corr, pullCount, liveCount, pullInfo, mafPct, 
       </p>
       {pullNote && <p className={styles.hint}>{pullNote}</p>}
       {Math.abs(mafPct) >= VE_LOG_GOOD_PCT && (
-        <p className={styles.maf}>
+        <p className={styles.maf} data-tour="velog-maf">
           The MAF read {Math.abs(mafPct).toFixed(1)}% {mafPct < 0 ? 'low' : 'high'} in these logs. That part is the MAF scalar&apos;s job, on{' '}
           <a href="#/tune/sensors">TUNE › SENSORS</a>, and is taken out of the numbers below — tune the MAF and the VE table separately, or each hides the other&apos;s error.
         </p>
@@ -107,7 +110,7 @@ export function VeLogCorrection({ corr, pullCount, liveCount, pullInfo, mafPct, 
               ? `Every logged cell is within ${VE_LOG_GOOD_PCT}% — as close as a wideband and fuel trims can tell.`
               : `Largest: ${worst.pct > 0 ? '+' : ''}${worst.pct.toFixed(1)}% at ${worst.rpm} RPM, ${worst.load} kPa. Positive means the engine got more air than the table thought (it ran lean).`}
           </p>
-          <div className={styles.actions}>
+          <div className={styles.actions} data-tour="velog-apply">
             <Button size="sm" onClick={() => onApply(0.5)} disabled={inSync}>APPLY HALF</Button>
             <Button size="sm" variant="ghost" onClick={() => onApply(1)} disabled={inSync}>APPLY ALL</Button>
           </div>

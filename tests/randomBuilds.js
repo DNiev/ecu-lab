@@ -47,9 +47,10 @@ export function randomBuild(seed) {
   const shape = [0, 0.35 + r() * 0.5, 0.8 + r() * 0.2, 1, 1, 1 - r() * 0.1, 1 - r() * 0.15, 1 - r() * 0.2];
   const engineConfig = {
     configuration: pick(CONFIGS),
-    bore: range(75, 105, 0.5),
-    stroke: range(65, 100, 0.5),
-    compression: Number(range(8.5, turboOn ? 11.5 : 13, 0.1).toFixed(1)),
+    // BUILD's slider ranges, which the own-engine form shares (CUSTOM_ENGINE_LIMITS).
+    bore: range(S.CUSTOM_ENGINE_LIMITS.bore.min, S.CUSTOM_ENGINE_LIMITS.bore.max, 0.5),
+    stroke: range(S.CUSTOM_ENGINE_LIMITS.stroke.min, S.CUSTOM_ENGINE_LIMITS.stroke.max, 0.5),
+    compression: Number(range(S.CUSTOM_ENGINE_LIMITS.compression.min, turboOn ? 11.5 : S.CUSTOM_ENGINE_LIMITS.compression.max, 0.1).toFixed(1)),
     blockMaterial: pick(MATERIALS),
     headMaterial: pick(MATERIALS),
     camDuration: range(190, 280, 2),

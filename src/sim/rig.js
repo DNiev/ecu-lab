@@ -19,12 +19,12 @@
 import { computeHardwareVE } from './airflow.js';
 import { blowerOf } from './blower.js';
 import { defaultEcuCalibration, setCal } from './ecu/calibration.js';
-import { dynoConditions, ecuHardwareOf, tankFuel, veTruthByPhaseFor } from './ecu/context.js';
+import { dynoConditions, ecuHardwareOf, intakeCamAt, scheduledVeAt, tankFuel, veTruthByPhaseFor } from './ecu/context.js';
 import { deriveEngine } from './engine.js';
-import { COMPRESSOR_OPTS, EXHAUST_DIA_OPTS, INJECTOR_OPTS, TURBINE_OPTS, turbineWithCount } from './hardware.js';
+import { COMPRESSOR_OPTS, EXHAUST_DIA_OPTS, INJECTOR_OPTS, TURBINE_OPTS, compressorWithCount, turbineWithCount } from './hardware.js';
 import { clone2D } from './math.js';
 import { applyPreset, presetById } from './presets.js';
-import { mafErrorFactor, simulateSweep } from './sweep.js';
+import { dutyPreviewRpm, injectorDutyPreview, mafErrorFactor, simulateSweep } from './sweep.js';
 import { DEFAULT_AFR, DEFAULT_BOOST, DEFAULT_ENGINE_CONFIG, DEFAULT_MODS, DEFAULT_TIMING } from './tables.js';
 
 /**
@@ -53,11 +53,16 @@ export function buildRig({ preset, build: patch = {}, cal: calPatch = {}, env, f
     turbineCount: p?.turbineCount ?? 1,
     compressorIdx: p?.compressorIdx ?? 1,
     exhaustDiaIdx: p?.exhaustDiaIdx ?? EXHAUST_DIA_OPTS.findIndex((o) => o.dia === 3.0),
+    // The preset's own MAF scalar, as APPLY_PRESET puts it in the app's BUILD slice. Left
+    // out, a turbo preset is graded with its MAF error uncorrected: 8% lean of the mixture
+    // its tables were written for, which matters once a rich flame's heat depends on how
+    // rich it is (thermo.js, heatReleasedShare).
+    mafScalar: p?.mafScalar ?? 1,
     ethanolPct: p?.ethanolPct ?? 0,
     ...patch,
   };
   const turbine = turbineWithCount(TURBINE_OPTS[build.turbineIdx], build.turbineCount);
-  const compressor = COMPRESSOR_OPTS[build.compressorIdx];
+  const compressor = compressorWithCount(COMPRESSOR_OPTS[build.compressorIdx], build.turbineCount);
   const fuel = tankFuel(build);
   const hwForVe = {
     turboOn: build.turboOn, turbine: build.turboOn ? turbine : null,
@@ -65,29 +70,33 @@ export function buildRig({ preset, build: patch = {}, cal: calPatch = {}, env, f
     peakBoostPsi: build.turboOn ? Math.max(...build.boostCurve) : 0,
     supercharged: !!blowerOf(build),
   };
-  const veTruth = computeHardwareVE(build.engineConfig, build.mods, hwForVe);
   const derived = deriveEngine(build.engineConfig);
   const hw = { ...ecuHardwareOf(build), veTruthByPhase: veTruthByPhaseFor(build.engineConfig, build.mods, hwForVe) };
   let cal = p?.ecu ?? defaultEcuCalibration({ derived, gate: hw.gate });
   for (const [k, v] of Object.entries(calPatch)) cal = setCal(cal, k, v);
+  // The engine's breathing with its cam where the calibration holds it, as the app has it.
+  const veTruth = scheduledVeAt(build.engineConfig, build.mods, hwForVe, cal.vvt);
+  const camAt = intakeCamAt(build.engineConfig, cal.vvt);
   const tables = {
-    ve: p?.ve ?? veTruth,
+    ve: p?.ve ?? computeHardwareVE(build.engineConfig, build.mods, hwForVe),
     timing: p?.timing ?? clone2D(DEFAULT_TIMING),
     afr: p?.afr ?? clone2D(DEFAULT_AFR),
+    // A preset's tables are on its own engine-sized breakpoints; the default engine's on the legacy grid.
+    layout: p?.layout ?? null,
   };
   const blower = blowerOf(build);
   const sweepArgs = (loadKpa = 100) => ({
     loadKpa, ...tables, veTruth, turboOn: build.turboOn, boostCurve: build.boostCurve,
     octaneLabel: fuel.label, fuel, injectorCc: INJECTOR_OPTS[build.injIdx].cc,
     ecuInjectorCc: build.ecuInjectorCc, injectorLabel: INJECTOR_OPTS[build.injIdx].label,
-    mods: build.mods, mafScalar: 1, derived, turbine, compressor,
+    mods: build.mods, mafScalar: build.mafScalar, derived, turbine, compressor,
     ...(blower ? { blower, blowerRatio: build.blowerRatio ?? blower.defaultRatio } : {}),
     ...(build.nitrous ? { nitrous: build.nitrous } : {}),
   });
   const nitrousCond = build.nitrous ? { armed: nitrousArmed, heater: !!build.nitrous.heater, ...(bottleK ? { bottleK } : {}) } : null;
   const ecu = (cond) => ({ cal, hw: build.nitrous ? { ...hw, nitrous: build.nitrous } : hw, cond: cond ?? dynoConditions(env, faults, nitrousCond) });
   return {
-    build, derived, cal, hw, tables, veTruth, fuel, turbine, compressor,
+    build, derived, cal, hw, tables, veTruth, camAt, fuel, turbine, compressor,
     /**
      * A dyno pull with the ECU in the loop (or without it, `legacy`).
      * @param {number} [loadKpa]
@@ -97,9 +106,11 @@ export function buildRig({ preset, build: patch = {}, cal: calPatch = {}, env, f
       ...sweepArgs(loadKpa),
       ...(legacy ? {} : { ecu: gear ? { ...ecu(), cond: { ...ecu().cond, gear } } : ecu() }),
     }),
+    /** TUNE → INJECTORS' duty at an RPM of a full-throttle pull, as EcuLab asks for it. */
+    dutyPreview: (rpm = dutyPreviewRpm(derived)) => injectorDutyPreview({ ...sweepArgs(100), ecu: ecu(), rpm }),
     /** The live engine config, as EcuLab builds it. */
     liveCfg: (aux = {}) => ({
-      ...sweepArgs(), ve: tables.ve, timing: tables.timing, afr: tables.afr,
+      ...sweepArgs(), ve: tables.ve, timing: tables.timing, afr: tables.afr, layout: tables.layout,
       mafErrorBase: mafErrorFactor(build.mods, build.turboOn),
       ecu: { ...ecu(dynoConditions(env, faults)), aux },
     }),

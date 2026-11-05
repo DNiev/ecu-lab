@@ -9,7 +9,7 @@ import {
 } from '../src/ui/commands.js';
 import { ROUTES, TAB_NAMES } from '../src/ui/routing.js';
 
-const ALL = { showJobs: true, hasResult: true, hasHistory: true, hasNitrous: true, running: false };
+const ALL = { career: false, hasResult: true, hasHistory: true, hasNitrous: true, running: false };
 const pages = (flags = ALL, go = () => {}) => pageCommands(flags, go);
 const ids = (cmds) => cmds.map((c) => c.id);
 
@@ -35,12 +35,12 @@ describe('pageCommands', () => {
   it('lists each tab, then its sections, in nav order; a one-section tab is one command', () => {
     const list = ids(pages());
     expect(list.slice(0, 7)).toEqual([
-      'page:dash', 'page:dash/jobs', 'page:dash/stats', 'page:dash/health',
-      'page:dash/learn', 'page:dash/realcar', 'page:build',
+      'page:dash', 'page:dash/stats', 'page:dash/health',
+      'page:dash/learn', 'page:dash/realcar', 'page:build', 'page:build/engine',
     ]);
     expect(list).toContain('page:live');
     expect(list.some((id) => id.startsWith('page:live/'))).toBe(false);
-    expect(list).toHaveLength(6 + 28);
+    expect(list).toHaveLength(6 + 27);
   });
 
   it('prints the tab before a section, and not before a tab', () => {
@@ -54,8 +54,15 @@ describe('pageCommands', () => {
     expect(spark.keywords).toContain('tune');
   });
 
-  it('drops Customer Cars outside career', () => {
-    expect(ids(pages({ ...ALL, showJobs: false }))).not.toContain('page:dash/jobs');
+  it("offers CAREER's nav in career: the SHOP first, no HOME and no drag strip", () => {
+    const go = vi.fn();
+    const list = pages({ ...ALL, career: true }, go);
+    expect(list[0]).toMatchObject({ id: 'page:shop', label: 'SHOP' });
+    expect(ids(list).some((id) => id.startsWith('page:dash') || id.startsWith('page:drag'))).toBe(false);
+    expect(ids(list)).toContain('page:tune/spark');
+    list[0].run();
+    expect(go).toHaveBeenCalledWith('shop', null);
+    expect(ids(pages())).not.toContain('page:shop');
   });
 
   it("drops Nitrous Control without a kit, as TUNE's switcher does", () => {
@@ -94,7 +101,6 @@ describe('sectionAvailable', () => {
   it('gates a section the same way for the palette and the switchers', () => {
     expect(sectionAvailable('tune/spark', { ...ALL, hasResult: false, hasNitrous: false })).toBe(true);
     expect(sectionAvailable('tune/nitrous', { ...ALL, hasNitrous: false })).toBe(false);
-    expect(sectionAvailable('dash/jobs', { ...ALL, showJobs: false })).toBe(false);
     expect(sectionAvailable('dyno/data', { ...ALL, hasResult: false })).toBe(false);
     expect(sectionAvailable('dyno/data', { ...ALL, running: true })).toBe(false);
     expect(sectionAvailable('dyno/result', { ...ALL, running: true })).toBe(true);

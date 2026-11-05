@@ -37,3 +37,5 @@
   background: var(--panel2);
   border: 1px solid var(--line);
 }
+
+.roadNote { margin: 6px 0 2px; font-size: var(--fs-sm); line-height: 1.55; color: var(--ink2); }

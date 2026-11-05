@@ -41,8 +41,83 @@ export function hasBalanceShafts(configuration, displacementL) {
   return configuration === 'I4' && displacementL >= 1.8;
 }
 
+/**
+ * How the cams open the valves. Each is a real architecture with real consequences:
+ *
+ *   ohv   one block-mounted cam, pushrods and rockers (GM's small-blocks, the modern
+ *         Hemi). Few cam bearings and, on modern engines, roller lifters; the pushrods and
+ *         rockers are extra moving mass every valve event.
+ *   sohc  one cam per bank in the head, usually rockers or finger followers.
+ *   dohc  two cams per bank, each valve worked directly or through a finger follower.
+ *
+ * Where they differ in the physics: friction (cam bearings, follower contact and the
+ * oscillating parts, see `valvetrainFmepKpa` in friction.js) and how many valves a head
+ * of that layout carries, which sets how much valve area the charge gets (engine.js).
+ */
+export const VALVETRAIN_OPTS = [
+  { id: 'ohv', label: 'Pushrod (OHV)' },
+  { id: 'sohc', label: 'SOHC' },
+  { id: 'dohc', label: 'DOHC' },
+];
+
+/**
+ * Cam followers. A roller rolls on the lobe; a flat tappet or bucket slides on it, in
+ * mixed or boundary lubrication, which is why flat followers cost several times more
+ * friction per valve (Sandoval and Heywood, SAE 2003-01-0725).
+ */
+export const FOLLOWER_OPTS = [
+  { id: 'roller', label: 'Roller' },
+  { id: 'flat', label: 'Flat tappet / bucket' },
+];
+
+/** Valves per cylinder: 2 (1 intake, 1 exhaust), 3 (2 + 1), 4 (2 + 2) or 5 (3 + 2). */
+export const VALVES_PER_CYL_OPTS = [2, 3, 4, 5];
+
+/** Intake valves in a head with `valvesPerCyl` valves per cylinder. */
+export const intakeValvesFor = (valvesPerCyl) => (valvesPerCyl >= 5 ? 3 : valvesPerCyl >= 3 ? 2 : 1);
+
+/**
+ * Typical intake valve diameter as a share of the bore, for a head that does not state
+ * its own. Heywood, Internal Combustion Engine Fundamentals (1988), §6.3: wedge and
+ * bathtub chambers 0.43-0.46 of the bore, hemispherical 0.48-0.50, four-valve pent-roof
+ * 0.35-0.37 per valve. The middle of each range; a three-valve head is taken at the
+ * four-valve figure (two intakes) and a five-valve head at 0.30 per intake (three
+ * intakes in the same chamber). A head with known valves should give them: a GM LS head
+ * runs 0.51-0.53 of its bore on one valve, well above the typical wedge.
+ */
+export const TYPICAL_INTAKE_VALVE_SHARE = { 2: 0.445, 3: 0.36, 4: 0.36, 5: 0.30 };
+
+/**
+ * How much friction the engine's technology carries, as a multiple of the published
+ * component model (friction.js). Friction is not set by geometry alone: ring tension,
+ * coatings, oil viscosity and tolerances moved it a long way between the 1990s and the
+ * 2010s, and the files Pro learned from cannot yet separate that from layout.
+ *
+ *   modern  1.0, the published model (Sandoval and Heywood, SAE 2003-01-0725): the level
+ *           every factory preset here fits its rating at.
+ *   older   the level GM's own friction model states for its 2002 Vortec and Gen III
+ *           engines (OS 12212156: LM7, LR4, L31, L35), fitted to those four tables of
+ *           measured friction and never to a power figure. See FRICTION_SCALE_OLDER.
+ */
+export const FRICTION_LEVEL_OPTS = [
+  { id: 'modern', label: 'Modern (low friction)' },
+  { id: 'older', label: 'Older (1990s–2000s)' },
+];
+
 /** Selectable block and head materials. */
 export const MATERIAL_OPTS = ['Cast Iron', 'Aluminum'];
+
+/**
+ * Where the injectors spray. Port is multi-point manifold injection: one injector per
+ * intake runner, aimed at the valve. Direct sprays into the cylinder. Single-point
+ * (throttle-body) injection is not offered: no engine here used it, and its defining
+ * behaviour, uneven mixture from one cylinder to the next, needs a cylinder-by-cylinder
+ * model this simulator does not have.
+ */
+export const INJECTION_OPTS = [
+  { id: 'port', label: 'Port (multi-point)' },
+  { id: 'direct', label: 'Direct' },
+];
 
 /**
  * Fuels, each carrying its real stoichiometric ratio, liquid density and lower
@@ -55,15 +130,19 @@ export const MATERIAL_OPTS = ['Cast Iron', 'Aluminum'];
  * It buys big knock margin and costs fuel headroom; it is not a free upgrade.
  */
 export const OCTANE_OPTS = [
-  { label: '91', bonus: 0, octane: 91, stoich: 14.7, density: 0.745, lhv: 44.0e6 },
-  { label: '93', bonus: 3, octane: 93, stoich: 14.7, density: 0.745, lhv: 44.0e6 },
-  { label: '100', bonus: 8, octane: 100, stoich: 14.6, density: 0.750, lhv: 43.5e6 },
-  // E85's pump antiknock index is usually quoted around 100-105 AKI. The autoignition
-  // model uses `octane` directly, so this number now does real work: it is the fuel
-  // property the ignition-delay correlation reads. `bonus` is the older
-  // degrees-of-margin figure, kept because the Engineer Score still prices its
-  // compression headroom in it.
-  { label: 'E85', bonus: 14, octane: 105, stoich: 9.8, density: 0.782, lhv: 29.2e6 },
+  // Each fuel's RON and MON, not just the pump number. US pumps post the antiknock index,
+  // (RON + MON) / 2; premium 91-93 AKI is about 95.5-97.5 RON, and ethanol-blended pump
+  // gasoline runs 10-12 points of sensitivity (RON - MON). E85 is at the EN 15293
+  // minimums, RON 104 / MON 88 — (R+M)/2 of 96, where true-octane tests put it (IEA-AMF:
+  // 94-96). The knock model reads the OCTANE INDEX made from these two, which depends on
+  // the engine (see octaneIndexK in cycle.js). `octane` is the pump figure, for labels.
+  // `bonus` is the older degrees-of-margin figure, kept because the Engineer Score still
+  // prices its compression headroom in it.
+  { label: '91', bonus: 0, octane: 91, ron: 96, mon: 86, stoich: 14.7, density: 0.745, lhv: 44.0e6 },
+  { label: '93', bonus: 3, octane: 93, ron: 98, mon: 88, stoich: 14.7, density: 0.745, lhv: 44.0e6 },
+  // Unleaded race fuel at 100 AKI. Less sensitive than pump fuel, as racing blends are.
+  { label: '100', bonus: 8, octane: 100, ron: 104, mon: 96, stoich: 14.6, density: 0.750, lhv: 43.5e6 },
+  { label: 'E85', bonus: 14, octane: 96, ron: 104, mon: 88, stoich: 9.8, density: 0.782, lhv: 29.2e6 },
 ];
 
 /**
@@ -78,7 +157,7 @@ export const OCTANE_OPTS = [
  */
 export const FUEL_CHOICES = [
   ...OCTANE_OPTS,
-  { label: 'Flex', flex: true, bonus: 3, octane: 93, stoich: 14.7, density: 0.745, lhv: 44.0e6 },
+  { label: 'Flex', flex: true, bonus: 3, octane: 93, ron: 98, mon: 88, stoich: 14.7, density: 0.745, lhv: 44.0e6 },
 ];
 
 /**
@@ -86,6 +165,11 @@ export const FUEL_CHOICES = [
  *
  * Duty cycle is computed from actual required pulse width against the time available
  * per engine cycle, not from a capacity index.
+ *
+ * 1050 and 1300 cc are the sizes ethanol builds actually run: E85 needs about 40% more
+ * fuel by volume than gasoline for the same air (stoichiometric 9.8:1 against 14.7, and a
+ * lower density), so a V6 making 400 wheel hp on E85 needs about 1000 cc at 80% duty.
+ * Appended, so a saved build's injector index means what it did.
  */
 export const INJECTOR_OPTS = [
   { label: '315cc (stock)', cc: 315 },
@@ -93,6 +177,8 @@ export const INJECTOR_OPTS = [
   { label: '550cc', cc: 550 },
   { label: '650cc', cc: 650 },
   { label: '850cc', cc: 850 },
+  { label: '1050cc', cc: 1050 },
+  { label: '1300cc', cc: 1300 },
 ];
 
 /**
@@ -140,6 +226,47 @@ export function turbineWithCount(base, count = 1) {
   if (!base || count === 1) return base;
   return { ...base, effectiveAreaM2: base.effectiveAreaM2 * count };
 }
+
+/**
+ * `n` compressors of one size, side by side, as a twin-turbo engine has them: each turbo
+ * carries its own compressor, and in parallel they pass `n` times the air at the same
+ * pressure ratio. So every flow on the map scales — the island's centre, the surge line
+ * and the choke line — while the pressure ratios and the efficiency do not. Twin turbos
+ * used to double only the turbine, leaving the engine one compressor's worth of air.
+ *
+ * @param {object|null} base a `COMPRESSOR_OPTS` entry
+ * @param {number} count how many turbos are fitted
+ * @returns {object|null}
+ */
+export function compressorWithCount(base, count = 1) {
+  if (!base || count === 1) return base;
+  return {
+    ...base,
+    pkFlowKgS: base.pkFlowKgS * count,
+    chokeFlowKgS: base.chokeFlowKgS * count,
+    surgeSlope: base.surgeSlope * count,
+  };
+}
+
+/**
+ * Air a turbo engine asks its compressor for, kg/s, at `rpm` and `boostPsi` — the number
+ * a turbo shop sizes a compressor by. The starting point is a full cylinder of sea-level
+ * air every other revolution, scaled by the pressure ratio; `TURBO_FILL` then takes off
+ * what a real engine does not get: it fills ~85 % of its cylinders at the top end, and
+ * the charge reaches them warmer, so thinner, than ambient even after an intercooler.
+ *
+ * The fraction is set against this model's own compressor maps: a compressor asked for
+ * more than its choke flow by this measure is one whose boost the pull shows falling
+ * away before the rev limit, and one asked for less holds its target.
+ *
+ * @param {number} displacementL
+ * @param {number} rpm
+ * @param {number} [boostPsi]
+ * @returns {number}
+ */
+export const TURBO_FILL = 0.7;
+export const turboAirflowNeedKgS = (displacementL, rpm, boostPsi = 0) =>
+  (displacementL / 1000) * (rpm / 120) * 1.184 * (1 + Math.max(0, boostPsi) / 14.7) * TURBO_FILL;
 
 /**
  * Compressors, each carrying a MAP rather than a single efficiency number.
@@ -269,11 +396,21 @@ export function idealExhaustDiameter(displacementL, peakBoostPsi = 0) {
   return clamp(estCrankHp / 100, 2.0, 5.0);
 }
 
-/** Measured airflow gains per bolt-on, weighted toward the RPM where they work. */
+/**
+ * Airflow gains per bolt-on, in VE points at wide open throttle, weighted toward the RPM
+ * where each one works.
+ *
+ * Fitted to what these parts measure on a chassis dyno on a naturally aspirated 3.5 V6
+ * (the VQ35 is the most-dynoed engine these parts are sold for), each with the MAF
+ * rescaled and the VE table corrected afterwards: a cold air intake about 5-8 whp, a
+ * cat-back 5-8 whp, long-tube headers 15-20 whp, all three together about 30-35 whp,
+ * roughly 12-14% over stock. These were once about twice that (the three together
+ * added 26%, and headers alone 12%), which made a turbo kit look barely worth fitting.
+ */
 export const MOD_BONUS = {
-  intake: [0, 0, 0, 1, 2, 3, 3, 4],
-  exhaust: [0, 0, 1, 2, 3, 4, 5, 6],
-  headers: [0, 1, 2, 4, 6, 8, 9, 10],
+  intake: [0, 0, 0, 0.5, 1, 1.5, 2, 2.5],
+  exhaust: [0, 0, 0.5, 1, 1.5, 2, 2.5, 3],
+  headers: [0, 0.5, 1, 2, 3.5, 5, 6, 6.5],
 };
 
 /** Display copy for each bolt-on. */

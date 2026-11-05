@@ -38,9 +38,9 @@ function massFraction(volFrac, gasDensity) {
  * The fuel in a flex tank.
  *
  * @param {number} ethanolPct ethanol content by volume, 0..100
- * @param {{octane: number, stoich: number, density: number, lhv: number, bonus?: number}} [gasoline]
+ * @param {{octane: number, ron?: number, mon?: number, stoich: number, density: number, lhv: number, bonus?: number}} [gasoline]
  *   the gasoline it is blended with
- * @returns {{label: string, octane: number, stoich: number, density: number, lhv: number,
+ * @returns {{label: string, octane: number, ron: number, mon: number, stoich: number, density: number, lhv: number,
  *   latentHeat: number, bonus: number, ethanolPct: number}}
  */
 export function blendFuel(ethanolPct, gasoline = OCTANE_OPTS[1]) {
@@ -49,15 +49,18 @@ export function blendFuel(ethanolPct, gasoline = OCTANE_OPTS[1]) {
   const e85 = OCTANE_OPTS.find((o) => o.label === 'E85');
   const m85 = massFraction(0.85, gasoline.density);
   const x = Math.min(1, v / 0.85);
-  // Concave: ethanol's octane gain is front-loaded.
-  const octane = v <= 0.85
-    ? gasoline.octane + (e85.octane - gasoline.octane) * (1 - (1 - x) * (1 - x))
-    : e85.octane + (v - 0.85) / 0.15 * E.ETHANOL_OCTANE_PAST_E85;
+  // Concave: ethanol's octane gain is front-loaded. RON and MON blend the same way.
+  const blend = (g, e) => (v <= 0.85
+    ? g + (e - g) * (1 - (1 - x) * (1 - x))
+    : e + (v - 0.85) / 0.15 * E.ETHANOL_OCTANE_PAST_E85);
+  const octane = blend(gasoline.octane, e85.octane);
   const latentHeat = COEFF.FUEL_LATENT_HEAT_GASOLINE
     + (COEFF.FUEL_LATENT_HEAT_ETHANOL - COEFF.FUEL_LATENT_HEAT_GASOLINE) * (m / m85);
   return {
     label: `E${Math.round(v * 100)}`,
     octane,
+    ron: blend(gasoline.ron ?? gasoline.octane, e85.ron ?? e85.octane),
+    mon: blend(gasoline.mon ?? gasoline.octane, e85.mon ?? e85.octane),
     stoich: m * ETHANOL.stoich + (1 - m) * gasoline.stoich,
     density: v * ETHANOL.density + (1 - v) * gasoline.density,
     lhv: m * ETHANOL.lhv + (1 - m) * gasoline.lhv,

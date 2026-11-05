@@ -52,14 +52,18 @@ export function camTargets({ cal, vvt, rpm, mapKpa }) {
  * True cylinder filling at an intake cam phase, from breathing curves solved at the
  * sample phases.
  *
- * @param {number[][][]} tables one hardware VE table per {@link VE_PHASE_SAMPLES} entry
+ * @param {(number[][]|((rpm: number, kpa: number) => number))[]} tables the hardware breathing per
+ *   {@link VE_PHASE_SAMPLES} entry: a function of speed and pressure, or a legacy 8 × 6 table
  * @param {number} rpm
  * @param {number} mapKpa
  * @param {number} intakeAdvDeg
  * @returns {number} VE, percent
  */
 export function veAtPhase(tables, rpm, mapKpa, intakeAdvDeg) {
-  if (!tables || tables.length === 1 || !intakeAdvDeg) return interp2(tables[0], rpm, mapKpa);
-  const vals = tables.map((t) => interp2(t, rpm, mapKpa));
+  // Each phase's breathing is a function of speed and pressure (`hardwareVeAt`), or a table
+  // on the old 8 × 6 grid from a caller written before it could be.
+  const at = (t) => (typeof t === 'function' ? t(rpm, mapKpa) : interp2(t, rpm, mapKpa));
+  if (!tables || tables.length === 1 || !intakeAdvDeg) return at(tables[0]);
+  const vals = tables.map(at);
   return interp1(VE_PHASE_SAMPLES.slice(0, vals.length), vals, intakeAdvDeg);
 }

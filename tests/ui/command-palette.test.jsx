@@ -331,11 +331,13 @@ describe('the palette in the app', () => {
     // unmounts with the view, but `paletteOpen` must not survive the round trip, or
     // re-entering the app reopens it at once.
     window.history.back();
-    await waitFor(() => expect(screen.getByRole('button', { name: 'SANDBOX' })).toBeTruthy());
+    // jsdom dispatches the hashchange from a queued task, and the start screen renders the
+    // whole app back down. Under a loaded full run that takes longer than waitFor's 1 s.
+    await waitFor(() => expect(screen.getByRole('button', { name: 'SANDBOX' })).toBeTruthy(), { timeout: 10000 });
 
     fireEvent.click(screen.getByRole('button', { name: 'SANDBOX' }));
     expect(isOpen()).toBe(false);
-  });
+  }, 20000);
 
   it('stays put while K is held down, and still swallows the repeats', () => {
     launch();

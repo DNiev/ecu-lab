@@ -14,9 +14,11 @@ import { RotateCcw, Settings } from 'lucide-react';
 import React from 'react';
 
 import {
-  COIL_OPTS, CONFIG_OPTS, CYL_COUNT, ENGINE_PRESETS, MATERIAL_OPTS, PRESET_GROUPS, VVT_OPTS, applyPreset,
+  BOTTOM_END_OPTS, COIL_OPTS, CONFIG_OPTS, CUSTOM_ENGINE_LIMITS, CYL_COUNT, ENGINE_PRESETS, FOLLOWER_OPTS, FRICTION_LEVEL_OPTS, INJECTION_OPTS, MATERIAL_OPTS, PRESET_GROUPS,
+  TYPICAL_INTAKE_VALVE_SHARE, VALVES_PER_CYL_OPTS, VALVETRAIN_OPTS, VVT_OPTS, applyPreset, intakeValvesFor, pistonMotion,
 } from '../../../sim/index.js';
 import { BuildSection } from '../../components/BuildSection.jsx';
+import { EngineSpecForm } from '../../components/EngineSpecForm.jsx';
 import { ExpandableInfo } from '../../components/ExpandableInfo.jsx';
 import { Button } from '../../primitives/Button.jsx';
 import { Note } from '../../primitives/Note.jsx';
@@ -28,6 +30,16 @@ import { useBuild, useHistory, useSession, useTune } from '../../state/StoreProv
 
 import styles from './EngineScreen.module.css';
 
+/** How BUILD names a figure the app assumed for a player's own engine, with the value it used. */
+const ASSUMED_LABEL = {
+  camDuration: (c) => `intake cam duration ${c.camDuration}°`,
+  valvetrain: (c) => `valvetrain ${String(c.valvetrain ?? 'dohc').toUpperCase()}`,
+  valvesPerCyl: (c) => `${c.valvesPerCyl ?? 4} valves per cylinder`,
+  blockMaterial: (c) => `${c.blockMaterial.toLowerCase()} block`,
+  headMaterial: (c) => `${c.headMaterial.toLowerCase()} head`,
+  injection: (c) => `${c.injection === 'direct' ? 'direct' : 'port'} fuel injection`,
+};
+
 /**
  * @typedef {object} EngineDerived
  * @property {number} displacementL
@@ -36,6 +48,8 @@ import styles from './EngineScreen.module.css';
  * @property {number} overlapDeg
  * @property {number} floatRpm
  * @property {number} redline
+ * @property {{id: string, label: string, limitMs: number, ratedRpm: number}} bottomEnd what
+ *   the pistons and rods are rated to (bottomEnd.js)
  */
 
 /**
@@ -58,6 +72,7 @@ import styles from './EngineScreen.module.css';
  */
 export function EngineScreen({ active, onToggle, engineDerived, activePreset, veAdvice, onResetToStock }) {
   const [build, dispatch] = useBuild();
+  const [ownOpen, setOwnOpen] = React.useState(false);
   const { engineConfig, presetId, presetPrompt } = build;
   const [tune] = useTune();
   const { tablesDirty } = tune;
@@ -85,7 +100,7 @@ export function EngineScreen({ active, onToggle, engineDerived, activePreset, ve
 
   const applyEnginePreset = (preset) => {
     const p = applyPreset(preset);
-    // The whole BUILD slice — including `mafScalar` back to 1.0, and `presetId` SET
+    // The whole BUILD slice — including the preset's own `mafScalar`, and `presetId` SET
     // rather than cleared — lands in ONE pass; see APPLY_PRESET in reducer.js.
     dispatch({ type: ACTIONS.APPLY_PRESET, preset: p });
   };
@@ -96,6 +111,21 @@ export function EngineScreen({ active, onToggle, engineDerived, activePreset, ve
   };
 
   const floating = engineDerived.floatRpm < engineDerived.redline;
+
+  // The pistons and rods (bottomEnd.js): a catalogue engine keeps its maker's assembly,
+  // rated to its own limiter, until the player fits something else.
+  const factoryRatedRpm = engineConfig.bottomEndRatedRpm
+    || (activePreset ? (activePreset.bottomEndRatedRpm ?? activePreset.engine.redline) : null);
+  const bottomEndOpts = [
+    ...(factoryRatedRpm ? [{ id: 'factory', label: 'Factory' }] : []),
+    ...BOTTOM_END_OPTS.map((o) => ({ id: o.id, label: o.label.split(' (')[0] })),
+  ];
+  const bottomEndLimit = engineDerived.bottomEnd;
+  const pistonAtRedline = pistonMotion(engineConfig.stroke, engineDerived.redline);
+  const pastBottomEnd = engineDerived.redline > bottomEndLimit.ratedRpm;
+  const chooseBottomEnd = (id) => setCfg(id === 'factory'
+    ? { bottomEnd: undefined, bottomEndRatedRpm: factoryRatedRpm }
+    : { bottomEnd: id, bottomEndRatedRpm: undefined });
 
   return (
     <BuildSection
@@ -134,6 +164,20 @@ export function EngineScreen({ active, onToggle, engineDerived, activePreset, ve
           if (p) choosePreset(p);
         }}
       />
+      <details className={styles.ownEngine} onToggle={(e) => setOwnOpen(e.currentTarget.open)}>
+        <summary>Enter my own engine&apos;s specs instead</summary>
+        <p className={styles.ownLead}>
+          Replaces the engine, and its calibration, with one built from your figures. You can undo it.
+        </p>
+        {/* Mounted only while open: a blank form has no option selected yet, which nothing
+            else on this screen does. */}
+        {ownOpen && (
+          <EngineSpecForm
+            submitLabel="REPLACE THE ENGINE WITH THIS ONE"
+            onCreate={(patch) => { dispatch({ type: ACTIONS.APPLY_PRESET, preset: patch }); setOwnOpen(false); }}
+          />
+        )}
+      </details>
       {activePreset && (
         // Panel builds its own className from `tight` and spreads rest props AFTER
         // it with no merge, so a caller's `className` would replace `tight` outright
@@ -157,13 +201,19 @@ export function EngineScreen({ active, onToggle, engineDerived, activePreset, ve
           </div>
         </Panel>
       )}
+      {(build.assumed?.length ?? 0) > 0 && (
+        <Note tone="warn">
+          <b>Assumed, not entered:</b> {build.assumed.map((k) => ASSUMED_LABEL[k]?.(engineConfig) ?? k).join('; ')}.
+          {' '}These are typical values, not your engine&apos;s own. Set each below and this note goes away.
+        </Note>
+      )}
       {!presetId && (
         <Note>Custom build — every value below is yours to set. Pick a real engine above to start from a known-good factory configuration instead.</Note>
       )}
       {presetPrompt && (
         <div className={styles.callout}>
           <div className={styles.calloutText}>
-            <b className={styles.calloutAccent}>This replaces your current tune.</b> Loading {presetPrompt.name} overwrites your VE, spark and fuel tables with its factory calibration. Your career stats are kept.
+            <b className={styles.calloutAccent}>This replaces your current tune.</b> Loading {presetPrompt.name} overwrites your VE, spark and fuel tables with its factory calibration. Your sandbox stats are kept.
           </div>
           <div className={styles.calloutRow}>
             {/* The one `danger` in the app. This prompt is raised ONLY when
@@ -224,15 +274,15 @@ export function EngineScreen({ active, onToggle, engineDerived, activePreset, ve
       </ExpandableInfo>
 
       <div className={styles.labelSpaced}>Bore: {engineConfig.bore.toFixed(1)} mm</div>
-      <input type="range" min={75} max={105} step={0.5} value={engineConfig.bore} onChange={(e) => setCfg({ bore: Number(e.target.value) })} className={styles.slider} />
+      <input type="range" min={CUSTOM_ENGINE_LIMITS.bore.min} max={CUSTOM_ENGINE_LIMITS.bore.max} step={CUSTOM_ENGINE_LIMITS.bore.step} value={engineConfig.bore} onChange={(e) => setCfg({ bore: Number(e.target.value) })} className={styles.slider} />
       <div className={styles.labelSpaced}>Stroke: {engineConfig.stroke.toFixed(1)} mm</div>
-      <input type="range" min={65} max={100} step={0.5} value={engineConfig.stroke} onChange={(e) => setCfg({ stroke: Number(e.target.value) })} className={styles.slider} />
+      <input type="range" min={CUSTOM_ENGINE_LIMITS.stroke.min} max={CUSTOM_ENGINE_LIMITS.stroke.max} step={CUSTOM_ENGINE_LIMITS.stroke.step} value={engineConfig.stroke} onChange={(e) => setCfg({ stroke: Number(e.target.value) })} className={styles.slider} />
       <ExpandableInfo title="Bore, stroke, and engine character">
         Bore is cylinder diameter, stroke is how far the piston travels; together with cylinder count they set displacement. But the ratio between them shapes character independent of displacement: big-bore/short-stroke ("oversquare") tends to breathe and rev higher; small-bore/long-stroke ("undersquare") tends toward stronger low-end torque. This sandbox shifts your VE curve's effective bias toward high or low RPM based on what you set here.
       </ExpandableInfo>
 
       <div className={styles.labelSpaced}>Compression Ratio: {engineConfig.compression.toFixed(1)}:1</div>
-      <input type="range" min={8.5} max={13.0} step={0.1} value={engineConfig.compression} onChange={(e) => setCfg({ compression: Number(e.target.value) })} className={styles.slider} />
+      <input type="range" min={CUSTOM_ENGINE_LIMITS.compression.min} max={CUSTOM_ENGINE_LIMITS.compression.max} step={CUSTOM_ENGINE_LIMITS.compression.step} value={engineConfig.compression} onChange={(e) => setCfg({ compression: Number(e.target.value) })} className={styles.slider} />
       <ExpandableInfo title="Compression ratio's trade-off">
         Higher compression squeezes the mixture tighter before ignition, extracting more work from the same fuel — genuinely more efficient and torquey. The same squeeze also raises end-gas temperature and pressure, which is what causes knock. That is exactly why turbocharged engines usually run lower static compression than naturally aspirated ones: boost already adds cylinder pressure on its own.
       </ExpandableInfo>
@@ -240,7 +290,7 @@ export function EngineScreen({ active, onToggle, engineDerived, activePreset, ve
       <div className={styles.labelSpaced}>
         Camshaft Duration: {engineConfig.camDuration}° <span className={styles.overlapNote}>· overlap {Math.round(engineDerived.overlapDeg)}°</span>
       </div>
-      <input type="range" min={180} max={300} step={2} value={engineConfig.camDuration} onChange={(e) => setCfg({ camDuration: Number(e.target.value) })} className={styles.slider} />
+      <input type="range" min={CUSTOM_ENGINE_LIMITS.camDuration.min} max={CUSTOM_ENGINE_LIMITS.camDuration.max} step={CUSTOM_ENGINE_LIMITS.camDuration.step} value={engineConfig.camDuration} onChange={(e) => setCfg({ camDuration: Number(e.target.value) })} className={styles.slider} />
       <div className={styles.rangeCaption}>
         <span>mild · low-end torque</span><span>wild · top-end power</span>
       </div>
@@ -265,11 +315,65 @@ export function EngineScreen({ active, onToggle, engineDerived, activePreset, ve
         <br /><br />Stiffness is not free either — every cycle the engine compresses those springs, and that parasitic loss shows up in FMEP. Over-spring a mild cam and you simply lose a little power for nothing.
       </ExpandableInfo>
 
+      <div className={styles.labelSpaced}>
+        Pistons and rods: {bottomEndLimit.label} <span className={styles.floatCaption} data-float={pastBottomEnd ? 'true' : 'false'}>· rated to {bottomEndLimit.ratedRpm.toLocaleString('en-US')} RPM</span>
+      </div>
+      <Seg label="Pistons and rods" equal value={bottomEndLimit.id} options={bottomEndOpts} onChange={chooseBottomEnd} />
+      <div className={styles.floatCaption} data-testid="bottom-end-readout">
+        At the {engineDerived.redline.toLocaleString('en-US')} RPM redline the pistons average {pistonAtRedline.meanSpeedMs.toFixed(1)} m/s
+        (this assembly is good for about {bottomEndLimit.limitMs.toFixed(1)} m/s) and pull {Math.round(pistonAtRedline.peakAccelMs2 / 9.81).toLocaleString('en-US')} g at top dead centre.
+      </div>
+      {pastBottomEnd && (
+        <div className={styles.floatWarning}>
+          The redline is past what these pistons and rods are built for. The dyno will still show the power; the rod
+          bearings, pins and rings wear out of proportion, and the inertia load that throws a rod grows with the square
+          of engine speed. Fit a stronger assembly, or keep the limiter at or below {bottomEndLimit.ratedRpm.toLocaleString('en-US')} RPM.
+        </div>
+      )}
+      <ExpandableInfo title="Why the bottom end sets how far an engine can rev">
+        Every revolution the piston stops dead twice and starts again, and the rod carries all of it. Engine designers rate an
+        assembly by its <b className={styles.em}>mean piston speed</b>, twice the stroke times revs per second: medium-speed car
+        engines run about 16 m/s, sports engines 20-25, Formula One and NASCAR about 25, and the Audi R8 V10 at 26.9 m/s is the
+        highest production figure. A longer stroke reaches the same speed at lower RPM, which is why a big-stroke V8 cannot rev
+        like a short-stroke motorcycle engine even with the same parts. Past the band nothing breaks at once; the parts simply
+        stop lasting, and the risk climbs with the square of the speed.
+      </ExpandableInfo>
+
+      <div className={styles.labelSpaced}>Valvetrain</div>
+      <Seg label="Valvetrain layout" options={VALVETRAIN_OPTS} value={engineConfig.valvetrain ?? 'dohc'} onChange={(v) => setCfg({ valvetrain: v, follower: undefined })} equal />
+      <div className={styles.labelSpaced}>Valves per cylinder</div>
+      <Seg label="Valves per cylinder" options={VALVES_PER_CYL_OPTS.map((n) => ({ id: n, label: String(n) }))} value={engineConfig.valvesPerCyl ?? 4} onChange={(v) => setCfg({ valvesPerCyl: Number(v), intakeValveMm: null })} equal />
+      <div className={styles.labelSpaced}>Cam followers</div>
+      <Seg label="Cam followers" options={FOLLOWER_OPTS} value={engineConfig.follower ?? ((engineConfig.valvetrain ?? 'dohc') === 'dohc' ? 'flat' : 'roller')} onChange={(v) => setCfg({ follower: v })} equal />
+      <div className={styles.labelSpaced}>
+        Intake valve: {(engineConfig.intakeValveMm ?? TYPICAL_INTAKE_VALVE_SHARE[engineConfig.valvesPerCyl ?? 4] * engineConfig.bore).toFixed(1)} mm × {intakeValvesFor(engineConfig.valvesPerCyl ?? 4)}
+        {engineConfig.intakeValveMm == null && <span className={styles.overlapNote}> · typical for this head</span>}
+      </div>
+      <input type="range" aria-label="Intake valve diameter" min={25} max={60} step={0.5} value={engineConfig.intakeValveMm ?? Math.round(TYPICAL_INTAKE_VALVE_SHARE[engineConfig.valvesPerCyl ?? 4] * engineConfig.bore * 2) / 2} onChange={(e) => setCfg({ intakeValveMm: Number(e.target.value) })} className={styles.slider} />
+      <div className={styles.labelSpaced}>Spark plugs per cylinder</div>
+      <Seg label="Spark plugs per cylinder" options={[{ id: 1, label: '1' }, { id: 2, label: '2' }]} value={engineConfig.sparkPlugs ?? 1} onChange={(v) => setCfg({ sparkPlugs: Number(v) })} equal />
+      <div className={styles.labelSpaced}>Friction level</div>
+      <Seg label="Friction level" options={FRICTION_LEVEL_OPTS} value={engineConfig.frictionLevel ?? 'modern'} onChange={(v) => setCfg({ frictionLevel: v })} equal />
+      <ExpandableInfo title="Pushrods, overhead cams, and how many valves">
+        A <b className={styles.em}>pushrod</b> (OHV) engine has one camshaft in the block, working the valves through lifters, pushrods and rockers; GM&apos;s small-blocks and the modern Hemi are built this way. An <b className={styles.em}>overhead-cam</b> engine carries its cams in the head, one per bank (SOHC) or two (DOHC), working the valves directly or through short followers.
+        <br /><br />What changes here is real: <b className={styles.em}>friction</b> and <b className={styles.em}>breathing</b>. Every cam bearing and every follower on its lobe costs work: a pushrod V8 turns one cam on five bearings where a DOHC V8 turns four on twenty, and four valves per cylinder are twice the followers of two. A flat tappet or bucket slides where a roller rolls and costs more; that difference is not priced yet, because the published coefficient for it could not be obtained, so a flat-follower engine is charged as a roller one for now. Four valves give the charge more valve area than two in the same bore, so the engine keeps filling to a higher piston speed; that is why a four-valve head revs. Give the valve size if you know it: a GM LS head runs a single valve about half the bore across, almost as much area as a typical four-valve head.
+        <br /><br /><b className={styles.em}>Friction level</b> is the engine&apos;s technology rather than its layout: ring tension, coatings and oil thickness cut friction a long way between the 1990s and the 2010s. &ldquo;Older&rdquo; is what GM&apos;s own engine computers say their 2002 truck engines lose to friction: 1.6 times the published model, which matches what an independent laboratory measured on its own engine. &ldquo;Modern&rdquo; is the published model as printed, which is where the factory engines here fit their ratings; whether modern engines really run that low is not yet measured.
+        <br /><br />A <b className={styles.em}>second spark plug</b> lights the charge in two places, so each flame has less of the chamber to cross and the burn is shorter: the modern Hemi runs two for that reason.
+      </ExpandableInfo>
+
       <div className={styles.label}>Cam Phasers</div>
       <Seg label="Cam phasers" options={VVT_OPTS.map((o) => ({ id: o.id, label: o.label }))} value={engineConfig.vvt ?? 'none'} onChange={(v) => setCfg({ vvt: v })} equal />
       <ExpandableInfo title="What a cam phaser does — and what it does not">
         A phaser turns the camshaft against the crank with oil pressure, moving every event on that cam by the same angle. It does not change the lobe: duration and lift are the grind's. What it changes is <i>when</i> — and that is enough to move the torque curve, because the intake valve closing is what decides how much charge is trapped.
         <br /><br />Advance the intake and it closes earlier: at low speed the charge has no momentum to keep filling after bottom dead centre, so closing early traps more of it; at high speed it cuts the ramming short. Every move also changes overlap, and overlap decides how much burned gas stays in the cylinder. The targets live on <b className={styles.em}>TUNE › VVT</b>; parked at zero, a phased engine is exactly the fixed-cam one.
+      </ExpandableInfo>
+
+      <div className={styles.labelSpaced}>Fuel Injection</div>
+      <Seg label="Fuel injection" options={INJECTION_OPTS} value={engineConfig.injection ?? 'port'} onChange={(v) => setCfg({ injection: v })} equal />
+      <ExpandableInfo title="Port injection versus direct injection">
+        <b className={styles.em}>Port injection</b> (multi-point manifold injection) puts one injector in each intake runner, aimed at the back of the intake valve. The fuel boils off that hot valve, so it cools the metal, not the air: the charge reaches the cylinder barely colder than it left the manifold. The Nissan VQs here are port-injected.
+        <br /><br /><b className={styles.em}>Direct injection</b> sprays into the cylinder itself, at far higher pressure. The fuel takes its heat of evaporation from the air, and measured on the same engine that is about 14 °C colder on gasoline and 49 °C on E85. Colder air is denser, so more of it gets in (about 6% on gasoline here), and colder end gas takes longer to light itself, so the knock limit rises. That is how the BMW and VW turbo engines here run their compression under boost. There is no port wall for fuel to soak into, either, so a direct-injected engine needs far less acceleration enrichment.
+        <br /><br />Swap one for the other and the fuel tables stay the engine&apos;s own: re-tune after the change, as you would on a real conversion.
       </ExpandableInfo>
 
       <div className={styles.labelSpaced}>Ignition</div>
