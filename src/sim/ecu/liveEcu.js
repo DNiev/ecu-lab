@@ -18,7 +18,7 @@
 
 import { BARO_KPA, DRIVETRAIN_EFF, KELVIN_OFFSET, PSI_TO_KPA } from '../constants.js';
 import { COEFF } from '../coefficients.js';
-import { ENGINE_INERTIA, readSpeedAndAirflow, STALL_RPM, steadyManifoldKpa } from '../live.js';
+import { ENGINE_INERTIA, readSpeedAndAirflow, STALL_RPM, steadyManifoldKpa, vacuumSpeedFrac } from '../live.js';
 import { trappedAirGrams } from '../cycle.js';
 import { needsAirmass, readEcuTable, truthReader } from '../layouts.js';
 import { clamp } from '../math.js';
@@ -313,7 +313,7 @@ export function liveStepEcu(st, dt, input, cfg) {
   if ((s.running || s.cranking) && s.rpm > 100) {
     const rpmC = clamp(s.rpm, 700, redline);
     const aFrac = effThrottle / 100;
-    const nFrac = clamp(rpmC / COEFF.MANIFOLD_VACUUM_RPM_NORM, 0, 1.2);
+    const nFrac = vacuumSpeedFrac(rpmC);
     const overlap = (derived.overlapDeg || 0) + e.camIn + e.camEx;
     // At cranking speed the engine barely pumps, so the manifold sits close to
     // atmospheric whatever the throttle is doing.

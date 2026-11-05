@@ -756,10 +756,9 @@ export const COEFF = {
   // because a build has a taller or shorter rev limit. Do not wire this to
   // `derived.redline`.
   //
-  // Today's max shippable redline (7500, see `DEFAULT_REDLINE_RPM` in `engine.js` and
-  // the RPM axis in `tables.js`) equals this datum, so the resulting `nFrac` never
-  // exceeds 1.0 in practice — the 1.2 clamp ceiling around it in `live.js` is
-  // currently unreachable headroom, not a live limit.
+  // A custom engine revs to 11,000 RPM, so `nFrac` reaches about 1.47. It has no ceiling
+  // (`vacuumSpeedFrac`): the callers hold engine speed to the redline, and the model's
+  // own 0.12 floor bounds the vacuum at a closed throttle.
   MANIFOLD_VACUUM_RPM_NORM: 7500,
 
   // --- Engineer Score: static compression under boost ---

@@ -67,6 +67,19 @@ export function sensorRead(prev, trueVal, lagFactor, noiseAmp) {
 }
 
 /**
+ * Engine speed as the manifold vacuum model reads it: against a fixed RPM datum, not this
+ * engine's redline (see COEFF.MANIFOLD_VACUUM_RPM_NORM). Callers pass a speed already
+ * held to the redline, so no ceiling is needed here: an engine built to 11,000 RPM keeps
+ * pulling harder vacuum all the way up, as it does below the datum.
+ *
+ * @param {number} rpm engine speed, held to the redline
+ * @returns {number}
+ */
+export function vacuumSpeedFrac(rpm) {
+  return Math.max(0, rpm / COEFF.MANIFOLD_VACUUM_RPM_NORM);
+}
+
+/**
  * Manifold pressure the throttle and engine settle at, before any boost.
  *
  * A closed throttle at high RPM pulls far harder vacuum than the same opening at idle,
@@ -79,7 +92,7 @@ export function sensorRead(prev, trueVal, lagFactor, noiseAmp) {
  * overlap its cam phasers have added.
  *
  * @param {number} aFrac throttle opening, 0..1
- * @param {number} nFrac engine speed against COEFF.MANIFOLD_VACUUM_RPM_NORM
+ * @param {number} nFrac engine speed against COEFF.MANIFOLD_VACUUM_RPM_NORM (`vacuumSpeedFrac`)
  * @param {number} overlapDeg valve overlap, degrees
  * @returns {number} kPa
  */
@@ -212,7 +225,7 @@ export function liveStep(st, dt, input, cfg) {
     const aFrac = clamp(effThrottle, 0, 100) / 100;
     // Normalised against a fixed RPM datum, not this engine's redline — see
     // COEFF.MANIFOLD_VACUUM_RPM_NORM in coefficients.js for why that is deliberate.
-    const nFrac = clamp(rpmClamped / COEFF.MANIFOLD_VACUUM_RPM_NORM, 0, 1.2);
+    const nFrac = vacuumSpeedFrac(rpmClamped);
     const loadKpa = steadyManifoldKpa(aFrac, nFrac, derived.overlapDeg || 0);
     const boostTarget = turboOn ? curveAt(boostCurve, rpmClamped) : 0;
     const steady = solveInduction({
