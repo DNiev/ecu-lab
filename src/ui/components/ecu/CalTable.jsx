@@ -4,6 +4,8 @@
  *
  * Select a cell, drag a rectangle, or take a whole row or column from its header; then
  * step, scale, set, interpolate, smooth, copy and paste. Axis breakpoints can be moved.
+ * A finger cannot drag a rectangle, because a drag across the grid scrolls it: Range
+ * takes one in two taps, two corners.
  * Compare shows every cell's difference from the factory table. When the engine is
  * running the cells it is reading right now are outlined, weighted by how much of each
  * the interpolation takes.
@@ -43,6 +45,10 @@ export function CalTable({ table, def, meta, onChange, marker }) {
   const [sel, setSel] = React.useState(/** @type {import('./tableOps.js').Rect|null} */ (null));
   const [compare, setCompare] = React.useState(false);
   const [editAxes, setEditAxes] = React.useState(false);
+  const [rangeMode, setRangeMode] = React.useState(false);
+  // In range mode, true between the first tap (the anchor) and the second. The
+  // selection alone cannot say so: a waiting anchor and a single cell are the same rect.
+  const [pending, setPending] = React.useState(false);
   const [value, setValue] = React.useState('');
   const [pct, setPct] = React.useState('');
   const dragging = React.useRef(false);
@@ -84,21 +90,30 @@ export function CalTable({ table, def, meta, onChange, marker }) {
   const all = { r1: 0, c1: 0, r2: nRows - 1, c2: nCols - 1 };
   const target = sel ?? null;
 
-  /** A tap or plain press on a cell. */
-  const tap = (r, c) => setSel({ r1: r, c1: c, r2: r, c2: c });
+  /** Sets the selection any way but a tap, which drops a waiting anchor. */
+  const select = (next) => { setSel(next); setPending(false); };
+  /**
+   * A tap or plain press on a cell. In range mode the first tap anchors a one-cell
+   * range and the second completes it; any tap after that starts over.
+   */
+  const tap = (r, c) => {
+    if (rangeMode && pending && sel) { select({ ...sel, r2: r, c2: c }); return; }
+    setSel({ r1: r, c1: c, r2: r, c2: c });
+    setPending(rangeMode);
+  };
 
   const onCellDown = (r, c, e) => {
     lastPointer.current = e.pointerType;
     // Touch and pen keep scrolling the grid; they select on click, below.
     if (e.pointerType !== 'mouse' || e.button !== 0) return;
-    if (e.shiftKey && sel) setSel({ ...sel, r2: r, c2: c });
+    if (e.shiftKey && sel) select({ ...sel, r2: r, c2: c });
     else tap(r, c);
     dragging.current = true;
   };
   const onCellEnter = (r, c, e) => {
     // `buttons` as well as the ref: a release outside the window never reaches the
     // listener below, and without this the next hover would still be dragging.
-    if (dragging.current && (e.buttons & 1) && sel) setSel({ ...sel, r2: r, c2: c });
+    if (dragging.current && (e.buttons & 1) && sel) select({ ...sel, r2: r, c2: c });
   };
   const onCellClick = (r, c, e) => {
     if (e.detail > 0 && lastPointer.current === 'mouse') return;
@@ -163,7 +178,10 @@ export function CalTable({ table, def, meta, onChange, marker }) {
         <span className={styles.flex} />
         <button type="button" className={styles.chip} aria-pressed={compare} onClick={() => setCompare(!compare)} disabled={!sameShape}>Compare</button>
         <button type="button" className={styles.chip} aria-pressed={editAxes} onClick={() => setEditAxes(!editAxes)}>Axes</button>
-        <button type="button" className={styles.chip} onClick={() => setSel(all)}>All</button>
+        {/* Toggling clears the selection: a half-taken range means nothing in
+            single-cell mode, and a single cell is not an anchor. */}
+        <button type="button" className={styles.chip} aria-pressed={rangeMode} onClick={() => { setRangeMode(!rangeMode); select(null); }}>Range</button>
+        <button type="button" className={styles.chip} onClick={() => select(all)}>All</button>
       </div>
 
       <div className={styles.scroll}>
@@ -177,7 +195,7 @@ export function CalTable({ table, def, meta, onChange, marker }) {
                     // Keyed on the value, so an undo or a map switch redraws the box.
                     ? <input key={xv} className={styles.axisInput} defaultValue={xv} aria-label={`${meta.xLabel ?? 'x'} breakpoint ${c + 1}`}
                       onBlur={(e) => setAxis('x', c, e.target)} onKeyDown={(e) => { if (e.key === 'Enter') /** @type {HTMLInputElement} */ (e.target).blur(); }} />
-                    : <button type="button" className={styles.axisBtn} onClick={() => setSel({ r1: 0, r2: nRows - 1, c1: c, c2: c })}>{xv}</button>}
+                    : <button type="button" className={styles.axisBtn} onClick={() => select({ r1: 0, r2: nRows - 1, c1: c, c2: c })}>{xv}</button>}
                 </th>
               ))}
             </tr>
@@ -190,7 +208,7 @@ export function CalTable({ table, def, meta, onChange, marker }) {
                     : editAxes
                       ? <input key={table.y[r]} className={styles.axisInput} defaultValue={table.y[r]} aria-label={`${meta.yLabel ?? 'y'} breakpoint ${r + 1}`}
                         onBlur={(e) => setAxis('y', r, e.target)} onKeyDown={(e) => { if (e.key === 'Enter') /** @type {HTMLInputElement} */ (e.target).blur(); }} />
-                      : <button type="button" className={styles.axisBtn} onClick={() => setSel({ r1: r, r2: r, c1: 0, c2: nCols - 1 })}>{table.y[r]}</button>}
+                      : <button type="button" className={styles.axisBtn} onClick={() => select({ r1: r, r2: r, c1: 0, c2: nCols - 1 })}>{table.y[r]}</button>}
                 </th>
                 {rows[r].map((v, c) => {
                   const selected = !!target && inRect(target, r, c);
@@ -225,7 +243,9 @@ export function CalTable({ table, def, meta, onChange, marker }) {
 
       {target && (
         <div className={styles.tools} role="toolbar" aria-label={`Edit ${meta.label}`}>
-          <span className={styles.selInfo}>{selInfo.cells} cell{selInfo.cells > 1 ? 's' : ''} · mean {fmt(selInfo.mean)}</span>
+          <span className={styles.selInfo}>
+            {pending ? '1 cell · tap the opposite corner' : `${selInfo.cells} cell${selInfo.cells > 1 ? 's' : ''} · mean ${fmt(selInfo.mean)}`}
+          </span>
           <button type="button" className={styles.tool} onClick={() => commit(mapCells(table, target, (v) => v - step, lim))} aria-label="Decrease">−{step}</button>
           <button type="button" className={styles.tool} onClick={() => commit(mapCells(table, target, (v) => v + step, lim))} aria-label="Increase">+{step}</button>
           <span className={styles.field}>
@@ -243,7 +263,7 @@ export function CalTable({ table, def, meta, onChange, marker }) {
           <button type="button" className={styles.tool} onClick={doCopy}>Copy</button>
           <button type="button" className={styles.tool} onClick={doPaste}>Paste</button>
           {sameShape && <button type="button" className={styles.tool} onClick={resetSel}>Factory</button>}
-          <button type="button" className={styles.tool} onClick={() => setSel(null)} aria-label="Clear selection">✕</button>
+          <button type="button" className={styles.tool} onClick={() => select(null)} aria-label="Clear selection">✕</button>
         </div>
       )}
     </div>
