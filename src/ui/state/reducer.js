@@ -804,9 +804,10 @@ function baseReducer(state, action) {
  *
  * A map rather than a Set plus a lookup elsewhere: `UNDOABLE` is derived from its keys
  * below, so another undoable action cannot be added to the membership list without
- * also declaring what its undo restores.
+ * also declaring what its undo restores. Exported so the tests can check each action's
+ * write surface against its scope, for every undoable action rather than a list of them.
  */
-const UNDO_SCOPE = Object.freeze({
+export const UNDO_SCOPE = Object.freeze({
   [ACTIONS.SET_TABLE]: RESTORE_CALIBRATION,
   [ACTIONS.SET_ECU]: RESTORE_CALIBRATION,
   [ACTIONS.SWITCH_MAP]: RESTORE_CALIBRATION,
