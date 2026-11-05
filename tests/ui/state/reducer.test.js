@@ -11,8 +11,8 @@ import { describe, expect, it } from 'vitest';
 
 import {
   clone2D, COIL_OPTS, COMPRESSOR_OPTS, computeHardwareVE, DEFAULT_AFR, DEFAULT_BOOST,
-  DEFAULT_ENGINE_CONFIG, DEFAULT_MODS, DEFAULT_TIMING, deriveEngine, ecuHardwareOf, INJECTOR_OPTS,
-  OCTANE_OPTS, setupMismatches,
+  DEFAULT_ENGINE_CONFIG, DEFAULT_MODS, DEFAULT_TIMING, deriveEngine, ecuHardwareOf,
+  EXHAUST_DIA_OPTS, FUEL_CHOICES, INJECTOR_OPTS, OCTANE_OPTS, setupMismatches, tankFuel, TURBINE_OPTS,
 } from '../../../src/sim/index.js';
 import { applyPreset, ENGINE_PRESETS } from '../../../src/sim/presets.js';
 import {
@@ -98,7 +98,7 @@ const N54_PRESET = {
   mods: { intake: false, exhaust: false, headers: false, intercooler: true },
   turboOn: true, boostCurve: [8, 8, 8, 8, 8, 8, 8, 8], turbineIdx: 1,
   turbineCount: 2, compressorIdx: 1, injIdx: 2, ecuInjectorCc: 440,
-  octaneIdx: 1, exhaustDiaIdx: 2, ve: [[80]], timing: [[20]], afr: [[12]],
+  octaneIdx: 1, ethanolPct: 0, exhaustDiaIdx: 2, ve: [[80]], timing: [[20]], afr: [[12]],
 };
 
 describe('makeInitialState', () => {
@@ -417,6 +417,7 @@ describe('APPLY_PRESET', () => {
     injIdx: 'build',
     ecuInjectorCc: 'build',
     octaneIdx: 'build',
+    ethanolPct: 'build',
     exhaustDiaIdx: 'build',
     ve: 'tune',
     timing: 'tune',
@@ -516,9 +517,34 @@ describe('APPLY_PRESET', () => {
     };
     const s = reducer(modified, { type: ACTIONS.APPLY_PRESET, preset: real });
     const stock = makeInitialState().build;
-    for (const k of ['fuelSystem', 'sensorHw', 'wastegate', 'coil', 'plugGapMm', 'ethanolPct']) {
+    for (const k of ['fuelSystem', 'sensorHw', 'wastegate', 'coil', 'plugGapMm']) {
       expect(s.build[k], k).toEqual(stock[k]);
     }
+    // The tank is the preset's own: what its calibration was made for, not the last car's.
+    expect(s.build.ethanolPct).toBe(real.ethanolPct);
+    expect(setupMismatches(ecuHardwareOf(s.build), s.tune.ecu)).toEqual([]);
+  });
+
+  it('fills a flex preset\'s tank with the blend its calibration was made for', () => {
+    // A preset on Flex is calibrated at its own ethanol content (E0 if it names none).
+    // Loading it over the stock E10 tank ran the engine on a blend its factory VE was
+    // not computed for, and an E10 flex tank with no ethanol sensor is a mismatch.
+    const base = ENGINE_PRESETS.find((p) => p.id === 'n54');
+    const flexIdx = FUEL_CHOICES.findIndex((f) => f.flex);
+    for (const ethanolPct of [undefined, 85]) {
+      const preset = { ...base, parts: { ...base.parts, octaneIdx: flexIdx, ethanolPct } };
+      const s = reducer(makeInitialState(), { type: ACTIONS.APPLY_PRESET, preset: applyPreset(preset) });
+      expect(s.build.ethanolPct).toBe(ethanolPct ?? 0);
+      const b = s.build;
+      const veTruth = computeHardwareVE(b.engineConfig, b.mods, {
+        turboOn: b.turboOn, turbine: TURBINE_OPTS[b.turbineIdx],
+        exhaustDia: EXHAUST_DIA_OPTS[b.exhaustDiaIdx].dia, fuel: tankFuel(b),
+        peakBoostPsi: Math.max(...b.boostCurve),
+      });
+      expect(s.tune.ve).toEqual(veTruth);
+    }
+    const stockFlex = { ...base, parts: { ...base.parts, octaneIdx: flexIdx } };
+    const s = reducer(makeInitialState(), { type: ACTIONS.APPLY_PRESET, preset: applyPreset(stockFlex) });
     expect(setupMismatches(ecuHardwareOf(s.build), s.tune.ecu)).toEqual([]);
   });
 });

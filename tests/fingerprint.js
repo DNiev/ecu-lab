@@ -308,7 +308,7 @@ export function buildFingerprint(S) {
   out.calibrationAdvice = {};
   for (const preset of S.ENGINE_PRESETS) {
     const p = S.applyPreset(preset);
-    const fuel = S.OCTANE_OPTS[p.octaneIdx];
+    const fuel = S.tankFuel(p);
     const advice = S.calibrationAdvice({
       ve: p.ve, veTruth: p.ve, timing: p.timing, afr: p.afr,
       derived: S.deriveEngine(p.engineConfig), fuel,

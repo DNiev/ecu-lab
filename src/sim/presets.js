@@ -60,7 +60,9 @@ export const FACTORY_KNOCK_MARGIN_DEG = 2;
  * @property {object} factory published ratings
  * @property {import('./engine.js').EngineConfig} engine
  * @property {object} induction
- * @property {object} parts
+ * @property {{injectorIdx: number, exhaustDiaIdx: number, octaneIdx: number,
+ *   ethanolPct?: number}} parts `octaneIdx` indexes FUEL_CHOICES; `ethanolPct` is what a
+ *   flex tank holds (E0 if absent)
  * @property {object} mods
  */
 
@@ -398,16 +400,27 @@ export function presetTurbine(preset) {
 }
 
 /**
- * The fuel in a preset's tank, read the way `buildRig` reads a build's.
+ * What a preset's tank holds, as the build fields `tankFuel` reads.
  *
  * `octaneIdx` indexes FUEL_CHOICES, not OCTANE_OPTS: a preset could ship on Flex, which
- * has no OCTANE_OPTS entry. A preset carries no ethanol content, so a flex tank is at E0.
- * For a pump fuel this is the OCTANE_OPTS entry itself.
+ * has no OCTANE_OPTS entry. A flex tank holds the preset's own `ethanolPct`, or E0 if it
+ * names none: with no ethanol sensor a factory ECU fuels a flex tank as the gasoline it
+ * was calibrated on, which only matches the tank at E0. `applyPreset` hands this to the
+ * build, so the calibration, the app and `buildRig` all run on the same blend.
  *
+ * @param {Preset} preset
+ * @returns {{octaneIdx: number, ethanolPct: number}}
+ */
+function presetTank(preset) {
+  return { octaneIdx: preset.parts.octaneIdx, ethanolPct: preset.parts.ethanolPct ?? 0 };
+}
+
+/**
+ * The fuel in a preset's tank. For a pump fuel this is the OCTANE_OPTS entry itself.
  * @param {Preset} preset
  */
 function presetFuel(preset) {
-  return tankFuel({ octaneIdx: preset.parts.octaneIdx });
+  return tankFuel(presetTank(preset));
 }
 
 /** The induction hardware bundle `computeHardwareVE` expects. */
@@ -597,7 +610,7 @@ export function applyPreset(preset) {
     compressorIdx: preset.induction.compressorIdx,
     injIdx: preset.parts.injectorIdx,
     ecuInjectorCc: INJECTOR_OPTS[preset.parts.injectorIdx].cc,
-    octaneIdx: preset.parts.octaneIdx,
+    ...presetTank(preset),
     exhaustDiaIdx: preset.parts.exhaustDiaIdx,
     ve, timing, afr,
     // The engine management a factory ships with: its knock threshold is set to this

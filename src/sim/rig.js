@@ -53,7 +53,7 @@ export function buildRig({ preset, build: patch = {}, cal: calPatch = {}, env, f
     turbineCount: p?.turbineCount ?? 1,
     compressorIdx: p?.compressorIdx ?? 1,
     exhaustDiaIdx: p?.exhaustDiaIdx ?? EXHAUST_DIA_OPTS.findIndex((o) => o.dia === 3.0),
-    ethanolPct: 0,
+    ethanolPct: p?.ethanolPct ?? 0,
     ...patch,
   };
   const turbine = turbineWithCount(TURBINE_OPTS[build.turbineIdx], build.turbineCount);
