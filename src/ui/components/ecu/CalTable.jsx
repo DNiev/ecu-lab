@@ -46,6 +46,10 @@ export function CalTable({ table, def, meta, onChange, marker }) {
   const [value, setValue] = React.useState('');
   const [pct, setPct] = React.useState('');
   const dragging = React.useRef(false);
+  // Which kind of pointer pressed last. A mouse press has already selected by the time
+  // its click arrives, so that click must not select again — it would collapse a drag
+  // back to one cell. A keyboard click carries `detail === 0` and always goes through.
+  const lastPointer = React.useRef('');
   const lim = { min: meta.min, max: meta.max, decimals: meta.decimals ?? 0 };
   const step = meta.step ?? 1;
   const dec = meta.decimals ?? 0;
@@ -80,16 +84,35 @@ export function CalTable({ table, def, meta, onChange, marker }) {
   const all = { r1: 0, c1: 0, r2: nRows - 1, c2: nCols - 1 };
   const target = sel ?? null;
 
+  /** A tap or plain press on a cell. */
+  const tap = (r, c) => setSel({ r1: r, c1: c, r2: r, c2: c });
+
   const onCellDown = (r, c, e) => {
+    lastPointer.current = e.pointerType;
+    // Touch and pen keep scrolling the grid; they select on click, below.
+    if (e.pointerType !== 'mouse' || e.button !== 0) return;
     if (e.shiftKey && sel) setSel({ ...sel, r2: r, c2: c });
-    else setSel({ r1: r, c1: c, r2: r, c2: c });
+    else tap(r, c);
     dragging.current = true;
   };
-  const onCellEnter = (r, c) => { if (dragging.current && sel) setSel({ ...sel, r2: r, c2: c }); };
+  const onCellEnter = (r, c, e) => {
+    // `buttons` as well as the ref: a release outside the window never reaches the
+    // listener below, and without this the next hover would still be dragging.
+    if (dragging.current && (e.buttons & 1) && sel) setSel({ ...sel, r2: r, c2: c });
+  };
+  const onCellClick = (r, c, e) => {
+    if (e.detail > 0 && lastPointer.current === 'mouse') return;
+    tap(r, c);
+  };
+  // A drag ends wherever the button comes up, which need not be over the grid.
   React.useEffect(() => {
     const up = () => { dragging.current = false; };
     window.addEventListener('pointerup', up);
-    return () => window.removeEventListener('pointerup', up);
+    window.addEventListener('pointercancel', up);
+    return () => {
+      window.removeEventListener('pointerup', up);
+      window.removeEventListener('pointercancel', up);
+    };
   }, []);
 
   // A breakpoint that would break the axis order (or a blank one) is refused, and the
@@ -184,7 +207,8 @@ export function CalTable({ table, def, meta, onChange, marker }) {
                         style={/** @type {React.CSSProperties} */ (/** @type {any} */ ({ background: bg, '--live': w.toFixed(2) }))}
                         aria-label={`${meta.label} at ${meta.xLabel ?? 'x'} ${table.x[c]}${twoD ? `, ${meta.yLabel ?? 'y'} ${table.y[r]}` : ''}: ${fmt(v)} ${meta.unit ?? ''}`}
                         onPointerDown={(e) => onCellDown(r, c, e)}
-                        onPointerEnter={() => onCellEnter(r, c)}
+                        onPointerEnter={(e) => onCellEnter(r, c, e)}
+                        onClick={(e) => onCellClick(r, c, e)}
                       >
                         {compare ? (delta === 0 ? '·' : `${delta > 0 ? '+' : ''}${fmt(delta)}`) : fmt(v)}
                       </button>
