@@ -54,7 +54,7 @@
   margin-top: var(--sp-xs);
   font-size: var(--fs-xs);
   line-height: 1.5;
-  color: var(--ink3);
+  color: var(--ink2);
 }
 
 .slider { width: 100%; accent-color: var(--acc); }
@@ -80,7 +80,7 @@
   font-size: 10px;
   font-weight: 800;
   letter-spacing: 1px;
-  color: var(--ink3);
+  color: var(--ink2);
 }
 
 /* A computed quantity inside a sentence. Cyan because it is a number being shown, not

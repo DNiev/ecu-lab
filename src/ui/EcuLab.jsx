@@ -3,21 +3,14 @@
  * hands each tab's markup to its screen components.
  *
  * WHAT THIS FILE IS
- * Presentation only. It reads the simulation's output but contains no physics — if
- * you find yourself doing engineering maths in here, it belongs in `src/sim/`
- * instead. That separation is what keeps the physics testable in plain Node.
+ * Presentation. It reads the simulation's output; engineering maths belongs in
+ * `src/sim/`, which is what keeps the physics testable in plain Node.
  *
  * LAYOUT
- * This used to be one large single-component app; it has been split into
- * `ui/primitives/`, `ui/screens/` and `ui/AppShell.jsx`. What remains here is the
- * store setup, the one piece still shared across more than one screen (`Tach`), and
- * the top-level component that reads the route and renders the right screen into the
- * shell.
- *
- * TYPE CHECKING
- * No longer opts out. This file used to carry `@ts-nocheck` while it was one large
- * untyped component; now that it is a thin, typed root, it is checked like everything
- * else under `npm run typecheck`.
+ * Screens live in `ui/screens/`, building blocks in `ui/primitives/`, and the chrome in
+ * `ui/AppShell.jsx`. What is here is the store setup, the one piece still shared across
+ * more than one screen (`Tach`), and the top-level component that reads the route and
+ * renders the right screen into the shell.
  */
 
 import React, { useMemo, useEffect, useRef, useCallback, useDeferredValue, useState } from 'react';
@@ -27,13 +20,13 @@ import {
 } from 'lucide-react';
 
 import {
-  BARO_KPA, COMPRESSOR_OPTS, compressorWithCount,
+  COMPRESSOR_OPTS, compressorWithCount,
   EXHAUST_DIA_OPTS, GEARBOX_OPTS,
-  INJ_DEADTIME_MS, INJECTOR_OPTS,
-  PSI_TO_KPA,
-  R_AIR, RPM, TURBINE_OPTS, acousticDrive, blowerCurve, blowerOf, blowerSpeedRpm, calibrationAdvice, chargeTempK, clamp,
+  INJECTOR_OPTS,
+  TURBINE_OPTS, acousticDrive, blowerCurve, blowerOf, blowerSpeedRpm, calibrationAdvice, clamp,
   computeEngineerScore, computePullScore, computeTuningScore,
-  applyPreset, cellsNotRunBy, stockCalibrationFor, deriveEngine, exhaustGeometry, idealExhaustDiameter, interp1, isLocatable, layoutById, presetById, readEcuTable,
+  applyPreset, cellsNotRunBy, stockCalibrationFor, deriveEngine, dutyPreviewRpm, exhaustGeometry, idealExhaustDiameter, injectorDutyPreview,
+  isLocatable, layoutById, presetById,
   simulateDragRun, simulateSweep, torqueCurveFromSweep, turbineWithCount,
   veRecommendations, defaultEcuCalibration, dynoConditions, ecuHardwareOf, tankFuel,
   veTruthByPhaseFor, read1, applyVeCorrections, intakeCamAt, scheduledVeAt, veCorrections, veSamplesFromLive, veSamplesFromPull,
@@ -141,7 +134,7 @@ function Tach({ rpm, cylinders, running, fullScaleRpm }) {
         <DialMark size={168} pct={pct} live={running} />
         <div style={{ position: 'absolute', top: '58%', left: '50%', transform: 'translate(-50%,-50%)', textAlign: 'center' }}>
           <div style={{ fontSize: 26, fontWeight: 800, fontFamily: T.mono, color: T.ink }}>{Math.round(rpm)}</div>
-          <div style={{ fontSize: 8.5, color: T.ink3, letterSpacing: 1.5, fontWeight: 700 }}>RPM</div>
+          <div style={{ fontSize: 8.5, color: T.ink2, letterSpacing: 1.5, fontWeight: 700 }}>RPM</div>
         </div>
       </div>
       <div style={{ display: 'flex', gap: 4, justifyContent: 'center', marginTop: 8, height: 26 }}>
@@ -258,26 +251,20 @@ export const DYNO_PULL_MS = DYNO_PULL.SETTLE_MS + DYNO_PULL.SWEEP_MS
   + DYNO_PULL.DOWN_MS + DYNO_PULL.REST_MS;
 
 export function EcuLabApp() {
-  // Navigation lives in the URL, not in state. `appView`, `tab` and the four section
-  // hooks that used to sit here are all one `route` now — see src/ui/routing.js.
+  // Navigation lives in the URL, not in state: see src/ui/routing.js.
   const [route, navigate] = useRoute();
   const appView = route.view;
   const tab = route.tab;
-  // The BUILD slice — hardware and ECU configuration — lives in the store. Destructured
-  // so every READ site below stays a bare `engineConfig` / `mods` / ...; only the WRITES
-  // changed, from setters to dispatches. All three domain slices are in the store now.
+  // The BUILD slice (hardware and ECU configuration), destructured so read sites below
+  // use a bare `engineConfig` / `mods` / ...; writes go through `dispatch`.
   const [build, dispatch] = useBuild();
   const {
     engineConfig, mods, turboOn, boostCurve, injIdx, mafScalar,
     turbineIdx, turbineCount, compressorIdx, exhaustDiaIdx, ecuInjectorCc,
     presetId, blowerRatio, nitrous,
   } = build;
-  // `presetPrompt` and `boostSel` are read from the store directly by EngineScreen
-  // and InductionScreen now — neither is a shell-level derivation, so there is
-  // nothing to destructure here once their one call site each moved with them.
-  //
-  // The TUNE slice — calibration tables, the unsaved-work flag, and the grid cursor.
-  // Same destructuring shape as `build` above; `dispatch` is the SAME function
+  // The TUNE slice: calibration tables, the unsaved-work flag, and the grid cursor.
+  // Same destructuring shape as `build` above; `dispatch` is the same function
   // useBuild() returned (one reducer, one useReducer call — see StoreProvider.jsx),
   // so it is not re-bound here.
   const [tune] = useTune();
@@ -285,18 +272,13 @@ export function EcuLabApp() {
   // The engine computer whose breakpoints the tables sit on (sim/layouts.js), or null
   // for the ECU Lab grid. Every pull and the live engine read the tables through it.
   const layout = useMemo(() => (tune.layout ? layoutById(tune.layout) : null), [tune.layout]);
-  // `tablesDirty` is read from the store directly by EngineScreen now (it is
-  // `hasTuningWork()`'s one input) — nothing else in the shell reads it.
-  // `selection` itself is read from the store directly by AirflowScreen/SparkScreen/
-  // FuelScreen now — the shell only still needs `setSelection` below, to clear the
-  // cursor on tab/view navigation, which is nav-adjacent and stays here.
-  // The SESSION slice — everything about the current run and career progress that is
+  // `tablesDirty` and `selection` are read from the store by the screens that use them;
+  // the shell only needs `setSelection` below, to clear the cursor on navigation.
+  // The SESSION slice: everything about the current run and career progress that is
   // neither hardware nor calibration. Same destructuring shape again, same `dispatch`.
   // The only local `useState` in this file is the command palette's open flag, further
-  // down; `appView`, `tab`, `buildSection`,
-  // `tuneView`, `dynoView` and `dashSection` were VIEW state (which screen and which
-  // accordion panel is open) and have all moved into the URL — see `useRoute()` above
-  // and `route.section`, narrowed per tab, just below.
+  // down; view state (which screen and which accordion panel is open) is in the URL,
+  // through `useRoute()` above and `route.section`, narrowed per tab, just below.
   const [session] = useSession();
   const {
     loadKpa, soundOn, volume, dynoPhase, dynoRpm, throttleInput, health,
@@ -350,29 +332,21 @@ export function EcuLabApp() {
   // has actually been read back, or a cold start overwrites it with zeroes.
   const careerLoaded = useRef(false);
 
-  // `withPresetField` is gone: SET_BUILD_FIELD clears `presetId` itself, so the
-  // invalidation now happens inside the reducer rather than in a wrapper each new
-  // hardware field had to remember to be threaded through. The one hand-edit path that
-  // used to cross the build/tune boundary in two local calls (`clearPresetId` then
-  // `setTablesDirty(true)`) is now the single SET_TABLE action, which clears `presetId`
-  // and flags unsaved work in the SAME reducer pass — see reducer.js. `withTableEdit`
-  // and its three derived setters (`setVeEdited`/`setTimingEdited`/`setAfrEdited`) are
-  // gone; every table-edit call site below dispatches SET_TABLE directly.
+  // Preset invalidation happens in the reducer, not in wrappers here. SET_BUILD_FIELD
+  // clears `presetId` itself, and a table edit is a single SET_TABLE action that clears
+  // `presetId` and flags unsaved work in the same reducer pass (see reducer.js).
+  // CLEAR_PRESET_ID is dispatched from EngineScreen's "Custom build" option.
   //
-  // `CLEAR_PRESET_ID` (touches `presetId` alone, no `tablesDirty` side effect) is
-  // dispatched from EngineScreen now — its one caller, the preset picker's "Custom
-  // build" option, moved there with the rest of the Engine Architecture section.
-  // The build-side analogue of a table edit is a cursor, not a calibration edit:
-  // `SET_TUNE_FIELD` deliberately does NOT clear `presetId` or flag `tablesDirty`
-  // (see reducer.js), so moving the highlighted grid cell never disowns a loaded
-  // preset.
+  // Moving the grid cursor is not a calibration edit: `SET_TUNE_FIELD` deliberately
+  // does not clear `presetId` or flag `tablesDirty` (see reducer.js), so moving the
+  // highlighted grid cell never disowns a loaded preset.
   const setSelection = (value) => dispatch({ type: ACTIONS.SET_TUNE_FIELD, field: 'selection', value });
 
   const octaneBonus = tankFuel(build).bonus;
   const engineDerived = useMemo(() => deriveEngine(engineConfig), [engineConfig]);
-  // The live tach needle used to top out at a hardcoded 7500 — correct only for the
-  // one preset whose redline happened to match it. Key it off this engine's own
-  // redline instead, with headroom sized for what it actually needs to show: the
+  // The live tach's full scale follows this engine's own redline (a fixed 7500 would
+  // suit only a preset whose redline matches it), with headroom sized for what it
+  // actually needs to show: the
   // tach has to leave room for the rev limiter's overshoot bounce (liveStep cuts
   // fuel at redline + 100 RPM) without pegging. (DYNO's own chart axis does the
   // equivalent thing with tighter headroom — see ResultScreen.jsx.)
@@ -493,24 +467,18 @@ export function EcuLabApp() {
     [ve, engineConfig, mods, veTruth, layout]
   );
 
-  // Same real-units chain the sim uses, evaluated at WOT / 6500 RPM as a preview.
-  const dutyPreview = useMemo(() => {
-    const rpm = 6500;
-    const boostPsi = turboOn ? boostCurve[RPM.indexOf(6500)]
-      : blowerWot.length ? interp1(blowerWot.map((p) => p.rpm), blowerWot.map((p) => p.boostPsi), rpm) : 0;
-    const mapKpa = BARO_KPA + boostPsi * PSI_TO_KPA;
-    const chargeK = chargeTempK(boostPsi, mods.intercooler);
-    const vCylM3 = (engineDerived.displacementL / engineDerived.cyl) / 1000;
-    const airDensity = (mapKpa * 1000) / (R_AIR * chargeK);
-    const airChargeG = (readEcuTable({ ve, timing, afr, layout }, 've', rpm, { mapKpa }) / 100) * vCylM3 * airDensity * 1000;
-    const lambda = readEcuTable({ ve, timing, afr, layout }, 'afr', rpm, { mapKpa, airmassG: airChargeG }) / 14.7;
-    const fuelMassG = airChargeG / (lambda * fuel.stoich);
-    const pw = fuelMassG / ((ecuInjectorCc * fuel.density) / 60000) + INJ_DEADTIME_MS;
-    return clamp((pw / (120000 / rpm)) * 100, 0, 220);
-  }, [ve, timing, afr, layout, turboOn, boostCurve, ecuInjectorCc, fuel, mods.intercooler, engineDerived, blowerWot]);
-  // `dutyDangerous` moved into InjectorsScreen — its one reader — computed there off
-  // this same `dutyPreview`, which stays here because the score breakdown and dyno
-  // payload below also read it.
+  // Injector duty at WOT / 6500 RPM (or the redline, below it), from the tables as they
+  // stand, before any pull. The same inputs as the pull (`sweepArgs` below), so the point
+  // is the one the pull solves.
+  const dutyRpm = dutyPreviewRpm(engineDerived);
+  const dutyPreview = useMemo(() => injectorDutyPreview({
+    rpm: dutyRpm, loadKpa: 100, ve, veTruth, timing, afr, layout, turboOn, boostCurve, fuel, injectorCc, ecuInjectorCc,
+    mods, mafScalar, derived: engineDerived, turbine, compressor, ecu: ecuBundle,
+    ...(blower ? { blower, blowerRatio } : {}), ...(nitrous ? { nitrous } : {}),
+  }), [dutyRpm, ve, veTruth, timing, afr, layout, turboOn, boostCurve, fuel, injectorCc, ecuInjectorCc, mods, mafScalar,
+       engineDerived, turbine, compressor, ecuBundle, blower, blowerRatio, nitrous]);
+  // `dutyPreview` is computed here, not in InjectorsScreen, because the score breakdown
+  // and dyno payload below read it too.
 
   const needsMafRecal = mods.intake || turboOn;
   /** Open a tab at its first section — what a tab button means. */
@@ -620,10 +588,8 @@ export function EcuLabApp() {
       ecu: { ...defaultEcuCalibration({ derived: engineDerived, gate: ecuHw.gate, axes: stock.layout.timing }), vvt: stock.ecu.vvt },
     });
   };
-  // The REPAIR button's only handler. Before the extraction this wrote a local
-  // `health` that the store never saw, while REPAIR_ENGINE sat in the reducer with no
-  // caller at all — so this is an ADDED dispatch, not a converted one. Drop it and the
-  // button goes inert with nothing raising an error: see tests/ui/session-store.test.jsx.
+  // The REPAIR button's only handler. Drop it and the button goes inert with nothing
+  // raising an error: see tests/ui/session-store.test.jsx.
   const repairEngine = () => dispatch({ type: ACTIONS.REPAIR_ENGINE });
 
   const ensureAudio = () => {
@@ -711,12 +677,9 @@ export function EcuLabApp() {
     // Banking the pull — result, wear, scores, pull count, run log — lands in the
     // store in one pass. `result` and `pullScore` are precomputed here because the
     // reducer has no access to the useMemo-derived hardware `computePullScore` needs.
-    // The local `setResult`/`setHealth` calls that used to sit above this line, and the
-    // `setBestScore`/`setTotalScore`/`setPullCount` trio below it, were all mirroring
-    // writes this one action already makes.
     // `scores` rides along with the result it belongs to: BANK_PULL keeps the numbers
     // this pull actually measured, and `buildSignature` records the setup it measured
-    // them on. Nothing recomputes them afterwards — that is the whole fix (issue #29).
+    // them on. Nothing recomputes them afterwards (issue #29).
     const nextPulls = pullCount + 1;
     const at = Date.now();
     dispatch({
@@ -913,10 +876,10 @@ export function EcuLabApp() {
   // forever — computing `liveStep(live, ...)` here and dispatching the result would
   // integrate from a permanently frozen engine-off state, and the readout would sit
   // dead or jitter between two adjacent steps. That reads as a physics bug, not a
-  // state bug. The old `setLive((prev) => ...)` functional form has no action
-  // equivalent (actions must not carry functions), so LIVE_STEP carries only the two
-  // things the reducer cannot see — the driver input and the current tune — and
-  // resolves `prev` against the store. Both come from REFS, which are current at every
+  // state bug. A functional updater has no action equivalent (actions must not carry
+  // functions), so LIVE_STEP carries only the two things the reducer cannot see (the
+  // driver input and the current tune) and resolves `prev` against the store. Both come
+  // from refs, which are current at every
   // tick, so nothing stale reaches the engine.
   useEffect(() => {
     liveTimer.current = setInterval(() => {
@@ -981,11 +944,11 @@ export function EcuLabApp() {
   // `loadCareer()` is an `await`, so a pull can bank between mount and this resolving
   // — reachable in practice on the `artifact` storage backend, where the underlying
   // `window.storage.get` is a real round trip. A single RESTORE_CAREER action, rather
-  // than the five separate `SET_SESSION_FIELD` dispatches this used to fire, is what
-  // keeps that race from rolling a banked pull back to the pre-pull snapshot: the
-  // reducer MERGES the loaded career with whatever the session already holds instead
-  // of overwriting it. See RESTORE_CAREER's own doc in reducer.js for the full case,
-  // including why a skip-instead-of-merge fix would only move the data loss.
+  // than separate `SET_SESSION_FIELD` dispatches, is what keeps that race from rolling a
+  // banked pull back to the pre-pull snapshot: the reducer merges the loaded career with
+  // whatever the session already holds instead of overwriting it. See RESTORE_CAREER's
+  // own doc in reducer.js for the full case, including why a skip-instead-of-merge fix
+  // would only move the data loss.
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -998,9 +961,9 @@ export function EcuLabApp() {
     // Stable for the life of the store, so this still loads career stats exactly once.
   }, [dispatch]);
 
-  // Career state is written back whenever it moves. This replaces a save call inside
-  // `doRun`, which could not cover the pin: pinning is a dispatch like any other and
-  // has no natural "and now save" call site. An effect over the persisted fields does.
+  // Career state is written back whenever it moves. A save call inside `doRun` could
+  // not cover the pin: pinning is a dispatch like any other and has no natural "and now
+  // save" call site. An effect over the persisted fields does.
   // SANDBOX's only: in CAREER these fields are the customer car's bench, and SANDBOX's
   // own are set aside until it comes back (see ENTER_CAREER in reducer.js).
   useEffect(() => {
@@ -1042,9 +1005,7 @@ export function EcuLabApp() {
 
   // Cmd/Ctrl+Z and Cmd+Shift+Z / Ctrl+Y. This lives here rather than in AppShell,
   // whose header is explicit that the shell owns chrome only and never dispatches to
-  // the store — a global key handler is app behaviour, not chrome.
-  //
-  // PR 4b's arrow-key tuning will need this same seam.
+  // the store. A global key handler is app behaviour, not chrome.
   useEffect(() => {
     /** @param {KeyboardEvent} e */
     const onKey = (e) => {
@@ -1145,10 +1106,6 @@ export function EcuLabApp() {
     goSection('dyno', 'log');
   };
 
-  // `buildHistogram`/`applyHistogram` moved to DataScreen.jsx: DYNO's DATALOG
-  // section was their only caller, and everything they touch (result, histogram,
-  // ve) is plain store state DataScreen can read for itself.
-
   // During a pull the tach follows the pull's own clock, which includes the idle and the
   // overrun either side of the sweep; otherwise it reads the last point drawn.
   const currentRpm = running
@@ -1156,17 +1113,16 @@ export function EcuLabApp() {
     : (result ? (result.points[Math.min(revealCount, result.points.length - 1)]?.rpm ?? 1500) : 1500);
   // A SCORE IS A MEASUREMENT, SO IT IS TAKEN ONCE AND KEPT.
   //
-  // This was a memo that recomputed the Engineer and Pull scores from whatever hardware
-  // was selected RIGHT NOW, and graded them against the LAST pull's dyno output. Change
-  // a turbo after a pull and that finished run was silently re-graded as though it had
-  // been made on the new build — a number the engine never produced, from a session
-  // that never happened. The Pull Score moved with it, so it could climb past
-  // `bestScore` with nobody running anything, and the badge lit up NEW BEST for a
-  // figure that was never banked. The app's whole method is change one thing, MEASURE,
-  // revert; a score that moves without a measurement contradicts the thing it teaches.
+  // Recomputing the Engineer and Pull scores from whatever hardware is selected now,
+  // graded against the last pull's dyno output, would silently re-grade a finished run
+  // as though it had been made on the new build: a number the engine never produced.
+  // The Pull Score could then climb past `bestScore` with nobody running anything, and
+  // the badge light up NEW BEST for a figure that was never banked. The app's whole
+  // method is change one thing, measure, revert; a score that moves without a
+  // measurement contradicts the thing it teaches.
   //
   // So `doRun` banks what it computed (BANK_PULL) and this only reads it back. The one
-  // thing still decided here is WHEN to show it: `result` is replaced at sweep start,
+  // thing decided here is when to show it: `result` is replaced at sweep start,
   // so publishing the banked scores during `running` would give away the next pull's
   // final grade before its reveal has drawn a single point.
   const scores = running ? null : pullScores;
@@ -1315,16 +1271,12 @@ export function EcuLabApp() {
     };
   }, [tab]);
 
-  // `engineName`/`overallColor` are gone: both were the header's, and the header is
-  // gone with them — `StatusStrip` in AppShell.jsx now derives the same figures from
-  // the store itself rather than being handed them from here (see that file's header
-  // for why it reads the store directly instead of taking props). `overallHealth`
-  // stays: HealthScreen below still reads it as a prop.
+  // HealthScreen below reads `overallHealth` as a prop. The shell's status figures are
+  // derived by `StatusStrip` in AppShell.jsx, from the store directly.
   const overallHealth = Math.min(health.piston, health.bearing, health.valve);
   const activePreset = presetId ? presetById(presetId) : null;
 
-  // The four top-level destinations moved into AppShell.jsx's NAV_ITEMS — one
-  // definition for the section nav rather than this file's copy and the shell's.
+  // The top-level destinations are AppShell.jsx's NAV_ITEMS.
   // TUNE's own sub-view switcher below is unrelated: it is a second level of
   // navigation inside the TUNE tab, not the tabs themselves.
   const TUNE_VIEWS = [
@@ -1614,8 +1566,8 @@ export function EcuLabApp() {
 
         {/* ---------- TUNE: sub-view switcher for the calibration tables ---------- */}
         {tuneOpen && (
-          // flexWrap + a real flex-basis (rather than the old `flex: 1` /
-          // flex-basis:0%) so five items wrap to a second row on narrow
+          // flexWrap + a real flex-basis (rather than `flex: 1`, whose
+          // flex-basis is 0%) so five items wrap to a second row on narrow
           // viewports instead of shrinking below their min-content width and
           // overflowing the column. No media query needed, so this doesn't
           // touch the hand-maintained breakpoint list in tokens.css.
@@ -1626,44 +1578,48 @@ export function EcuLabApp() {
                 adder's own controller. Five to a row at 60px basis so each row stays one
                 row on a phone. A number on a page is how many of the last pull's log
                 entries send you there — shown only while that pull still describes this
-                setup. */}
-            {[0, 1, 2].filter((rowIdx) => tuneViews.some((v) => v.row === rowIdx)).map((rowIdx) => (
-              <div key={rowIdx}>
-                <div style={{ fontSize: 9, fontWeight: 800, letterSpacing: '0.12em', color: T.ink3, margin: '4px 0 5px' }}>
-                  {TUNE_GROUPS[rowIdx]}
+                setup. The open page is aria-current "true", not "page": the side nav
+                already says "page" for TUNE, and two of them read as two current pages. */}
+            <nav aria-label="TUNE pages" style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              {[0, 1, 2].filter((rowIdx) => tuneViews.some((v) => v.row === rowIdx)).map((rowIdx) => (
+                <div key={rowIdx}>
+                  <div style={{ fontSize: 9, fontWeight: 800, letterSpacing: '0.12em', color: T.ink2, margin: '4px 0 5px' }}>
+                    {TUNE_GROUPS[rowIdx]}
+                  </div>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                    {tuneViews.filter((v) => v.row === rowIdx).map((v) => {
+                      const on = tuneView === v.id;
+                      const locked = inCareer && !pageUnlocked(career, v.id);
+                      const Icon = locked ? Lock : v.icon;
+                      const flagged = attention[v.id] ?? 0;
+                      return (
+                        <button key={v.id} onClick={() => { goSection('tune', v.id); setSelection(null); }}
+                          aria-current={on ? 'true' : undefined}
+                          aria-label={locked ? `${v.label}, locked until the shop trains for it`
+                            : flagged ? `${v.label}, named by ${flagged} ${flagged === 1 ? 'entry' : 'entries'} in the last pull's log` : undefined}
+                          style={{
+                            position: 'relative', flex: '1 1 60px', padding: '9px 0 8px', borderRadius: 10, display: 'flex', flexDirection: 'column',
+                            alignItems: 'center', gap: 4, fontWeight: 800, fontSize: 9.5, letterSpacing: 0.3,
+                            border: `1px solid ${on ? T.acc : T.line}`, background: on ? T.accBg : rowIdx ? T.panel : T.panel2,
+                            color: on ? T.accInk : T.ink2,
+                          }}>
+                          <Icon size={15} />{v.label}
+                          {flagged > 0 && (
+                            <span aria-hidden="true" style={{
+                              position: 'absolute', top: 3, right: 4, minWidth: 15, height: 15, padding: '0 4px', borderRadius: 8,
+                              background: T.warnBg, border: `1px solid ${T.warn}`, color: T.warnInk,
+                              fontSize: 9, fontFamily: T.mono, lineHeight: '13px', textAlign: 'center',
+                            }}>{flagged}</span>
+                          )}
+                        </button>
+                      );
+                    })}
+                  </div>
                 </div>
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                  {tuneViews.filter((v) => v.row === rowIdx).map((v) => {
-                    const on = tuneView === v.id;
-                    const locked = inCareer && !pageUnlocked(career, v.id);
-                    const Icon = locked ? Lock : v.icon;
-                    const flagged = attention[v.id] ?? 0;
-                    return (
-                      <button key={v.id} onClick={() => { goSection('tune', v.id); setSelection(null); }}
-                        aria-label={locked ? `${v.label}, locked until the shop trains for it`
-                          : flagged ? `${v.label}, named by ${flagged} ${flagged === 1 ? 'entry' : 'entries'} in the last pull's log` : undefined}
-                        style={{
-                          position: 'relative', flex: '1 1 60px', padding: '9px 0 8px', borderRadius: 10, display: 'flex', flexDirection: 'column',
-                          alignItems: 'center', gap: 4, fontWeight: 800, fontSize: 9.5, letterSpacing: 0.3,
-                          border: `1px solid ${on ? T.acc : T.line}`, background: on ? T.accBg : rowIdx ? T.panel : T.panel2,
-                          color: on ? T.accInk : locked ? T.ink3 : T.ink2,
-                        }}>
-                        <Icon size={15} />{v.label}
-                        {flagged > 0 && (
-                          <span aria-hidden="true" style={{
-                            position: 'absolute', top: 3, right: 4, minWidth: 15, height: 15, padding: '0 4px', borderRadius: 8,
-                            background: T.warnBg, border: `1px solid ${T.warn}`, color: T.warnInk,
-                            fontSize: 9, fontFamily: T.mono, lineHeight: '13px', textAlign: 'center',
-                          }}>{flagged}</span>
-                        )}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-            ))}
+              ))}
+            </nav>
             {Object.keys(attention).length > 0 && (
-              <div style={{ fontSize: 10.5, color: T.ink3, marginTop: 2 }}>
+              <div style={{ fontSize: 10.5, color: T.ink2, marginTop: 2 }}>
                 Numbered pages are where the last pull&apos;s log sends you — DYNO › PULL LOG has the details.
               </div>
             )}
@@ -1706,7 +1662,7 @@ export function EcuLabApp() {
         )}
 
         {tunePage && tuneView === 'injectors' && (
-          <InjectorsScreen dutyPreview={dutyPreview} injectorCc={injectorCc}>
+          <InjectorsScreen dutyPreview={dutyPreview} dutyRpm={dutyRpm} injectorCc={injectorCc}>
             <div style={{ padding: '0 16px' }}>
               <EcuSection embedded section="injectors" title="Injector settings" icon={Fuel} liveVars={liveVars} />
             </div>
@@ -1739,7 +1695,7 @@ export function EcuLabApp() {
             )}
             <div style={{ fontSize: 12, color: T.ink2, marginBottom: 8, fontWeight: 600 }}>Manifold pressure for the pull (load)</div>
             <Seg label="Manifold pressure for the pull (load)" options={[100, 70, 40].map((l) => ({ label: `${l} kPa`, id: l }))} value={loadKpa} onChange={(v) => dispatch({ type: ACTIONS.SET_SESSION_FIELD, field: 'loadKpa', value: v })} />
-            <div style={{ fontSize: 10.5, color: T.ink3, marginTop: 4, marginBottom: 4 }}>
+            <div style={{ fontSize: 10.5, color: T.ink2, marginTop: 4, marginBottom: 4 }}>
               ~100 kPa is wide-open throttle naturally aspirated. Boost adds on top and walks the tables into the higher-MAP rows automatically.
             </div>
             {nitrous && (
@@ -1751,15 +1707,14 @@ export function EcuLabApp() {
 
             <div style={{ margin: '14px 0' }}><Tach rpm={running || result ? currentRpm : 1500} cylinders={engineDerived.cyl} running={running} fullScaleRpm={tachFullScaleRpm} /></div>
 
-            {/* The app's most important control, and the one PR 1's review caught
-                rendering its label at 1.14:1 while running — panel3 fill under ink2
-                text. `disabled` now dims the whole button instead of recolouring the
-                label, so the contrast between fill and label never changes.
+            {/* The app's most important control. `disabled` dims the whole button
+                instead of recolouring the label, so the contrast between fill and
+                label never changes (a recoloured label put ink2 text on a panel3 fill
+                at 1.14:1).
 
-                Deliberately NOT `block`. This sits in the main content column, which
-                on a desktop window is the window; the hand-rolled width:100% here is
-                the literal button that spanned the screen. `lg` gives it its weight
-                instead.
+                Deliberately not `block`. This sits in the main content column, which
+                on a desktop window is the window, so a full-width button would span
+                the screen. `lg` gives it its weight instead.
 
                 The label names the PHASE, because the pull is now a sequence rather
                 than a single sweep and the button is the only thing on screen that
@@ -1810,26 +1765,30 @@ export function EcuLabApp() {
                 `result` is not persisted and is cleared by APPLY_PRESET — so it is the
                 first DYNO section for which that is true. When there is no result yet,
                 the switcher below shows ONLY the history entry, since the other four
-                lead to sections that render nothing without one. */}
+                lead to sections that render nothing without one. aria-current is "true",
+                not "page", for the same reason as TUNE's switcher. */}
             {!running && (result || runs.length > 0) && (
-              <div style={{ display: 'flex', gap: 6, marginBottom: 14 }}>
+              <nav aria-label="DYNO pages" style={{ display: 'flex', gap: 6, marginBottom: 14 }}>
                 {[['result', 'CURVES'], ['log', 'PULL LOG'], ['data', 'DATALOG'], ['score', 'SCORE'], ['history', 'HISTORY']]
                   .filter(([id]) => sectionAvailable(`dyno/${id}`, sectionFlags))
                   .map(([id, label]) => {
                   const on = dynoView === id;
-                  const flag = id === 'log' && result && result.events.length > 0;
+                  const entries = id === 'log' && result ? result.events.length : 0;
                   return (
-                    <button key={id} onClick={() => goSection('dyno', id)} style={{
-                      flex: 1, padding: '9px 0', borderRadius: 9, fontWeight: 800, fontSize: 10, letterSpacing: 0.3,
-                      border: `1px solid ${on ? T.acc : T.line}`, background: on ? T.accBg : T.panel2,
-                      color: on ? T.accInk : T.ink2, position: 'relative',
-                    }}>
+                    <button key={id} onClick={() => goSection('dyno', id)}
+                      aria-current={on ? 'true' : undefined}
+                      aria-label={entries ? `${label}, ${entries} ${entries === 1 ? 'entry' : 'entries'}` : undefined}
+                      style={{
+                        flex: 1, padding: '9px 0', borderRadius: 9, fontWeight: 800, fontSize: 10, letterSpacing: 0.3,
+                        border: `1px solid ${on ? T.acc : T.line}`, background: on ? T.accBg : T.panel2,
+                        color: on ? T.accInk : T.ink2, position: 'relative',
+                      }}>
                       {label}
-                      {flag && <span style={{ position: 'absolute', top: 5, right: 7, width: 5, height: 5, borderRadius: 3, background: T.danger }} />}
+                      {entries > 0 && <span aria-hidden="true" style={{ position: 'absolute', top: 5, right: 7, width: 5, height: 5, borderRadius: 3, background: T.danger }} />}
                     </button>
                   );
                 })}
-              </div>
+              </nav>
             )}
 
             {result && (
@@ -1906,8 +1865,8 @@ export function EcuLabApp() {
  * The app shell: the store, then the app inside it.
  *
  * The provider is mounted HERE rather than in `main.jsx` because the store is this
- * module's own state — every consumer of it lives inside this file (and, after PR 3,
- * inside the screens this file splits into). Mounting it at the module boundary means
+ * module's own state: every consumer of it lives inside this file or the screens it
+ * renders. Mounting it at the module boundary means
  * `<EcuLab />` is self-contained: `main.jsx` stays the thin "mount the app in an error
  * boundary" entry point it documents itself as, and a test that renders `<EcuLab />`
  * gets the same single store the browser does instead of having to reconstruct the

@@ -82,7 +82,7 @@ function cellReference(kind, row, col, value, axes) {
 /**
  * Every key a range input responds to by changing its own value — the complete set
  * per the HTML spec's slider behaviour. A key release only commits the draft if it is
- * one of these, so Task 3's keyboard-usable slider still works while no other release
+ * one of these, so the slider stays keyboard-usable while no other release
  * (a modifier's own keyup above all) can commit anything.
  */
 const COMMIT_KEYS = new Set([

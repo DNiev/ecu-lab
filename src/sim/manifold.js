@@ -11,14 +11,9 @@ import { COEFF } from './coefficients.js';
 import { clamp, curveAt } from './math.js';
 import { REACHABLE_SLACK_KPA } from './tables.js';
 
-/**
- * WHAT USED TO BE HERE
- * `computeManifold` solved boost as `target x spool x throttle^2`, with spool a linear
- * ramp in engine speed. `solveInduction` in turbo.js replaced it: boost now comes from a
- * turbine/compressor power balance, so it responds to exhaust energy rather than to RPM,
- * and the player's target is a wastegate ceiling instead of a promise.
- *
- */
+// Boost itself is solved in turbo.js (`solveInduction`), from a turbine/compressor power
+// balance, so it responds to exhaust energy rather than to RPM, and the player's target
+// is a wastegate ceiling rather than a promise.
 
 /**
  * Gasoline-equivalent AFR that makes best power at a given boost level.

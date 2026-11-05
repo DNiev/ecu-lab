@@ -150,11 +150,14 @@ export function LiveScreen({ tachFullScaleRpm, onStart, onStop, onToggleSound, o
                   reason STOP is: it is a secondary action. */}
               <Button variant="ghost" title="Test sound" onClick={onTestSound}>TEST</Button>
               <button
+                type="button"
                 className={styles.sound}
                 data-on={soundOn ? 'true' : 'false'}
+                aria-pressed={soundOn}
+                aria-label="Engine sound"
                 title="Engine sound"
                 onClick={onToggleSound}
-              >{soundOn ? '♪' : '✕'}</button>
+              ><span aria-hidden="true">{soundOn ? '♪' : '✕'}</span></button>
             </div>
           </div>
         </div>
@@ -214,7 +217,7 @@ export function LiveScreen({ tachFullScaleRpm, onStart, onStop, onToggleSound, o
           <LiveGauge label="INJ PW" value={live.live ? live.live.pw : '—'} unit="ms" />
           <LiveGauge label="DUTY" value={live.live ? live.live.duty : '—'} unit="%" warn={!!(live.live && live.live.duty > 90)} />
           <LiveGauge label="IDLE AIR" value={engineOff ? '—' : Math.round(live.idleTrim)} unit={engineOff ? '' : '%'} />
-          <LiveGauge label="FUEL" value={engineOff ? 'OFF' : live.fuelCut ? 'CUT' : 'ON'} unit="" color={engineOff ? T.ink3 : live.fuelCut ? T.warn : T.ok} />
+          <LiveGauge label="FUEL" value={engineOff ? 'OFF' : live.fuelCut ? 'CUT' : 'ON'} unit="" color={engineOff ? T.ink2 : live.fuelCut ? T.warn : T.ok} />
         </div>
 
         <div className={styles.trims}>

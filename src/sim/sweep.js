@@ -17,7 +17,7 @@ import { loadFor, needsAirmass, readEcuTable, truthReader } from './layouts.js';
 import { CURVE_RPM, LOAD, RPM, SPARK_MIN_DEG } from './tables.js';
 import { ecuSweepEvents } from './ecu/ecuEvents.js';
 import { ECU_COEFF } from './ecu/ecuCoefficients.js';
-import { ecuSteadyPoint } from './ecu/strategy.js';
+import { ecuDemandPoint, ecuSteadyPoint } from './ecu/strategy.js';
 import { N2O_AIR_EQUIV, stepBottle, wetKitFuelKgS } from './nitrous.js';
 
 /** Lowest engine speed of a dyno pull, RPM. */
@@ -103,6 +103,73 @@ function tableRowsAt(mapKpa, layout = null, airmassG = 0) {
 }
 
 /**
+ * The ECU's hardware for a pull: the build's `EcuHardware`, completed with the pull's own
+ * engine, induction and injectors.
+ *
+ * @param {object} input `simulateSweep`'s input, with its `ecu`
+ * @returns {object}
+ */
+function pullEcuHardware({
+  ecu, ve, veTruth, timing, afr, layout = null, turboOn, boostCurve, fuel, injectorCc, ecuInjectorCc, mods, mafScalar,
+  derived, turbine, compressor, blower = null, blowerRatio = 1, nitrous = null,
+}) {
+  return {
+    ...ecu.hw, mafErrorBase: mafErrorFactor(mods, turboOn), derived, mods, turboOn, boostCurve, turbine, compressor,
+    injectorCc, ecuInjectorCc, mafScalar, fuel, blower, blowerRatio, nitrous,
+    veTruthByPhase: ecu.hw.veTruthByPhase ?? [pullBreathing({ ve, veTruth, timing, afr, layout }).flowAt],
+  };
+}
+
+/**
+ * The engine's true breathing at any speed and pressure (`hardwareVeAt`), or, when the
+ * caller gives none, the ECU's own VE table taken as correct: the "perfectly calibrated"
+ * case. Read on the table's own breakpoints either way, never clamped at a grid's edge.
+ *
+ * @param {object} input `simulateSweep`'s tables, `veTruth` and `layout`
+ * @returns {{tables: object, truthAt: ((rpm: number, mapKpa: number) => number)|null,
+ *   flowAt: (rpm: number, mapKpa: number) => number}}
+ */
+function pullBreathing({ ve, veTruth, timing, afr, layout = null }) {
+  const tables = { ve, timing, afr, layout };
+  const truthAt = truthReader(veTruth, layout?.ve ?? null);
+  const flowAt = truthAt ?? ((r, m) => readEcuTable(tables, 've', r, { mapKpa: m }));
+  return { tables, truthAt, flowAt };
+}
+
+/**
+ * Injector duty the ECU commands at one RPM of a pull, before the pull is run.
+ *
+ * The point is the pull's own, solved the way the pull solves it: the boost the turbo or
+ * blower actually makes, the day's air, the ECU's dead time, pressure model and fuel
+ * belief. What it leaves out is anything that reacts to the demand, which is
+ * `ecuDemandPoint`'s to explain. TUNE → INJECTORS shows it and the Engineer Score
+ * reads it.
+ *
+ * @param {object} input `simulateSweep`'s input, which must carry `ecu`, and `rpm`, the
+ *   engine speed to read the duty at
+ * @returns {number} injector duty, percent, as the datalog rounds it
+ */
+export function injectorDutyPreview(input) {
+  const { ecu, ve, timing, afr, layout = null, loadKpa, rpm } = input;
+  return ecuDemandPoint({ cal: ecu.cal, hw: pullEcuHardware(input), cond: ecu.cond, tables: { ve, timing, afr, layout }, rpm, loadKpa }).duty;
+}
+
+/** Engine speed TUNE → INJECTORS previews duty at, RPM. */
+export const DUTY_PREVIEW_RPM = 6500;
+
+/**
+ * Where the injector duty preview reads: DUTY_PREVIEW_RPM, or the redline of an engine
+ * that stops short of it (a truck V8's 5600), so the preview is always a point the pull
+ * runs.
+ *
+ * @param {{redline?: number}} derived
+ * @returns {number}
+ */
+export function dutyPreviewRpm(derived) {
+  return Math.min(DUTY_PREVIEW_RPM, derived.redline ?? SWEEP_END_RPM);
+}
+
+/**
  * Runs a full dyno pull and produces the datalog, event log, wear and peak figures.
  *
  * With `ecu`, every point is solved with the engine management in the loop — boost
@@ -127,19 +194,13 @@ export function simulateSweep({
   const modsWithTurbo = { ...mods, turboFitted: turboOn };
 
   const points = [];
-  // The engine's true breathing at any speed and pressure (`hardwareVeAt`), or, when the
-  // caller gives none, the ECU's own VE table taken as correct: the "perfectly calibrated"
-  // case. Read on the table's own breakpoints either way, never clamped at a grid's edge.
-  const tables = { ve, timing, afr, layout };
-  const truthAt = truthReader(veTruth, tables.layout?.ve ?? null);
-  const flowAt = truthAt ?? ((r, m) => readEcuTable(tables, 've', r, { mapKpa: m }));
+  const { tables, truthAt, flowAt } = pullBreathing({ ve, veTruth, timing, afr, layout });
   const endRpm = derived.redline ?? SWEEP_END_RPM;
   const hardCut = ecu ? (derived.redline ?? SWEEP_END_RPM) + ecu.cal.limiter.offsetRpm : Infinity;
-  const ecuHw = ecu ? {
-    ...ecu.hw, mafErrorBase, derived, mods, turboOn, boostCurve, turbine, compressor,
-    injectorCc, ecuInjectorCc, mafScalar, fuel, blower, blowerRatio, nitrous,
-    veTruthByPhase: ecu.hw.veTruthByPhase ?? [flowAt],
-  } : null;
+  const ecuHw = ecu ? pullEcuHardware({
+    ecu, ve, veTruth, timing, afr, layout, turboOn, boostCurve, fuel, injectorCc, ecuInjectorCc, mods, mafScalar,
+    derived, turbine, compressor, blower, blowerRatio, nitrous,
+  }) : null;
   // A nitrous bottle through the pull: what each point sprays makes the liquid left boil
   // and cool, and the pressure falls with it — a heater is too slow to hold it mid-pass.
   const nc = ecu && nitrous ? ecu.cond.nitrous : null;

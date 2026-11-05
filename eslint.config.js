@@ -4,7 +4,7 @@ import reactHooks from 'eslint-plugin-react-hooks';
 
 export default [
   {
-    ignores: ['dist/**', 'node_modules/**', 'coverage/**', 'ECULab.jsx', 'fingerprint.report.json'],
+    ignores: ['dist/**', 'release/**', 'node_modules/**', 'bot/node_modules/**', 'coverage/**', 'ECULab.jsx', 'fingerprint.report.json'],
   },
   js.configs.recommended,
   {
@@ -49,6 +49,20 @@ export default [
       }],
       eqeqeq: ['error', 'always', { null: 'ignore' }],
       'no-implicit-coercion': ['warn', { boolean: false }],
+    },
+  },
+  {
+    // The /dyno bot and its tests run in Node, never in the browser. These globals are
+    // scoped here so browser code under src/ still fails lint if it reaches for them.
+    files: ['bot/**/*.js', 'tests/bot/**/*.js'],
+    languageOptions: {
+      globals: {
+        Buffer: 'readonly',
+        Response: 'readonly',
+        Request: 'readonly',
+        Headers: 'readonly',
+        FormData: 'readonly',
+      },
     },
   },
 ];

@@ -51,7 +51,7 @@
   padding: var(--sp-md) 0 9px;
   border: none;
   background: none;
-  color: var(--ink3);
+  color: var(--ink2);
   font-family: inherit;
   cursor: pointer;
 }
@@ -183,7 +183,7 @@
 }
 
 .fieldLabel {
-  color: var(--ink3);
+  color: var(--ink2);
   font-size: var(--fs-micro);
   font-weight: 800;
   letter-spacing: 0.08em;

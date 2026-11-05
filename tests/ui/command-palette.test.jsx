@@ -10,6 +10,9 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testi
 import React from 'react';
 import { afterAll, afterEach, describe, expect, it, vi } from 'vitest';
 
+import { Wrench } from 'lucide-react';
+
+import { BuildSection } from '../../src/ui/components/BuildSection.jsx';
 import { CommandPalette } from '../../src/ui/components/CommandPalette.jsx';
 import EcuLab from '../../src/ui/EcuLab.jsx';
 
@@ -240,6 +243,36 @@ describe('the palette', () => {
     rerender(<Harness commands={[charlie, ...commands]} />);
     const selected = options().find((o) => o.getAttribute('aria-selected') === 'true');
     expect(selected.textContent).toBe('BetaAction');
+  });
+});
+
+describe('the palette and a section it shuts', () => {
+  it('hands focus to the section\'s header when the command shut the section holding the opener', () => {
+    function SectionHarness() {
+      const [open, setOpen] = React.useState(false);
+      const [section, setSection] = React.useState(true);
+      const close = React.useCallback(() => setOpen(false), []);
+      /** @type {import('../../src/ui/commands.js').Command[]} */
+      const commands = [
+        { id: 'page:build/turbo', label: 'Turbo', context: 'BUILD', kind: 'page', keywords: [], run: () => setSection(false) },
+      ];
+      return (
+        <>
+          <button type="button" onClick={() => setOpen(true)}>OPEN</button>
+          <BuildSection active={section} onClick={() => setSection(!section)} icon={Wrench} label="Engine">
+            <button type="button">inside</button>
+          </BuildSection>
+          <CommandPalette open={open} onClose={close} commands={commands} />
+        </>
+      );
+    }
+    render(<SectionHarness />);
+    // fireEvent.click moves no focus, so the opener is the control inside the section.
+    screen.getByText('inside').focus();
+    fireEvent.click(screen.getByRole('button', { name: 'OPEN' }));
+    key('Enter');
+    expect(dialog().open).toBe(false);
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: /Engine/ }));
   });
 });
 

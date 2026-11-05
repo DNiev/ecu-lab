@@ -28,7 +28,7 @@ export function LayoutSwitch() {
   ];
   return (
     <div data-testid="layout-switch" style={{ margin: '4px 0 10px' }}>
-      <div style={{ fontSize: 9.5, letterSpacing: 1, color: T.ink3, fontWeight: 800, marginBottom: 5 }}>TABLE LAYOUT</div>
+      <div style={{ fontSize: 9.5, letterSpacing: 1, color: T.ink2, fontWeight: 800, marginBottom: 5 }}>TABLE LAYOUT</div>
       <Seg
         label="Table layout"
         options={options}

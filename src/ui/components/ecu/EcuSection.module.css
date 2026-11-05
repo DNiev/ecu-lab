@@ -58,7 +58,7 @@
   font-weight: 800;
   letter-spacing: 0.12em;
   text-transform: uppercase;
-  color: var(--ink3);
+  color: var(--ink2);
 }
 
 .field {
@@ -168,7 +168,7 @@
 .unit {
   min-width: 26px;
   font-size: var(--fs-xs);
-  color: var(--ink3);
+  color: var(--ink2);
   font-family: var(--mono);
 }
 
@@ -189,7 +189,7 @@
   font-size: var(--fs-micro);
   font-weight: 700;
   letter-spacing: 0.06em;
-  color: var(--ink3);
+  color: var(--ink2);
   text-transform: uppercase;
 }
 
@@ -212,7 +212,7 @@
 
 .summary::before {
   content: '▸';
-  color: var(--ink3);
+  color: var(--ink2);
   font-size: var(--fs-sm);
   transition: transform 0.15s;
 }
@@ -228,7 +228,7 @@
 .summaryAxes {
   flex: 1;
   font-size: var(--fs-xs);
-  color: var(--ink3);
+  color: var(--ink2);
   font-family: var(--mono);
 }
 

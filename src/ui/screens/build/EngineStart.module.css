@@ -9,7 +9,7 @@
 .h3 { margin: 0; font-size: var(--fs-md); font-weight: 800; color: var(--ink-soft); }
 
 .group { display: flex; flex-direction: column; gap: 6px; }
-.maker { font-size: var(--fs-xs); font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink3); }
+.maker { font-size: var(--fs-xs); font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink2); }
 
 .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 8px; }
 

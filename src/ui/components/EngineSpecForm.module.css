@@ -37,11 +37,11 @@
   border-radius: 8px;
 }
 
-.input::placeholder { color: var(--ink3); font-weight: 500; }
+.input::placeholder { color: var(--ink2); font-weight: 500; }
 .input:focus-visible { outline: 2px solid var(--acc); outline-offset: 1px; }
 .input[aria-invalid='true'] { border-color: var(--danger); }
 
-.unit { font-size: var(--fs-xs); font-weight: 700; color: var(--ink3); min-width: 28px; }
+.unit { font-size: var(--fs-xs); font-weight: 700; color: var(--ink2); min-width: 28px; }
 
 .error { font-size: var(--fs-xs); color: var(--danger-ink); }
 
@@ -67,5 +67,5 @@
   font-weight: 400;
   text-transform: none;
   letter-spacing: 0;
-  color: var(--ink3, inherit);
+  color: var(--ink2, inherit);
 }

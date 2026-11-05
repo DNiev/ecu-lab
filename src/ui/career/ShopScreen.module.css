@@ -24,7 +24,7 @@
 
 .stats { display: flex; flex-wrap: wrap; gap: var(--sp-sm) var(--sp-lg); font-family: var(--mono); font-size: var(--fs-sm); }
 .stat { display: inline-flex; align-items: baseline; gap: 5px; }
-.statKey { font-family: var(--sans); font-size: var(--fs-micro); font-weight: 800; letter-spacing: 0.14em; color: var(--ink3); }
+.statKey { font-family: var(--sans); font-size: var(--fs-micro); font-weight: 800; letter-spacing: 0.14em; color: var(--ink2); }
 
 .sceneWrap { max-width: var(--content-max); margin: 0 auto; padding: var(--sp-md) var(--sp-xl) 0; }
 
@@ -97,7 +97,7 @@
 .card[data-tone] { grid-column: 1 / -1; }
 .card[data-owned='true'] { opacity: 0.8; }
 
-.cardTag { font-size: var(--fs-micro); font-weight: 800; letter-spacing: 0.14em; color: var(--ink3); }
+.cardTag { font-size: var(--fs-micro); font-weight: 800; letter-spacing: 0.14em; color: var(--ink2); }
 .card[data-tone='ok'] .cardTag { color: var(--ok-ink); }
 .card[data-tone='warn'] .cardTag { color: var(--warn-ink); }
 .card[data-tone='danger'] .cardTag { color: var(--danger-ink); }
@@ -125,7 +125,7 @@
 .repFill { display: block; height: 100%; background: var(--acc); }
 
 .plain { display: flex; flex-direction: column; gap: 4px; margin: 0; padding: 0; list-style: none; font-size: var(--fs-sm); color: var(--ink-soft); }
-.plain li[data-done='false'] { color: var(--ink3); }
+.plain li[data-done='false'] { color: var(--ink2); }
 
 .lessonScrim {
   position: fixed;

@@ -106,9 +106,21 @@ remaining risk is the same Node major with a different libm, which is what step 
   To push a fix to one, check which repo holds the head with
   `gh pr view N --repo DNiev/ecu-lab --json headRepositoryOwner,headRefName`. Then push
   to that fork's branch, not to `DNiev/ecu-lab`.
+- **Only GitHub-made Actions can run.** The repo's Actions settings allow `actions/*` and
+  nothing else, so the webhook secrets never run next to third-party code. A workflow that
+  adds any other Action fails at startup with "not allowed". Prefer a script in `scripts/`.
+  If a third-party Action is really needed, say so in the PR: the owner has to add it to
+  the allow list (Settings → Actions → General) before it can run. Workflow runs from
+  outside contributors' fork PRs also wait for the owner's approval.
+- **The `/dyno` Discord bot (`bot/`) deploys from `main`, not from tags.** Vercel's GitHub
+  app rebuilds it when `main` changes the bot, `src/sim`, `src/ui/tokens.js` or
+  `scripts/discord-notify.js` (`bot/scripts/should-build.sh`). It runs `buildRig` from
+  `src/sim/rig.js`, so anything that stops `src/sim` running in plain Node breaks `/dyno`
+  too. The Vercel project and the Discord app belong to the owner; agents never handle
+  their keys or tokens.
 - **Tags are production.** A `v*` tag deploys to GitHub Pages, and the `github-pages`
-  environment accepts only `v*` tags, so `main` cannot deploy. There is no `develop`
-  branch.
+  environment accepts only `v*` tags, so `main` cannot deploy the app (the `/dyno` bot
+  is the exception; see the bullet above). There is no `develop` branch.
 - **Weekly release traps.**
   - If a `release/vX.Y.Z` branch is never opened as a PR, every later weekly run computes
     the same version, and its push fails as non-fast-forward. Delete the stale branch (it

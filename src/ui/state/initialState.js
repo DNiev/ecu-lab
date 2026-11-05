@@ -1,19 +1,16 @@
 /**
  * The store's starting values, sliced into `build`, `tune`, and `session`.
  *
- * Every default below began as a verbatim copy of an EcuLab.jsx `useState`
- * initialiser. Those `useState` calls are gone, so this file is now the SOLE
- * definition of what a fresh session starts with, not a second copy of one: change a
+ * This file is the only definition of what a fresh session starts with: change a
  * default here and you have changed the app. See reducer.js for why the three slices
- * below are combined into ONE state tree rather than three independent ones.
+ * below are combined into one state tree rather than three independent ones.
  *
- * `makeInitialState()` must return a fresh object graph on every call — a shared
+ * `makeInitialState()` must return a fresh object graph on every call: a shared
  * initial state would let one test's mutation leak into the next, or one player's
- * reset leak into their next build. The DEFAULT_* imports below are safe to reference
- * directly without cloning: they are `Object.freeze`d at their definition in
- * `src/sim/tables.js` and never written to. The calibration tables are NOT shared —
- * `ve` comes from a fresh `computeHardwareVE` call and `timing`/`afr` are cloned with
- * `clone2D` — because those get edited in place by table writes.
+ * reset leak into their next build. The frozen DEFAULT_* objects (engine config, mods,
+ * ECU hardware) are safe to reference directly. The tables, boost curve and car are
+ * not frozen, so each is copied: `ve` comes from a fresh `computeHardwareVE` call,
+ * `timing`/`afr` are cloned with `clone2D`, and the boost curve and car are spread.
  */
 
 import {
@@ -24,9 +21,9 @@ import {
 
 /**
  * Hardware and ECU configuration a factory preset owns. A hand edit to any field here
- * clears `presetId` (the preset label), because it is no longer that preset's build.
- * It does NOT by itself flag `tune.tablesDirty` — that flag means unsaved calibration
- * work, and hardware edits alone don't touch the calibration tables.
+ * clears `presetId` (the preset label), because it makes a different build from the
+ * preset's. It does not by itself flag `tune.tablesDirty`: that flag means unsaved
+ * calibration work, and hardware edits alone don't touch the calibration tables.
  *
  * @typedef {object} BuildState
  * @property {import('../../sim/index.js').EngineConfig} engineConfig short-block design
@@ -64,8 +61,8 @@ import {
  */
 
 /**
- * The calibration tables and the player's unsaved-work flag. `tablesDirty` — not pull
- * count — is what the overwrite-confirmation prompt keys off: pull count is restored
+ * The calibration tables and the player's unsaved-work flag. `tablesDirty`, not pull
+ * count, is what the overwrite-confirmation prompt keys off: pull count is restored
  * from career storage on load (so it would nag a returning player on an untouched
  * default engine) and misses a player who edited every table but never pulled.
  *
@@ -111,10 +108,10 @@ import {
  * build, which is the whole point: re-grading a finished run against hardware it was
  * never made on reports a number the engine never produced.
  *
- * `wasBest` is a fact about the run — decided against the best as it stood BEFORE this
- * pull was banked — rather than a live `pull >= bestScore` comparison. Read back off
+ * `wasBest` is a fact about the run, decided against the best as it stood before this
+ * pull was banked, rather than a live `pull >= bestScore` comparison. Read back off
  * `bestScore` afterwards, that comparison is true by construction on every pull,
- * because by then this pull IS the best.
+ * because by then this pull is the best.
  *
  * `signature` is the setup it was measured on (pullSignature.js). It is what lets the
  * UI say "these are last pull's numbers, from before your latest change" instead of
@@ -129,7 +126,7 @@ import {
  */
 
 /**
- * Everything about the current run and career progress that is NOT hardware or
+ * Everything about the current run and career progress that is not hardware or
  * calibration: dyno results, scores, engine wear, the live-engine model, and
  * onboarding progress.
  *
@@ -141,8 +138,8 @@ import {
  *   stack — see HistoryState below.
  * @property {string|null} pinnedRunId the run the ghost curve compares against, or
  *   null to compare against the previous run
- * @property {PullScores|null} pullScores the scores the last pull MEASURED, banked at
- *   pull time and never recomputed — see the typedef, and BANK_PULL in reducer.js
+ * @property {PullScores|null} pullScores the scores the last pull measured, banked at
+ *   pull time and never recomputed (see the typedef, and BANK_PULL in reducer.js)
  * @property {number} revealCount how much of the current result has been revealed
  * @property {number} bestScore highest engineer score achieved this career
  * @property {number} totalScore cumulative score across all pulls this career

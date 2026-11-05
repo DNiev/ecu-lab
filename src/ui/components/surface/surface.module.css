@@ -33,7 +33,7 @@
   right: 8px;
   bottom: 6px;
   font-size: var(--fs-micro);
-  color: var(--ink3);
+  color: var(--ink2);
   pointer-events: none;
 }
 
@@ -103,7 +103,7 @@
   font-size: var(--fs-micro);
   letter-spacing: 0.06em;
   text-transform: uppercase;
-  color: var(--ink3);
+  color: var(--ink2);
 }
 
 .read dd {

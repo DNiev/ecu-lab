@@ -1,0 +1,63 @@
+name: Discord test
+
+# Posts a test message to a Discord channel, so a webhook can be checked right after it is
+# added or rotated instead of waiting for the next release or failure.
+#
+# This is the only way to check one. GitHub never shows a secret's value again once it is
+# saved, not even to the owner, so the only proof that the stored URL works is a real post
+# made with it.
+#
+# Manual only. It has no push or schedule trigger, so it never posts on its own.
+on:
+  workflow_dispatch:
+    inputs:
+      channel:
+        description: 'Which webhook to test'
+        required: true
+        default: maintainers
+        type: choice
+        options: [maintainers, releases, both]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      # Only the notifier is needed. Root files (.nvmrc, package.json) come along regardless
+      # of the sparse pattern.
+      - uses: actions/checkout@v5
+        with:
+          sparse-checkout: scripts
+
+      # The notifier is dependency-free, so this is all it needs — no `npm ci`.
+      - uses: actions/setup-node@v5
+        with:
+          node-version-file: .nvmrc
+
+      # Each channel is a separate step, so the log says which webhook did what. A missing
+      # secret prints a notice rather than failing, exactly as in the real workflows; read
+      # the step log to tell "sent" from "not set".
+      - name: Test the maintainers webhook
+        if: inputs.channel == 'maintainers' || inputs.channel == 'both'
+        env:
+          DISCORD_WEBHOOK: ${{ secrets.DISCORD_MAINTAINERS_WEBHOOK }}
+          TITLE: Discord test (maintainers)
+          URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          DESCRIPTION: This webhook works. Deploy failures, CI failures on main and "release ready" pings will arrive here.
+          FOOTER: Started by ${{ github.actor }}
+          COLOR: '0x3498db'
+        run: node scripts/discord-notify.js
+
+      - name: Test the releases webhook
+        if: inputs.channel == 'releases' || inputs.channel == 'both'
+        env:
+          DISCORD_WEBHOOK: ${{ secrets.DISCORD_RELEASES_WEBHOOK }}
+          TITLE: Discord test (releases)
+          URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          DESCRIPTION: This webhook works. Each release will be announced here once its tag deploys.
+          FOOTER: Started by ${{ github.actor }}
+          COLOR: '0x2ecc71'
+        run: node scripts/discord-notify.js

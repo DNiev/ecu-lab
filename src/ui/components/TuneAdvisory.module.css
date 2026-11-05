@@ -26,13 +26,13 @@
 .bannerMore {
   margin-top: 3px;
   font-size: var(--fs-xs);
-  color: var(--ink3);
+  color: var(--ink2);
 }
 
 .bannerFooter {
   margin-top: 8px;
   font-size: 11px;
-  color: var(--ink3);
+  color: var(--ink2);
 }
 
 /* AdvisorPanel's own .body already sets the base font-size/colour/line-height
@@ -72,7 +72,7 @@
   font-size: var(--fs-sm);
 }
 
-.cellStats dt { color: var(--ink3); }
+.cellStats dt { color: var(--ink2); }
 .cellStats dd { margin: 0; color: var(--ink); font-family: var(--mono); }
 
 /* AIRFLOW's stale-VE recommendations, carried over unchanged from
@@ -112,7 +112,7 @@
 .acceptNote {
   margin-top: 6px;
   font-size: var(--fs-xs);
-  color: var(--ink3);
+  color: var(--ink2);
   text-align: center;
 }
 

@@ -103,11 +103,11 @@
 }
 .rowValue[data-ok='false'] { color: var(--danger); }
 
-.rowAsked { color: var(--ink3); font-weight: 400; }
+.rowAsked { color: var(--ink2); font-weight: 400; }
 
 .rowNote {
   font-size: var(--fs-xs);
-  color: var(--ink3);
+  color: var(--ink2);
   line-height: 1.4;
   margin-top: 1px;
 }
@@ -179,11 +179,11 @@
   color: var(--ink);
   border: 1px solid rgba(var(--shadow-rgb), 0.35);
 }
-.dataCell[data-empty='true'] { color: var(--ink3); }
+.dataCell[data-empty='true'] { color: var(--ink2); }
 
 .legend {
   font-size: var(--fs-xs);
-  color: var(--ink3);
+  color: var(--ink2);
   margin-bottom: 8px;
 }
 
@@ -282,7 +282,7 @@
   font-size: var(--fs-micro);
   font-weight: 800;
   letter-spacing: 0.12em;
-  color: var(--ink3);
+  color: var(--ink2);
 }
 
 .ecuNote {

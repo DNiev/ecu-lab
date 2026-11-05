@@ -291,9 +291,8 @@ export function DataScreen() {
         <br /><br />With a MAF blended into the fuel, part of the error is the MAF's own: a new intake housing changes what it reads. That part is taken out here and left for TUNE › SENSORS, because folding it into VE would have to be undone the moment the MAF is fixed. Points the table did not fuel (nitrous, maxed injectors, protection, fuel cut) are left out. TUNE › AIRFLOW runs the same numbers with the working shown per cell, and lets you apply half.
       </ExpandableInfo>
       {!histogram ? (
-        /* Was a cyan-outlined width:100% bar. Cyan is the chart-series
-           hue — the same borrowed colour Task 6 took off the intercooler
-           toggle — so this takes the accent like every other action. */
+        /* Not cyan: that is the chart-series hue. This takes the accent
+           like every other action. */
         <div className={styles.buildWrap}>
           <Button onClick={buildHistogram}>
             BUILD HISTOGRAM FROM THIS PULL

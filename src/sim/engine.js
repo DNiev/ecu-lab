@@ -266,10 +266,10 @@ export function deriveEngine(cfg) {
   const displacementL = (Math.PI / 4 * boreCm * boreCm * strokeCm * cyl) / 1000;
   const ratio = cfg.bore / cfg.stroke;
   const perCylL = displacementL / cyl;
-  // What the ARCHITECTURE contributes to combustion, expressed as the two physical
+  // What the architecture contributes to combustion, expressed as the two physical
   // quantities the cycle model reads rather than as bonuses in degrees. Compression
-  // needs no term at all any more: it changes the clearance volume, and the cycle
-  // integrates what follows.
+  // needs no term at all: it changes the clearance volume, and the cycle integrates
+  // what follows.
   //
   // Flame travel scales with bore, so a big cylinder burns slower.
   //
@@ -293,11 +293,10 @@ export function deriveEngine(cfg) {
   // rather than the metal around it (see FUEL_EVAP_IN_CYLINDER_*).
   const injection = cfg.injection === 'direct' ? 'direct' : 'port';
   const evapInCylinder = injection === 'direct' ? COEFF.FUEL_EVAP_IN_CYLINDER_DIRECT : COEFF.FUEL_EVAP_IN_CYLINDER_PORT;
-  // No thermal-efficiency term any more. Indicated efficiency used to be an ideal
-  // Otto-cycle number scaled by a realisation factor, multiplied into fuel energy to get
-  // work. The cycle model produces it instead: compression changes the clearance volume,
-  // which changes the expansion the integration runs over, and efficiency is whatever
-  // comes out. Two fitted constants became a consequence of the geometry.
+  // No thermal-efficiency term. The cycle model produces indicated efficiency:
+  // compression changes the clearance volume, which changes the expansion the
+  // integration runs over, and efficiency is whatever comes out. It is a consequence of
+  // the geometry, not a fitted constant.
   const torqueScale = displacementL / 3.5;
   const bearingWearMult = cfg.blockMaterial === 'Cast Iron' ? 0.85 : 1.0;
   // What average peak pressure the bottom end carries for free, and where the advisory
