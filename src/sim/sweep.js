@@ -15,7 +15,7 @@ import { evaluatePoint } from './point.js';
 import { LOAD, RPM } from './tables.js';
 import { ecuSweepEvents } from './ecu/ecuEvents.js';
 import { ECU_COEFF } from './ecu/ecuCoefficients.js';
-import { ecuSteadyPoint } from './ecu/strategy.js';
+import { ecuDemandPoint, ecuSteadyPoint } from './ecu/strategy.js';
 import { N2O_AIR_EQUIV, stepBottle, wetKitFuelKgS } from './nitrous.js';
 
 /** Lowest engine speed of a dyno pull, RPM. */
@@ -110,6 +110,42 @@ function tableRowsAt(mapKpa) {
 }
 
 /**
+ * The ECU's hardware for a pull: the build's `EcuHardware`, completed with the pull's own
+ * engine, induction and injectors.
+ *
+ * @param {object} input `simulateSweep`'s input, with its `ecu`
+ * @returns {object}
+ */
+function pullEcuHardware({
+  ecu, ve, veTruth, turboOn, boostCurve, fuel, injectorCc, ecuInjectorCc, mods, mafScalar, derived,
+  turbine, compressor, blower = null, blowerRatio = 1, nitrous = null,
+}) {
+  return {
+    ...ecu.hw, mafErrorBase: mafErrorFactor(mods, turboOn), derived, mods, turboOn, boostCurve, turbine, compressor,
+    injectorCc, ecuInjectorCc, mafScalar, fuel, blower, blowerRatio, nitrous,
+    veTruthByPhase: ecu.hw.veTruthByPhase ?? [veTruth ?? ve],
+  };
+}
+
+/**
+ * Injector duty the ECU commands at one RPM of a pull, before the pull is run.
+ *
+ * The point is the pull's own, solved the way the pull solves it: the boost the turbo or
+ * blower actually makes, the day's air, the ECU's dead time, pressure model and fuel
+ * belief. What it leaves out is anything that reacts to the demand, which is
+ * `ecuDemandPoint`'s to explain. TUNE → INJECTORS shows it and the Engineer Score
+ * reads it.
+ *
+ * @param {object} input `simulateSweep`'s input, which must carry `ecu`, and `rpm`, the
+ *   engine speed to read the duty at
+ * @returns {number} injector duty, percent, as the datalog rounds it
+ */
+export function injectorDutyPreview(input) {
+  const { ecu, ve, timing, afr, loadKpa, rpm } = input;
+  return ecuDemandPoint({ cal: ecu.cal, hw: pullEcuHardware(input), cond: ecu.cond, tables: { ve, timing, afr }, rpm, loadKpa }).duty;
+}
+
+/**
  * Runs a full dyno pull and produces the datalog, event log, wear and peak figures.
  *
  * With `ecu`, every point is solved with the engine management in the loop — boost
@@ -136,11 +172,10 @@ export function simulateSweep({
   const points = [];
   const endRpm = derived.redline ?? SWEEP_END_RPM;
   const hardCut = ecu ? (derived.redline ?? SWEEP_END_RPM) + ecu.cal.limiter.offsetRpm : Infinity;
-  const ecuHw = ecu ? {
-    ...ecu.hw, mafErrorBase, derived, mods, turboOn, boostCurve, turbine, compressor,
-    injectorCc, ecuInjectorCc, mafScalar, fuel, blower, blowerRatio, nitrous,
-    veTruthByPhase: ecu.hw.veTruthByPhase ?? [veTruth ?? ve],
-  } : null;
+  const ecuHw = ecu ? pullEcuHardware({
+    ecu, ve, veTruth, turboOn, boostCurve, fuel, injectorCc, ecuInjectorCc, mods, mafScalar, derived,
+    turbine, compressor, blower, blowerRatio, nitrous,
+  }) : null;
   // A nitrous bottle through the pull: what each point sprays makes the liquid left boil
   // and cool, and the pressure falls with it — a heater is too slow to hold it mid-pass.
   const nc = ecu && nitrous ? ecu.cond.nitrous : null;
