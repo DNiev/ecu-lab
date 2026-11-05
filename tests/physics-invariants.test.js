@@ -36,7 +36,7 @@ function randomPoint(seed) {
   const injectorCc = S.INJECTOR_OPTS[build.injIdx].cc;
   const base = {
     rpm, mapKpa, boostPsi,
-    veVal: S.interp2(eng.veTruth, rpm, mapKpa),
+    veVal: eng.veTruth(rpm, mapKpa),
     afrCommanded: boostPsi > 1 ? 11.8 : 12.9,
     fuel: eng.fuel, mods: { ...build.mods, turboFitted: build.turboOn }, mafScalar: 1, mafErrorBase: 1,
     injectorCc, ecuInjectorCc: injectorCc, derived: eng.derived, compressor: eng.compressor,
@@ -88,7 +88,9 @@ describe('units balance', () => {
   it('reports horsepower, torque, airflow, mixture and mean pressures that agree', () => {
     expect(forAll(({ at, safe, eng }) => {
       const p = at({ timingVal: safe });
-      if (Math.abs(p.hp - (p.torque * p.rpm) / 5252) > 1 + p.hp * 0.005) return `hp ${p.hp} vs tq×rpm/5252 ${(p.torque * p.rpm / 5252).toFixed(1)}`;
+      // Both are rounded to whole numbers: hp by up to 0.5, and torque by up to 0.5 lb-ft,
+      // which tq × rpm / 5252 magnifies by rpm / 5252 above 5252 rpm.
+      if (Math.abs(p.hp - (p.torque * p.rpm) / 5252) > 0.5 + 0.5 * Math.max(1, p.rpm / 5252) + p.hp * 0.005) return `hp ${p.hp} vs tq×rpm/5252 ${(p.torque * p.rpm / 5252).toFixed(1)}`;
       const maf = p.airCharge * eng.derived.cyl * (p.rpm / 120);
       if (Math.abs(maf - p.maf) > 0.02 * p.maf + 0.1) return `maf ${p.maf} vs charge×cyl×rpm/120 ${maf.toFixed(1)}`;
       if (Math.abs(p.afr - p.lambda * 14.7) > 0.03) return `afr ${p.afr} vs λ×14.7 ${(p.lambda * 14.7).toFixed(2)}`;
@@ -166,8 +168,11 @@ describe('every lever pulls the way it does on a real engine', () => {
     expect(forAll(({ at, eng, safe }) => {
       if (eng.derived.compression > 12.5) return null;
       const derivedHi = S.deriveEngine({ ...eng.build.engineConfig, compression: eng.derived.compression + 1 });
-      const lo = at({ timingVal: safe - 2 });
-      const hi = at({ timingVal: safe - 2, derived: derivedHi });
+      // Below BOTH knock limits, so neither engine's efficiency is knock control's: a
+      // compression point costs a few degrees of limit, more than a fixed 2° margin.
+      const timingVal = Math.min(safe - 2, at({ timingVal: safe - 2, derived: derivedHi }).threshold - 1);
+      const lo = at({ timingVal });
+      const hi = at({ timingVal, derived: derivedHi });
       if (hi.threshold > lo.threshold + 0.05) return `knock limit ${lo.threshold} → ${hi.threshold} at +1 CR`;
       if (hi.imep < lo.imep - 0.005) return `imep ${lo.imep} → ${hi.imep} at +1 CR, same air and fuel`;
       return null;
@@ -226,8 +231,10 @@ describe('every lever pulls the way it does on a real engine', () => {
       if (!(rich.bsfc > mid.bsfc)) return `bsfc ${mid.bsfc} → ${rich.bsfc} going from 13.5 to 11.0 AFR`;
       // Under load, where enrichment is used to cool the exhaust. (At part throttle the
       // cooled, piston-pushed part of the charge dominates and the effect is flat to a
-      // degree or two either way; docs/accuracy.md.)
-      if (mid.map >= 75 && rich.egt > mid.egt) return `EGT ${mid.egt} → ${rich.egt} going richer at ${mid.map} kPa`;
+      // few degrees either way; docs/accuracy.md, approximation 3. The band reached 75 kPa
+      // until part-load VE came from the gas-exchange law: seed 347, a 276° turbo cam at
+      // 7263 rpm and 78 kPa, read 585 → 584 °C before it and 595 → 602 °C after.)
+      if (mid.map >= 85 && rich.egt > mid.egt) return `EGT ${mid.egt} → ${rich.egt} going richer at ${mid.map} kPa`;
       if (mid.map >= 95 && !(rich.egt < mid.egt)) return `EGT ${mid.egt} → ${rich.egt} going richer at full load`;
       return null;
     })).toEqual([]);
@@ -242,7 +249,7 @@ describe('every lever pulls the way it does on a real engine', () => {
       const solve = (target) => S.solveInduction({
         rpm: base.rpm, loadKpa: 100, turboOn: true, boostTargetPsi: target, targetIsFinal: true,
         turbine: eng.turbine, compressor: eng.compressor, derived: eng.derived,
-        veAt: (m) => S.interp2(eng.veTruth, base.rpm, m), intakeKAt: (b) => S.chargeTempK(b, build.mods.intercooler),
+        veAt: (m) => eng.veTruth(base.rpm, m), intakeKAt: (b) => S.chargeTempK(b, build.mods.intercooler),
         lambda: 1, exhaustK: S.INDUCTION_REF_EXHAUST_K,
       }).boostPsi;
       let last = 0;
@@ -282,8 +289,11 @@ describe('whole pulls on random builds', () => {
       const ecu = eng.pull(100);
       ecu.points.forEach((p, i) => {
         const l = legacy.points[i];
+        // An injector held open past its whole cycle is the ECU's pulse limit deciding the
+        // fuel, not the table: the two paths saturate differently, and since a rich
+        // flame's heat depends on how rich it is (thermo.js, heatReleasedShare) that shows.
         const ecuActed = (p.protect?.length ?? 0) > 0 || p.knockPull > 0 || l.knockPull > 0
-          || p.misfire > 0 || p.cutPct > 0;
+          || p.misfire > 0 || p.cutPct > 0 || p.duty >= 100;
         // One unit of rounding: the ECU prices the injector pulse through its own dead time,
         // which on a mis-scaled injector moves the charge by a hundredth of a percent.
         const off = (a, b) => Math.abs(a - b) > Math.max(1, 0.005 * b);

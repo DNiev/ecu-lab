@@ -1,0 +1,72 @@
+.wrap { position: relative; }
+
+.scene {
+  display: block;
+  width: 100%;
+  height: auto;
+  max-height: 46vh;
+  border-radius: var(--r-lg);
+  border: 1px solid var(--line);
+  background: var(--bg);
+}
+
+.neon {
+  font-family: var(--sans);
+  font-size: 16px;
+  font-weight: 800;
+  letter-spacing: 0.3em;
+}
+
+.plainSign { font-family: var(--mono); font-size: 11px; fill: var(--ink3); letter-spacing: 0.2em; }
+.poster { font-family: var(--mono); font-size: 11px; fill: var(--cyan); }
+.hint { font-family: var(--sans); font-size: 12px; fill: var(--ink3); }
+
+.bubble {
+  position: absolute;
+  top: 8%;
+  left: 3%;
+  max-width: min(58%, 340px);
+  padding: 8px 11px;
+  border-radius: 12px;
+  background: var(--ink);
+  color: var(--bg);
+  font-family: var(--sans);
+  font-size: var(--fs-sm);
+  line-height: 1.4;
+  box-shadow: 0 4px 10px rgba(var(--shadow-rgb), 0.4);
+  animation: fadeIn 0.4s ease-out 0.9s both;
+}
+
+/* A customer's car driving in from the street to its bay. */
+.arriving { animation: driveIn 1.8s cubic-bezier(0.2, 0.7, 0.3, 1) both; }
+@keyframes driveIn {
+  from { transform: translateX(-560px); }
+  to { transform: translateX(0); }
+}
+
+/* The finished car backing out and driving home. */
+.departing { animation: driveOut 2.4s ease-in both; }
+@keyframes driveOut {
+  0% { transform: translateX(0); opacity: 1; }
+  85% { opacity: 1; }
+  100% { transform: translateX(-620px); opacity: 0; }
+}
+
+.customer { animation: fadeIn 0.4s ease-out both; }
+@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+
+.tuner { animation: breathe 3.2s ease-in-out infinite; }
+@keyframes breathe { 50% { transform: translateY(-1.5px); } }
+
+.screen { animation: flicker 1.6s steps(2) infinite; }
+@keyframes flicker { 50% { opacity: 0.7; } }
+
+.fan { animation: spin 0.6s linear infinite; transform-box: fill-box; transform-origin: center; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.arm { transition: y 0.6s ease; }
+
+@media (prefers-reduced-motion: reduce) {
+  .arriving, .departing, .customer, .tuner, .screen, .fan, .bubble { animation: none; }
+  .departing { opacity: 0; }
+}

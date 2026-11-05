@@ -222,6 +222,63 @@ export const strip = Object.freeze({
   stage: '#e8eef4',
 });
 
+/**
+ * The career shop's ART PALETTE: the side-on garage on the shop screen. Scenery, like
+ * `strip` above and for the same reasons: a red car is not a danger state. Not mirrored
+ * into `tokens.css`, because the scene is inline SVG.
+ */
+export const shop = Object.freeze({
+  road: '#232a36',
+  roadLine: '#3b4556',
+  fascia: '#2b3342',
+  steel: '#5b6576',
+  steelHi: '#6d788a',
+  fixture: '#3a4354',
+  device: '#1d2330',
+  liftArm: '#f0a830',
+  roller: '#9aa4b2',
+  hub: '#8a93a3',
+  tyre: '#15181e',
+  outline: 'rgba(0, 0, 0, 0.45)',
+  glass: 'rgba(170, 210, 255, 0.35)',
+  headlight: '#ffe8a3',
+  taillight: '#ff6b6b',
+  boxRed: '#c0392b',
+  boxBlue: '#2980b9',
+  boxGrey: '#7f8c8d',
+  benchTop: '#6d4c2f',
+  benchLeg: '#5a3d24',
+  laptop: '#11151c',
+  egtKit: '#b33939',
+  probeWire: '#cccccc',
+  flexKit: '#27ae60',
+  flexScreen: '#0d2419',
+  couch: '#7d5ba6',
+  couchBack: '#6c4a95',
+  lamp: '#e67e22',
+  neon: '#ff4fa3',
+  skin: '#e0b48c',
+  tunerShirt: '#2e6fd8',
+  trousers: '#2c3440',
+  // Customers' cars, by the name a job gives its paint.
+  paint: Object.freeze({
+    silver: '#9aa4b2',
+    red: '#c0392b',
+    blue: '#2e6fd8',
+    white: '#f2f2f2',
+    orange: '#e67e22',
+    green: '#27ae60',
+    black: '#1c1f24',
+    purple: '#8e44ad',
+    teal: '#16a085',
+    copper: '#d35400',
+    yellow: '#f1c40f',
+    grey: '#7f8c8d',
+    pewter: '#95a5a6',
+    pearl: '#bdc3c7',
+  }),
+});
+
 /** Tyre smoke at a given opacity — it fades as it drifts, so alpha is a parameter. */
 export const smokeAlpha = (alpha) => `rgba(214, 222, 230, ${alpha})`;
 

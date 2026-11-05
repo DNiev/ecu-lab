@@ -1,0 +1,118 @@
+/* A lesson's view of a real game screen. The frame is a window onto the screen, not a
+   picture of it: it scrolls, and the screen inside it works. */
+
+.snippet {
+  margin: var(--sp-lg) 0;
+  border: 1px solid var(--line-hi);
+  border-radius: var(--r-lg);
+  background: var(--panel);
+  overflow: hidden;
+}
+
+.chrome {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-md);
+  padding: var(--sp-sm) var(--sp-lg);
+  border-bottom: 1px solid var(--line);
+  background: var(--bg);
+}
+
+/* Says what the reader is looking at: the game, running, not an illustration of it. */
+.live {
+  padding: 2px 6px;
+  border-radius: var(--r-xs);
+  background: var(--acc-bg);
+  color: var(--acc-ink);
+  font-size: var(--fs-micro);
+  font-weight: 800;
+  letter-spacing: 0.12em;
+}
+
+.where {
+  font-family: var(--mono);
+  font-size: var(--fs-sm);
+  font-weight: 700;
+  color: var(--ink);
+}
+
+.frame {
+  position: relative;
+  overflow: auto;
+  background: var(--bg);
+  overscroll-behavior: contain;
+}
+
+.frame:focus-visible { outline: 2px solid var(--acc); outline-offset: -2px; }
+
+.content { position: relative; }
+
+/* The callout's target, outlined so the eye finds it before it finds the badge. */
+.ring {
+  position: absolute;
+  z-index: 5;
+  border: 2px solid var(--warn);
+  border-radius: var(--r-sm);
+  pointer-events: none;
+}
+
+.badge,
+.legendBadge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--warn);
+  color: var(--bg);
+  font-size: var(--fs-xs);
+  font-weight: 800;
+  flex-shrink: 0;
+}
+
+.badge {
+  position: absolute;
+  z-index: 6;
+  box-shadow: 0 0 0 2px var(--bg);
+  pointer-events: none;
+}
+
+.caption {
+  padding: var(--sp-md) var(--sp-lg) var(--sp-lg);
+  border-top: 1px solid var(--line);
+}
+
+.captionText {
+  margin: 0;
+  font-size: var(--fs-sm);
+  line-height: 1.6;
+  color: var(--ink-soft);
+}
+
+.legend {
+  display: grid;
+  gap: var(--sp-sm);
+  margin: var(--sp-md) 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.legendItem {
+  display: flex;
+  gap: var(--sp-md);
+  align-items: flex-start;
+  font-size: var(--fs-sm);
+  line-height: 1.55;
+  color: var(--ink);
+}
+
+/* The cell editor and the advisor are sticky in the game, pinned to the bottom (or the
+   side) of a full-height screen. In a frame a few hundred pixels tall a pinned panel
+   would cover the very table a lesson is pointing at, and a callout placed on a pinned
+   element would drift as the frame scrolls. Inside a snippet they sit in the flow. The
+   inline `position: sticky` on the editor is why this needs !important. */
+.content :global([data-testid="selection-dock"]),
+.content :global([data-testid="advisor-panel"]) {
+  position: static !important;
+}

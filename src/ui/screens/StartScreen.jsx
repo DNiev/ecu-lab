@@ -10,19 +10,20 @@ import styles from './StartScreen.module.css';
  * The three ways in, in the order a newcomer should meet them.
  *
  * CAREER is first and is the primary action, because a customer car with a fault in it
- * is the only one of the three that tells you what you are trying to achieve. A sandbox
+ * is the only one of the three that tells you what you are trying to achieve: it is a
+ * tuning shop of your own, with its own save, apart from SANDBOX. A sandbox
  * with no objective is the right tool once you know what you are doing and a poor place
  * to start, and the tutorial is a detour a returning player does not want.
  */
 const WAYS_IN = [
-  { key: 'career', label: 'CAREER', variant: 'primary', caption: 'Customer cars with real faults to diagnose' },
+  { key: 'career', label: 'CAREER', variant: 'primary', caption: 'Run a tuning shop: customers, real faults, your reputation' },
   { key: 'sandbox', label: 'SANDBOX', variant: 'ghost', caption: 'Build and tune anything, no objectives' },
-  { key: 'tutorial', label: 'TUTORIAL', variant: 'quiet', caption: 'The whole loop, one step at a time' },
+  { key: 'tutorial', label: 'TUTORIAL', variant: 'quiet', caption: 'Tuning and the game, in five minutes' },
 ];
 
 /**
  * @param {object} props
- * @param {() => void} props.onCareer open the job board
+ * @param {() => void} props.onCareer open the shop
  * @param {() => void} props.onStart open the sandbox
  * @param {() => void} props.onTutorial
  * @param {string} props.version

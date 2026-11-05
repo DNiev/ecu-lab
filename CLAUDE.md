@@ -71,6 +71,18 @@ remaining risk is the same Node major with a different libm, which is what step 
   Rev-Up's bore, stroke and compression. The model is most accurate near that baseline,
   and error grows with distance from it. When a preset misses its factory figure, check
   whether the miss scales with that distance before suspecting the preset data.
+- **SANDBOX opens with no engine** (`makeInitialState({ blank: true })`, `build.engineReady` false):
+  the placeholder hardware behind that gate is nobody's engine and no screen shows it. The
+  career's cars start from the ready default instead; the tutorial, the course and the practice
+  missions use the Nissan VQ35DE Rev-Up preset (`LESSON_ENGINE`), which a player can pick. A player's
+  own engine is built by `validateCustomEngine` + `customEnginePatch` (sim/presets.js), which
+  generates its calibration from the physics. The advisor, the pull log and the Tuning Score
+  must tell one story: a stock calibration is clean on TUNE at every load, and RESET ALL TO
+  STOCK writes `stockCalibrationFor` the hardware on the bench, never the Nissan V6 tables
+  (those knocked every other engine in the catalogue), and keeps an intercooler with its turbo
+  (`stockModsOf`). "Cells the pull did not run" is judged against the player's own pull
+  (`cellsNotRunBy`), never TUNE's full-throttle one. `CUSTOM_ENGINE_LIMITS` are the ranges
+  `tests/randomBuilds.js` fuzzes: widen one only with the fuzz, and keep both passing.
 - **Preset fidelity is tracked in #19.** The gap is the shape of the airflow curve, not a
   missing effect such as direct injection: the DI presets already sit at MBT timing
   almost everywhere. Fix #15 (no naturally aspirated power peak before redline) before

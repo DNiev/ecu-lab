@@ -28,9 +28,10 @@ import { T } from '../theme.js';
  * @param {(next: import('./selection.js').Selection|null) => void} props.setSelection
  * @param {boolean} props.diffView
  * @param {(next: boolean) => void} props.setDiffView
+ * @param {{rows: number, cols: number}} [props.dims] the table's size, for SELECT ALL
  * @returns {React.ReactElement}
  */
-export function SelectModeBar({ rangeMode, setRangeMode, setSelection, diffView, setDiffView }) {
+export function SelectModeBar({ rangeMode, setRangeMode, setSelection, diffView, setDiffView, dims = { rows: LOAD.length, cols: RPM.length } }) {
   return (
     <>
       {/* Wraps: at phone width the view toggle drops to its own line rather than
@@ -54,7 +55,7 @@ export function SelectModeBar({ rangeMode, setRangeMode, setSelection, diffView,
         <div style={{ marginLeft: 'auto' }}>
           <Button
             variant="quiet" size="sm"
-            onClick={() => setSelection({ type: 'range', r1: 0, c1: 0, r2: LOAD.length - 1, c2: RPM.length - 1 })}
+            onClick={() => setSelection({ type: 'range', r1: 0, c1: 0, r2: dims.rows - 1, c2: dims.cols - 1 })}
           >ALL</Button>
         </div>
       </div>

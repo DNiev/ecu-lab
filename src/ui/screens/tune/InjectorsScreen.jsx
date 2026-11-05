@@ -35,15 +35,17 @@ import styles from './InjectorsScreen.module.css';
 
 /**
  * @param {object} props
- * @param {number} props.dutyPreview injector duty at WOT/6500rpm — the shell's,
+ * @param {number} props.dutyPreview injector duty at WOT and `dutyRpm` — the shell's,
  *   also read by the score breakdown and dyno payload
+ * @param {number} [props.dutyRpm] where `dutyPreview` is read: 6500 RPM, or the redline
+ *   below it
  * @param {number} props.injectorCc the shell's — `INJECTOR_OPTS[injIdx].cc`, also
  *   read by the same computations as `dutyPreview`
  * @param {React.ReactNode} [props.children] the engine management settings that belong
  *   with this screen, shown under it
  * @returns {React.ReactElement}
  */
-export function InjectorsScreen({ dutyPreview, injectorCc, children }) {
+export function InjectorsScreen({ dutyPreview, dutyRpm = 6500, injectorCc, children }) {
   const [build, dispatch] = useBuild();
   const { turboOn, octaneIdx, ecuInjectorCc } = build;
   const fuel = FUEL_CHOICES[octaneIdx];
@@ -83,9 +85,9 @@ export function InjectorsScreen({ dutyPreview, injectorCc, children }) {
         Injectors flow a rated amount of fuel, and the ECU controls delivery by varying how long each stays open per cycle. As RPM and airflow rise, more fuel is needed in less time, and eventually the injector is open almost the whole cycle — that is duty cycle nearing 100%. Past about 90%, there is no more room to add fuel even if the AFR table calls for it, so the mixture leans out on its own regardless of what you commanded.
       </ExpandableInfo>
 
-      <Panel tight className={styles.dutyPanel}>
+      <Panel tight className={styles.dutyPanel} data-tour="inj-duty">
         <div className={styles.dutyHead}>
-          <div className={styles.dutyHeadLabel}>INJECTOR DUTY PREVIEW · WOT @ 6500 RPM</div>
+          <div className={styles.dutyHeadLabel}>INJECTOR DUTY PREVIEW · WOT @ {dutyRpm} RPM</div>
           {fuel.stoich < 14 && <div className={styles.dutyFuelNote}>{fuel.label} stoich {fuel.stoich}:1</div>}
         </div>
         <div className={styles.dutyBarWrap}>

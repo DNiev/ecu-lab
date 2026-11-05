@@ -25,6 +25,11 @@ export const ECU_COEFF = Object.freeze({
   FILM_TAU_COLD_ADD_S: 0.7,
   FILM_WARM_C: 80,
   FILM_COLD_SPAN_C: 100,
+  // A direct-injected engine has no port wall to wet: its spray goes into the cylinder
+  // and only what reaches the piston crown and liner films, mostly when cold. The share
+  // of the port's film it keeps is a modelling choice; that DI needs far less transient
+  // enrichment than port injection is the well-established part.
+  FILM_DIRECT_SHARE: 0.25,
 
   // ---- Charging system. A 120 A alternator at about 2.8× crank speed: nothing below
   // its cut-in, rising exponentially to its rating (about half at a hot idle).

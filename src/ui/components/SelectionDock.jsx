@@ -19,7 +19,7 @@
 import React from 'react';
 
 import {
-  LOAD, RPM, addRect, changedIn, interpolateRect, revertRect, scaleRect, setRect, smoothRect,
+  GAME_LAYOUT, addRect, changedIn, interpolateRect, revertRect, scaleRect, setRect, smoothRect,
 } from '../../sim/index.js';
 import { Button } from '../primitives/Button.jsx';
 import { Panel } from '../primitives/Panel.jsx';
@@ -27,6 +27,7 @@ import { Seg } from '../primitives/Seg.jsx';
 import { T, shadowAlpha } from '../theme.js';
 
 import { cellCount, countLabel, opLabel, rectOf, selectionKey, signed, stepsFor } from './selection.js';
+import { loadText } from './TuningGrid.jsx';
 
 /** @typedef {import('./selection.js').Selection} Selection */
 
@@ -41,10 +42,14 @@ const SCALE_STEPS = [-5, -1, 1, 5];
  * @param {number} row
  * @param {number} col
  * @param {number} value
+ * @param {import('../../sim/layouts.js').TableAxes} axes
  * @returns {{what: string, typical: string, affects: string, note: string|null}}
  */
-function cellReference(kind, row, col, value) {
-  const rpm = RPM[col], map = LOAD[row];
+function cellReference(kind, row, col, value, axes) {
+  // On an axis of air per cylinder the row is placed by its share of the top row: a
+  // rough stand-in for manifold pressure, used only to pick which typical range to quote.
+  const rpm = axes.rpm[col];
+  const map = axes.loadUnit === 'kPa' ? axes.load[row] : (100 * axes.load[row]) / (0.8 * axes.load[0]);
   const boosted = map > 105, wot = map >= 95, cruise = map <= 70;
   const highRpm = rpm >= 5500, lowRpm = rpm <= 2500;
   if (kind === 've') {
@@ -99,9 +104,14 @@ const COMMIT_KEYS = new Set([
  * @param {'ve'|'timing'|'afr'} props.kind
  * @param {number[][]} [props.baseline] the table as loaded — what REVERT puts back and
  *   the title's "was"/"changed" compare against. Without it, neither appears
+ * @param {import('../../sim/layouts.js').TableAxes} [props.axes] the table's breakpoints:
+ *   the ECU Lab grid unless the tune sits on an engine computer's own
  * @returns {React.ReactElement|null}
  */
-export function SelectionDock({ data, setData, selection, min, max, decimals, unit, onClose, kind, baseline }) {
+export function SelectionDock({ data, setData, selection, min, max, decimals, unit, onClose, kind, baseline, axes = GAME_LAYOUT.ve }) {
+  const RPM = axes.rpm;
+  const LOAD = axes.load.map((v) => loadText(axes.loadUnit, v));
+  const lu = axes.loadUnit === 'kPa' ? 'kPa' : axes.loadUnit;
   // The slider's in-flight value. React maps onChange on a range input to the `input`
   // event, so a drag fires it continuously; committing each one would turn a single
   // drag into eighteen undo steps. The draft holds the value while the finger is down
@@ -143,7 +153,7 @@ export function SelectionDock({ data, setData, selection, min, max, decimals, un
   }
 
   if (!selection) return null;
-  const rect = rectOf(selection);
+  const rect = rectOf(selection, { rows: axes.load.length, cols: axes.rpm.length });
   const count = cellCount(rect);
   const bounds = { min, max };
   let sum = 0;
@@ -210,11 +220,12 @@ export function SelectionDock({ data, setData, selection, min, max, decimals, un
   // LOAD runs high to low down the grid, so a range's bottom row is its LOW pressure.
   const span = (lo, hi) => (lo === hi ? `${lo}` : `${lo}–${hi}`);
   let sel;
-  if (selection.type === 'row') sel = `Row · ${LOAD[selection.row]} kPa MAP`;
+  const mapWord = axes.loadUnit === 'kPa' ? ' MAP' : ' air';
+  if (selection.type === 'row') sel = `Row · ${LOAD[selection.row]} ${lu}${mapWord}`;
   else if (selection.type === 'col') sel = `Column · ${RPM[selection.col]} RPM`;
   else if (selection.type === 'range') {
-    sel = `Range · ${span(RPM[rect.c1], RPM[rect.c2])} RPM × ${span(LOAD[rect.r2], LOAD[rect.r1])} kPa · ${count} ${count === 1 ? 'cell' : 'cells'}`;
-  } else sel = `${RPM[selection.col]} RPM · ${LOAD[selection.row]} kPa MAP`;
+    sel = `Range · ${span(RPM[rect.c1], RPM[rect.c2])} RPM × ${span(LOAD[rect.r2], LOAD[rect.r1])} ${lu} · ${count} ${count === 1 ? 'cell' : 'cells'}`;
+  } else sel = `${RPM[selection.col]} RPM · ${LOAD[selection.row]} ${lu}${mapWord}`;
   if (changed && count === 1) {
     const was = baseline[rect.r1][rect.c1];
     sel += ` · was ${decimals ? was.toFixed(decimals) : Math.round(was)}`;
@@ -232,10 +243,10 @@ export function SelectionDock({ data, setData, selection, min, max, decimals, un
         <Button variant="ghost" size="sm" onClick={onClose}>DONE</Button>
       </div>
       {selection.type === 'cell' && kind && (() => {
-        const ref = cellReference(kind, selection.row, selection.col, current);
+        const ref = cellReference(kind, selection.row, selection.col, current, axes);
         return (
           <Panel tight style={{ marginBottom: 9, fontSize: 11.5, lineHeight: 1.55, color: T.ink2 }}>
-            <div style={{ fontSize: 9.5, letterSpacing: 1, color: T.cyan, fontWeight: 800, marginBottom: 5 }}>REFERENCE · {RPM[selection.col]} RPM / {LOAD[selection.row]} kPa</div>
+            <div style={{ fontSize: 9.5, letterSpacing: 1, color: T.cyan, fontWeight: 800, marginBottom: 5 }}>REFERENCE · {RPM[selection.col]} RPM / {LOAD[selection.row]} {lu}</div>
             <div>{ref.what}</div>
             <div style={{ marginTop: 4, color: T.ink }}>{ref.typical}</div>
             <div style={{ marginTop: 4 }}><b style={{ color: T.inkSoft }}>Affects: </b>{ref.affects}</div>

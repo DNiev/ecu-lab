@@ -156,7 +156,7 @@ describe('StatTile', () => {
 // border, so its label is the entire control — if that fails AA the button is not
 // quiet, it is missing.
 describe('Button, quiet variant', () => {
-  // Every surface a quiet button is placed on today: --acc-bg (the journey banner's
+  // Every surface a quiet button is placed on today: --acc-bg (formerly the journey banner's
   // SKIP GUIDE), --bg (the tutorial's SKIP and BUILD's RESET ALL TO STOCK). --panel
   // and --panel2 are the two surfaces it would land on next, and --panel3 is the
   // lightest surface in the system, so it bounds the whole set.

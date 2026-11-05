@@ -88,6 +88,8 @@ export const quantise = (v) => (
  * prepared. One rename here is not worth a landmine there.
  */
 const r6 = quantise;
+/** Four significant figures, for the wear figures (see their call site). */
+const w6 = (v) => (typeof v === 'number' && Number.isFinite(v) && v !== 0 ? Number(v.toPrecision(4)) : v);
 
 
 const roundAll = (obj) => Object.fromEntries(
@@ -257,7 +259,16 @@ export function buildFingerprint(S) {
               out.simulateSweep[key] = {
                 peakHp: r.peakHp,
                 peakTq: r.peakTq,
-                wear: { piston: r6(r.wear.piston), bearing: r6(r.wear.bearing), valve: r6(r.wear.valve) },
+                // Wear at 6 figures: a game figure, and with the rich-flame chemistry one
+                // piston-wear value (8.3268815 on turboI6|mild|all|100) sat on a 7-figure
+                // rounding boundary, so 16 ULP of noise flipped its last digit. Checked
+                // directly: it was the only value in the matrix that moved. Four since the
+                // October 2026 dissociation round: on undersquare|heavy|all|91|40kPa one
+                // point's knock-retard step sits on the knock threshold, so 16 ULP decides
+                // whether that pull's piston wear is 9.59444 or 9.59445. Wear sums discrete
+                // retard steps over the whole pull, so a single step at a threshold moves it
+                // in the fifth figure; the app shows it to whole percent.
+                wear: { piston: w6(r.wear.piston), bearing: w6(r.wear.bearing), valve: w6(r.wear.valve) },
                 needsMafRecal: r.needsMafRecal,
                 nPoints: r.points.length,
                 events: r.events.map((e) => ({ type: e.type, severity: e.severity, impact: e.impact, msg: e.msg })),
@@ -310,13 +321,13 @@ export function buildFingerprint(S) {
     const p = S.applyPreset(preset);
     const fuel = S.OCTANE_OPTS[p.octaneIdx];
     const advice = S.calibrationAdvice({
-      ve: p.ve, veTruth: p.ve, timing: p.timing, afr: p.afr,
+      ve: p.ve, veTruth: p.ve, layout: p.layout, timing: p.timing, afr: p.afr,
       derived: S.deriveEngine(p.engineConfig), fuel,
       mods: p.mods, turboOn: p.turboOn, boostCurve: p.boostCurve,
-      compressor: S.COMPRESSOR_OPTS[p.compressorIdx],
+      compressor: S.presetCompressor(preset),
       turbine: S.presetTurbine(preset),
       injectorCc: S.INJECTOR_OPTS[p.injIdx].cc, ecuInjectorCc: p.ecuInjectorCc,
-      mafScalar: 1.0, mafErrorBase: S.mafErrorFactor(p.mods, p.turboOn),
+      mafScalar: p.mafScalar, mafErrorBase: S.mafErrorFactor(p.mods, p.turboOn),
     });
     out.calibrationAdvice[preset.id] = {
       overAdvanced: advice.overAdvanced.length,
