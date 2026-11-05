@@ -195,6 +195,16 @@ describe('the Range chip', () => {
     expect(hint()).toBeNull();
   });
 
+  it('completes the range from a mouse drag', () => {
+    render(<MapHarness />);
+    fireEvent.click(range());
+    fireEvent.pointerDown(cellAt(1000, 50), mouse);
+    fireEvent.pointerEnter(cellAt(2000, 100), mouse);
+    fireEvent.pointerUp(window, mouse);
+    expect(selected()).toEqual(['1000/100', '1000/50', '2000/100', '2000/50']);
+    expect(hint()).toBeNull();
+  });
+
   it('clears the selection when switched on or off', () => {
     render(<MapHarness />);
     fireEvent.click(cellAt(1000, 50), { detail: 0 });
