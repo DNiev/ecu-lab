@@ -404,7 +404,7 @@ describe('computeEngineerScore compression headroom vs boost level', () => {
         turbine: S.presetTurbine(preset), compressor: S.presetCompressor(preset),
         exhaustDiaError: 0, dutyPreview: 80,
         displacementL: S.deriveEngine(p.engineConfig).displacementL,
-        fuel: S.OCTANE_OPTS[p.octaneIdx], mods: p.mods,
+        fuel: S.tankFuel(p), mods: p.mods,
       });
       expect(
         r.deductions.filter((d) => /static compression/.test(d)),

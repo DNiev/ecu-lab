@@ -58,7 +58,7 @@ export function buildRig({ preset, build: patch = {}, cal: calPatch = {}, env, f
     // its tables were written for, which matters once a rich flame's heat depends on how
     // rich it is (thermo.js, heatReleasedShare).
     mafScalar: p?.mafScalar ?? 1,
-    ethanolPct: 0,
+    ethanolPct: p?.ethanolPct ?? 0,
     ...patch,
   };
   const turbine = turbineWithCount(TURBINE_OPTS[build.turbineIdx], build.turbineCount);

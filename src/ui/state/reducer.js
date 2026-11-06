@@ -179,7 +179,7 @@ export const ACTIONS = Object.freeze({
  *   presetId: string, engineConfig: import('../../sim/index.js').EngineConfig,
  *   mods: BuildState['mods'], turboOn: boolean, boostCurve: number[],
  *   turbineIdx: number, turbineCount: number, compressorIdx: number, injIdx: number,
- *   ecuInjectorCc: number, octaneIdx: number, exhaustDiaIdx: number,
+ *   ecuInjectorCc: number, octaneIdx: number, ethanolPct: number, exhaustDiaIdx: number,
  *   ve: number[][], timing: number[][], afr: number[][],
  *   ecu?: object, mafScalar?: number, assumed?: string[], layout?: import('../../sim/layouts.js').Layout|null,
  * }}} ApplyPresetAction
@@ -605,6 +605,8 @@ function baseReducer(state, action) {
           // The factory car's fuel system, sensors, wastegate and coil: its calibration
           // (`p.ecu`) is set up for those parts, not for whatever the last car had.
           ...stockEcuParts(),
+          // ...except the tank, which holds what the preset's calibration was made for.
+          ethanolPct: p.ethanolPct,
           presetId: p.presetId,
           engineReady: true,
           // The figures of the player's own engine the app filled in because they were left

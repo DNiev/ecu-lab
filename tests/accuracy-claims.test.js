@@ -25,12 +25,13 @@ const LEARN = readFileSync(join(ROOT, 'src/ui/screens/dash/LearnScreen.jsx'), 'u
 
 function pullFor(preset) {
   const patch = S.applyPreset(preset);
+  const fuel = S.tankFuel(patch);
   const derived = S.deriveEngine(patch.engineConfig);
   return S.simulateSweep({
     loadKpa: 100, ve: patch.ve, veTruth: patch.ve, layout: patch.layout, timing: patch.timing, afr: patch.afr,
     turboOn: patch.turboOn, boostCurve: patch.boostCurve,
-    octaneBonus: S.OCTANE_OPTS[patch.octaneIdx].bonus, octaneLabel: S.OCTANE_OPTS[patch.octaneIdx].label,
-    fuel: S.OCTANE_OPTS[patch.octaneIdx], injectorCc: S.INJECTOR_OPTS[patch.injIdx].cc,
+    octaneBonus: fuel.bonus, octaneLabel: fuel.label,
+    fuel, injectorCc: S.INJECTOR_OPTS[patch.injIdx].cc,
     ecuInjectorCc: patch.ecuInjectorCc, injectorLabel: S.INJECTOR_OPTS[patch.injIdx].label,
     mods: patch.mods, mafScalar: patch.mafScalar, derived, turbine: S.presetTurbine(preset),
     compressor: S.presetCompressor(preset),
