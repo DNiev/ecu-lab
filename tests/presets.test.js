@@ -16,15 +16,16 @@ const toWheel = (crankHp) => crankHp * S.DRIVETRAIN_EFF;
 /** Runs a preset exactly as the app would, with its own factory calibration. */
 function pullFor(preset) {
   const patch = S.applyPreset(preset);
+  const fuel = S.tankFuel(patch);
   const derived = S.deriveEngine(patch.engineConfig);
   return S.simulateSweep({
     loadKpa: 100,
     ve: patch.ve, veTruth: patch.ve, layout: patch.layout,
     timing: patch.timing, afr: patch.afr,
     turboOn: patch.turboOn, boostCurve: patch.boostCurve,
-    octaneBonus: S.OCTANE_OPTS[patch.octaneIdx].bonus,
-    octaneLabel: S.OCTANE_OPTS[patch.octaneIdx].label,
-    fuel: S.OCTANE_OPTS[patch.octaneIdx],
+    octaneBonus: fuel.bonus,
+    octaneLabel: fuel.label,
+    fuel,
     injectorCc: S.INJECTOR_OPTS[patch.injIdx].cc,
     ecuInjectorCc: patch.ecuInjectorCc,
     injectorLabel: S.INJECTOR_OPTS[patch.injIdx].label,
@@ -92,7 +93,11 @@ describe('preset data integrity', () => {
       it('indexes real parts', () => {
         expect(S.INJECTOR_OPTS[preset.parts.injectorIdx]).toBeDefined();
         expect(S.EXHAUST_DIA_OPTS[preset.parts.exhaustDiaIdx]).toBeDefined();
-        expect(S.OCTANE_OPTS[preset.parts.octaneIdx]).toBeDefined();
+        // `octaneIdx` indexes FUEL_CHOICES, which holds the flex tank as well as the pump fuels.
+        expect(S.FUEL_CHOICES[preset.parts.octaneIdx]).toBeDefined();
+        const { ethanolPct = 0 } = preset.parts;
+        expect(ethanolPct).toBeGreaterThanOrEqual(0);
+        expect(ethanolPct).toBeLessThanOrEqual(100);
         expect(S.TURBINE_OPTS[preset.induction.turbineIdx]).toBeDefined();
         expect(S.COMPRESSOR_OPTS[preset.induction.compressorIdx]).toBeDefined();
       });
@@ -274,6 +279,53 @@ describe('factory calibration validates against real published figures', () => {
           .toBeLessThan(S.COEFF.PEAK_PRESSURE_LIMIT_BAR);
       });
     });
+  });
+});
+
+describe('a preset shipping on a flex tank', () => {
+  // No shipped preset does, but `octaneIdx` indexes FUEL_CHOICES, whose fifth entry (Flex)
+  // has no OCTANE_OPTS counterpart. A calibration that looked its fuel up in OCTANE_OPTS
+  // got `undefined` there and threw on the first cell that read the fuel's stoich.
+  // A fixed id, not a search: if the N54 is renamed, the engine-count test says so.
+  const base = S.presetById('n54');
+  const flexIdx = S.FUEL_CHOICES.findIndex((f) => f.flex);
+  const onFlex = (parts = {}) => ({ ...base, parts: { ...base.parts, octaneIdx: flexIdx, ...parts } });
+
+  it('copies a turbocharged preset on 93', () => {
+    expect(base.induction.turboOn).toBe(true);
+    expect(S.FUEL_CHOICES[base.parts.octaneIdx].label).toBe('93');
+  });
+
+  it('gets a factory calibration, with every cell a number', () => {
+    const cal = S.factoryCalibration(onFlex());
+    for (const table of [cal.ve, cal.timing, cal.afr]) {
+      expect(table.flat().every(Number.isFinite)).toBe(true);
+    }
+  });
+
+  it('is calibrated for what the tank holds: with no ethanol named, the 93 it is blended from', () => {
+    // With no ethanol sensor a factory ECU fuels a flex tank as gasoline, so the tank it
+    // ships with is E0, and applyPreset hands that E0 to the build.
+    expect(S.applyPreset(onFlex()).ethanolPct).toBe(0);
+    expect(S.factoryCalibration(onFlex())).toEqual(S.factoryCalibration(base));
+  });
+
+  it('is calibrated for the blend it names, and hands that blend to the build', () => {
+    const e85 = onFlex({ ethanolPct: 85 });
+    const patch = S.applyPreset(e85);
+    expect(patch.ethanolPct).toBe(85);
+    // The same engine, told its fuel is that tank's blend (`preset.fuel`, as
+    // stockCalibrationFor passes the bench's own), gets the same calibration.
+    expect(S.factoryCalibration(e85)).toEqual(S.factoryCalibration({ ...base, fuel: S.tankFuel(patch) }));
+    expect(patch.ve).not.toEqual(S.factoryCalibration(base).ve);
+  });
+
+  it('pulls the way the app pulls it, to the same figures as on 93', () => {
+    const flex = pullFor(onFlex());
+    const pump = pullFor(base);
+    expect(Number.isFinite(flex.peakHp)).toBe(true);
+    expect(flex.peakHp).toBe(pump.peakHp);
+    expect(flex.peakTq).toBe(pump.peakTq);
   });
 });
 

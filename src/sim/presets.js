@@ -64,12 +64,14 @@ export const FACTORY_KNOCK_MARGIN_DEG = 2;
  * @property {object} factory published ratings
  * @property {import('./engine.js').EngineConfig} engine
  * @property {object} induction
- * @property {object} parts
+ * @property {{injectorIdx: number, exhaustDiaIdx: number, octaneIdx: number,
+ *   ethanolPct?: number}} parts `octaneIdx` indexes FUEL_CHOICES; `ethanolPct` is what a
+ *   flex tank holds (E0 if absent)
  * @property {object} mods
  * @property {object} [fuel] the tank's fuel (`tankFuel`), when it is not one of OCTANE_OPTS
+ *   by index: a flex-fuel blend. A catalogue preset names its pump fuel by index instead
  * @property {number} [bottomEndRatedRpm] the speed the factory pistons and rods are rated to,
  *   when it is not the published limiter
- *   by index: a flex-fuel blend. A catalogue preset names its pump fuel by index instead
  */
 
 /** @type {Preset[]} */
@@ -696,6 +698,32 @@ export function presetCompressor(preset) {
   return compressorWithCount(COMPRESSOR_OPTS[compressorIdx], turbineCount);
 }
 
+/**
+ * What a preset's tank holds, as the build fields `tankFuel` reads.
+ *
+ * `octaneIdx` indexes FUEL_CHOICES, not OCTANE_OPTS: a preset could ship on Flex, which
+ * has no OCTANE_OPTS entry. A flex tank holds the preset's own `ethanolPct`, or E0 if it
+ * names none: with no ethanol sensor a factory ECU fuels a flex tank as the gasoline it
+ * was calibrated on, which only matches the tank at E0. `applyPreset` hands this to the
+ * build, so the calibration, the app and `buildRig` all run on the same blend.
+ *
+ * @param {Preset} preset
+ * @returns {{octaneIdx: number, ethanolPct: number}}
+ */
+function presetTank(preset) {
+  return { octaneIdx: preset.parts.octaneIdx, ethanolPct: preset.parts.ethanolPct ?? 0 };
+}
+
+/**
+ * The fuel in a preset's tank: `preset.fuel` when the caller names it (the bench's own
+ * tank, `stockCalibrationFor`), else what the preset ships with. For a pump fuel this is
+ * the OCTANE_OPTS entry itself.
+ * @param {Preset} preset
+ */
+function presetFuel(preset) {
+  return preset.fuel ?? tankFuel(presetTank(preset));
+}
+
 /** The induction hardware bundle `computeHardwareVE` expects. */
 function hardwareFor(preset) {
   const { turboOn, boost } = preset.induction;
@@ -705,7 +733,7 @@ function hardwareFor(preset) {
     // a twin-turbo engine breathes against two housings, not one.
     turbine: presetTurbine(preset),
     exhaustDia: EXHAUST_DIA_OPTS[preset.parts.exhaustDiaIdx].dia,
-    fuel: preset.fuel ?? OCTANE_OPTS[preset.parts.octaneIdx],
+    fuel: presetFuel(preset),
     peakBoostPsi: turboOn ? Math.max(...boost) : 0,
   };
 }
@@ -749,7 +777,7 @@ export function presetLayout(preset, depth = {}) {
 export function factoryCalibration(preset, layout = null) {
   const L = layout ? layoutById(layout) : presetLayout(preset);
   const derived = deriveEngine(preset.engine);
-  const fuel = preset.fuel ?? OCTANE_OPTS[preset.parts.octaneIdx];
+  const fuel = presetFuel(preset);
   const hw = hardwareFor(preset);
   // An engine with cam phasers is calibrated with them working: the factory schedule puts
   // the intake cam where it fills the cylinder best, on the ECU's own VVT breakpoints, and
@@ -943,7 +971,7 @@ export function applyPreset(preset, layout = null) {
     compressorIdx: preset.induction.compressorIdx,
     injIdx: preset.parts.injectorIdx,
     ecuInjectorCc: INJECTOR_OPTS[preset.parts.injectorIdx].cc,
-    octaneIdx: preset.parts.octaneIdx,
+    ...presetTank(preset),
     exhaustDiaIdx: preset.parts.exhaustDiaIdx,
     ve, timing, afr,
     // The breakpoints the three tables are on, kept with them.
