@@ -73,7 +73,7 @@ log. A wide-open-throttle pull never reaches idle.
 | T1 | 315–850 cc, gasoline, hot idle, every shipped engine | λ within 0.5% of today |
 | T2 | 1300 cc carrying idle on a 3.0–3.5 L six, gasoline, minimum pulse 0 | delivered fuel at least 10% short of what the ECU computed (seen as trim in closed loop, and as lean λ with closed loop off); event fires |
 | T3 | as T2, minimum pulse set to the injector's ballistic threshold | rich, but within the 25% trim limit |
-| T4 | far oversized for the cylinder (1300 cc on the smallest shipped cylinder) | past the trim limit even with the minimum pulse set |
+| T4 | far oversized for the cylinder (1300 cc on a 1.4 L four; the smallest shipped cylinder, about 0.5 L, is T3's case) | past the trim limit even with the minimum pulse set |
 | T5 | the same injector on E85 against gasoline | smaller error on E85 (longer pulses) |
 
 ## 2. Port injection kit on direct-injected engines
@@ -153,10 +153,14 @@ idle gives short port pulses and pays the ballistic cost.
 Run the control first: `--report` on clean `origin/main` must leave
 `tests/fixtures/fingerprint.sha256` unchanged.
 
-- **Commit 1** moves ECU-context points where an injector above 315 cc runs below its new
-  threshold: light-load ECU sweeps. `deriveEngine`, `computeHardwareVE`,
-  `factoryCalibration` and the WOT sweeps stay byte-identical.
-- **Commit 2** adds an option that defaults off. Every existing evaluated cell is
-  unchanged (`moved: 0, removed: 0`), and cells are added for kit builds.
-  `factoryCalibration` gains the new `injector.portShare` table, which is an addition to
-  its output, not a change to any existing value.
+**Expected: the hash does not move in either commit.** `tests/fingerprint.js` never
+passes `ecu` to `simulateSweep`, so it covers only the path without an ECU. Its
+`constants` section hashes `COEFF` and `INJECTOR_OPTS`, not `ECU_COEFF`, and its
+`factoryCalibration` section hashes only the VE, timing and AFR tables.
+
+Both changes live on the ECU path, their constants go in `ECU_COEFF`, and the catalogue is
+untouched. If the hash moves anyway, stop: something leaked into the path without an ECU.
+The ECU behaviour is held by the intent tests T1–T10.
+
+Adding an ECU section to the fingerprint is out of scope here, and it will be proposed as
+its own issue.
