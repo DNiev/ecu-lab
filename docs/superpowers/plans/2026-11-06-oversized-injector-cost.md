@@ -711,7 +711,6 @@ describe('metering through a staged kit (T6–T9)', () => {
     const kitted = runLive(b58({ portKit: kit }), { seconds: 8 }).rows.at(-1);
     expect(kitted.lambda).toBe(bare.lambda);
     expect(kitted.pw).toBe(bare.pw);
-    expect(kitted.portPw).toBe(0);
   });
 
   it('T7: pays the ballistic cost when the port share is raised at idle', () => {
@@ -860,9 +859,8 @@ In `ecuFields`, after `ballistic: base.ballistic,`, add:
 
 Run: `npx vitest run tests/port-kit.test.js tests/injector-sizing.test.js tests/ecu.test.js tests/fingerprint.test.js`
 
-Expected: PASS. T6 only passes if no port fields appear at a share of 0. If
-`kitted.portPw` is undefined rather than 0, that is Task 5's log channel; leave that one
-assertion failing until then, and say so in the commit message.
+Expected: PASS. (The live log's `portPw` channel, which T6 also checks, arrives in Task 5
+together with that assertion.)
 
 - [ ] **Step 6: Commit**
 
@@ -903,6 +901,8 @@ Append inside the `staged kit` describe in `tests/port-kit.test.js`:
     const tipBare = runLive(b58(), { seconds: 1, from: runLive(b58(), { seconds: 4 }).state, pedal: () => 60 }).rows;
     expect(tip(tipKit)).toBeLessThan(tip(tipBare));
     expect(bare.at(-1).portPw).toBe(0);
+    // T6's last check: on the factory staging a kit sends nothing at idle.
+    expect(runLive(b58({ portKit: kit }), { seconds: 8 }).rows.at(-1).portPw).toBe(0);
   });
 ```
 
