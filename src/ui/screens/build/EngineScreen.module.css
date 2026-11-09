@@ -161,3 +161,15 @@
   gap: var(--sp-sm);
   justify-content: space-between;
 }
+
+/* The blank-spec form, tucked under the preset picker for a player who wants to replace the engine. */
+.ownEngine {
+  margin-bottom: 13px;
+  padding: 10px 12px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+}
+.ownEngine summary { cursor: pointer; font-size: var(--fs-sm); font-weight: 700; color: var(--acc-ink); }
+.ownEngine[open] summary { margin-bottom: 8px; }
+.ownLead { margin: 0 0 10px; font-size: var(--fs-xs); line-height: 1.55; color: var(--ink2); }

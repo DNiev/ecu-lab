@@ -1,0 +1,92 @@
+/* Pinned to the top of the scrolling content while a mission runs, so the next step is
+   always in view without covering the screen it is about. */
+
+.coach {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  margin: var(--sp-md) var(--sp-xl) 0;
+  border: 1px solid var(--acc);
+  border-radius: var(--r-md);
+  background: var(--acc-bg);
+  box-shadow: 0 6px 18px rgba(var(--shadow-rgb), 0.35);
+}
+
+.coach[data-finished='true'] { border-color: var(--ok); background: var(--ok-bg); }
+
+.head {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-md);
+  width: 100%;
+  padding: var(--sp-sm) var(--sp-lg);
+  border: none;
+  background: none;
+  color: var(--ink);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.tag { font-size: var(--fs-micro); font-weight: 800; letter-spacing: 0.14em; color: var(--acc-ink); }
+.title { flex: 1; font-size: var(--fs-base); font-weight: 800; }
+.count { font-family: var(--mono); font-size: var(--fs-sm); color: var(--ink-soft); }
+.chevron { transition: transform 0.15s ease; }
+.head[aria-expanded='true'] .chevron { transform: rotate(180deg); }
+
+.now { padding: 0 var(--sp-lg) var(--sp-sm); font-size: var(--fs-sm); color: var(--ink); }
+
+.body { padding: 0 var(--sp-lg) var(--sp-md); }
+
+.steps {
+  display: grid;
+  gap: 6px;
+  margin: 0 0 var(--sp-md);
+  padding: 0;
+  list-style: none;
+  font-size: var(--fs-sm);
+  line-height: 1.5;
+}
+
+.steps li { display: flex; gap: var(--sp-sm); align-items: flex-start; color: var(--ink-soft); }
+.steps li[data-state='now'] { color: var(--ink); font-weight: 700; }
+.steps li[data-state='done'] { color: var(--ok-ink); }
+
+.mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: 1px solid var(--line-hi);
+  font-size: var(--fs-micro);
+  font-weight: 800;
+}
+
+.steps li[data-state='now'] .mark { border-color: var(--acc); color: var(--acc-ink); }
+.steps li[data-state='done'] .mark { border-color: var(--ok); background: var(--ok); color: var(--bg); }
+
+.hint { display: block; margin-top: 2px; font-weight: 400; color: var(--ink-soft); }
+
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+.done {
+  display: flex;
+  gap: var(--sp-md);
+  align-items: flex-start;
+  margin-bottom: var(--sp-md);
+  font-size: var(--fs-base);
+  line-height: 1.55;
+  color: var(--ok-ink);
+  font-weight: 700;
+}
+
+.actions { display: flex; gap: var(--sp-sm); flex-wrap: wrap; }

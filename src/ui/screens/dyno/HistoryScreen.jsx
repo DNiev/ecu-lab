@@ -22,7 +22,7 @@ import { Eyebrow } from '../../primitives/Eyebrow.jsx';
 import { diffMeasuredInputs } from '../../state/pullSignature.js';
 import { ACTIONS } from '../../state/reducer.js';
 import { sparklinePath } from '../../state/runLog.js';
-import { useSession } from '../../state/StoreProvider.jsx';
+import { useRoadTest, useSession } from '../../state/StoreProvider.jsx';
 
 import styles from './HistoryScreen.module.css';
 
@@ -60,12 +60,13 @@ export function HistoryScreen() {
   // second for numbers that had not changed. `now` is captured in here too — reading
   // `Date.now()` in the render body made the component impure for no reason a memo
   // keyed on the same two inputs doesn't already fix.
+  const roadTest = useRoadTest();
   const rows = useMemo(() => {
     const now = Date.now();
     return runs.map((run, i) => {
       const prev = runs[i + 1];
       const dHp = prev ? run.peakHp - prev.peakHp : 0;
-      const tone = !prev || dHp === 0 ? 'flat' : dHp > 0 ? 'up' : 'down';
+      const tone = roadTest || !prev || dHp === 0 ? 'flat' : dHp > 0 ? 'up' : 'down';
       const changed = prev ? diffMeasuredInputs(prev.inputs, run.inputs) : [];
       const pinned = run.id === pinnedRunId;
       // `prev` is undefined for every row with nothing older still in the log, not
@@ -73,7 +74,7 @@ export function HistoryScreen() {
       // oldest VISIBLE row has no `prev` either, at whatever `n` it happens to be.
       // "first pull" is keyed on `run.n === 1` so only the real first pull claims it.
       const deltaText = prev
-        ? `${dHp > 0 ? '+' : ''}${Math.round(dHp)} whp vs Run ${prev.n}`
+        ? (roadTest ? `after Run ${prev.n}` : `${dHp > 0 ? '+' : ''}${Math.round(dHp)} whp vs Run ${prev.n}`)
         : (run.n === 1 ? 'first pull' : '');
       return {
         run, prev, tone, changed, pinned, deltaText,
@@ -81,7 +82,7 @@ export function HistoryScreen() {
         spark: sparklinePath(run.points, SPARK_W, SPARK_H),
       };
     });
-  }, [runs, pinnedRunId]);
+  }, [runs, pinnedRunId, roadTest]);
 
   if (runs.length === 0) {
     return (
@@ -105,11 +106,11 @@ export function HistoryScreen() {
               <div className={styles.when}>{when}</div>
               <div className={styles.label}>{run.label}</div>
             </div>
-            <svg className={styles.spark} viewBox={`0 0 ${SPARK_W} ${SPARK_H}`} aria-hidden="true">
+            <svg className={styles.spark} data-hidden={roadTest ? 'true' : undefined} viewBox={`0 0 ${SPARK_W} ${SPARK_H}`} aria-hidden="true">
               <path className={styles.sparkLine} d={spark} />
             </svg>
             <div>
-              <div className={styles.peaks}>{Math.round(run.peakHp)} whp · {Math.round(run.peakTq)} lb-ft</div>
+              <div className={styles.peaks}>{roadTest ? 'Road test' : `${Math.round(run.peakHp)} whp · ${Math.round(run.peakTq)} lb-ft`}</div>
               <div className={styles.delta} data-tone={tone}>
                 {deltaText}
                 {run.knocks > 0 && <span className={styles.knocks}> · {run.knocks} knock{run.knocks === 1 ? '' : 's'}</span>}

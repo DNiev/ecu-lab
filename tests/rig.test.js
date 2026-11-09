@@ -37,16 +37,18 @@ function appPull(presetId, change = {}) {
     peakBoostPsi: build.turboOn ? Math.max(...build.boostCurve) : 0,
     supercharged: !!blower,
   };
-  const veTruth = S.computeHardwareVE(build.engineConfig, build.mods, hwForVe);
+  // The breathing with the cam where the calibration holds it, as EcuLab's `veTruth` is.
+  const veTruth = S.scheduledVeAt(build.engineConfig, build.mods, hwForVe, p.ecu.vvt);
   const ecuHw = { ...S.ecuHardwareOf(build), veTruthByPhase: S.veTruthByPhaseFor(build.engineConfig, build.mods, hwForVe) };
   const ecuBundle = { cal: p.ecu, hw: ecuHw, cond: S.dynoConditions({ ...S.DEFAULT_ENV }, {}, null) };
   return S.simulateSweep({
     loadKpa: 100, ve: p.ve, veTruth, timing: p.timing, afr: p.afr,
     turboOn: build.turboOn, boostCurve: build.boostCurve, octaneBonus: fuel.bonus, octaneLabel: fuel.label,
     fuel, injectorCc: S.INJECTOR_OPTS[build.injIdx].cc, ecuInjectorCc: build.ecuInjectorCc,
-    injectorLabel: S.INJECTOR_OPTS[build.injIdx].label, mods: build.mods, mafScalar: 1,
+    injectorLabel: S.INJECTOR_OPTS[build.injIdx].label, mods: build.mods, mafScalar: p.mafScalar ?? 1,
     derived: S.deriveEngine(build.engineConfig),
-    turbine, compressor: S.COMPRESSOR_OPTS[build.compressorIdx], ecu: ecuBundle,
+    turbine, compressor: S.compressorWithCount(S.COMPRESSOR_OPTS[build.compressorIdx], build.turbineCount),
+    ecu: ecuBundle, layout: p.layout ?? null,
   });
 }
 
@@ -73,7 +75,7 @@ describe('buildRig', () => {
     const preset = S.presetById('vq35hr');
     const stock = S.buildRig({ preset: preset.id });
     const modded = S.buildRig({ preset: preset.id, build: { mods: { ...preset.mods, intake: true, headers: true } } });
-    expect(modded.veTruth).not.toEqual(stock.veTruth);
+    expect(modded.veTruth(5000, 100)).not.toBe(stock.veTruth(5000, 100));
     expect(modded.pull().peakTq).not.toBe(stock.pull().peakTq);
   });
 

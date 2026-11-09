@@ -39,8 +39,7 @@ export const TAB_KEYWORDS = {
  * headings. A tab with one section (LIVE) has no entry: its tab command is the page.
  */
 export const SECTION_LABELS = {
-  'dash/jobs': { label: 'Customer Cars', keywords: ['career', 'jobs'] },
-  'dash/stats': { label: 'Career & Last Pull', keywords: ['stats', 'best'] },
+  'dash/stats': { label: 'Sandbox Stats & Last Pull', keywords: ['stats', 'best'] },
   'dash/health': { label: 'Engine Health', keywords: ['wear', 'repair'] },
   'dash/learn': { label: 'Learn How It Works', keywords: ['guide', 'articles'] },
   'dash/realcar': { label: 'Taking It To A Real Car', keywords: ['software', 'real'] },
@@ -75,7 +74,8 @@ const RESULT_SECTIONS = new Set(['dyno/result', 'dyno/log', 'dyno/data', 'dyno/s
 /**
  * What decides which sections have anything to show.
  * @typedef {object} SectionFlags
- * @property {boolean} showJobs career mode, or a job underway
+ * @property {boolean} [career] CAREER is being played: its SHOP stands in for HOME, and it has
+ *   no drag strip (see `CAREER_NAV_ITEMS` in AppShell.jsx)
  * @property {boolean} hasResult a pull is showing
  * @property {boolean} hasHistory at least one pull is banked
  * @property {boolean} hasNitrous a nitrous kit is fitted
@@ -90,8 +90,7 @@ const RESULT_SECTIONS = new Set(['dyno/result', 'dyno/log', 'dyno/data', 'dyno/s
  * @param {SectionFlags} flags
  * @returns {boolean}
  */
-export function sectionAvailable(key, { showJobs, hasResult, hasHistory, hasNitrous, running }) {
-  if (key === 'dash/jobs') return showJobs;
+export function sectionAvailable(key, { hasResult, hasHistory, hasNitrous, running }) {
   // Like real ECU software, which shows its nitrous tables once nitrous is enabled.
   if (key === 'tune/nitrous') return hasNitrous;
   // While a pull runs, DYNO shows its curves and nothing else, whatever the URL says.
@@ -112,7 +111,13 @@ export function sectionAvailable(key, { showJobs, hasResult, hasHistory, hasNitr
 export function pageCommands(flags, go) {
   /** @type {Command[]} */
   const out = [];
+  // CAREER's nav: the shop is home and there is no drag strip, so the palette offers
+  // what that nav does. `go('shop', null)` opens the shop as a nav tap does.
+  if (flags.career) {
+    out.push({ id: 'page:shop', label: 'SHOP', kind: 'page', keywords: ['career', 'customers', 'garage', 'jobs'], run: () => go('shop', null) });
+  }
   for (const [tab, sections] of Object.entries(ROUTES)) {
+    if (flags.career && (tab === 'dash' || tab === 'drag')) continue;
     const name = TAB_NAMES[tab];
     out.push({ id: `page:${tab}`, label: name, kind: 'page', keywords: TAB_KEYWORDS[tab], run: () => go(tab, null) });
     if (sections.length < 2) continue;

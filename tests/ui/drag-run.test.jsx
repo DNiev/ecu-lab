@@ -128,19 +128,6 @@ describe('DRAG, end to end', () => {
     await waitFor(() => expect(session.dragRunning).toBe(true), { timeout: 4000 });
     expect(/** @type {HTMLButtonElement} */ (screen.getByRole('button', { name: /RUNNING/i })).disabled).toBe(true);
   }, 20000);
-
-  it('keeps the guided first run walking on to the strip', () => {
-    // Before DRAG existed the guide ENDED on DYNO — its step 4 call to action was
-    // "Finish, let me explore freely". Walking the whole guide is the only way to
-    // reach that banner, and the only way to prove the hand-off past it now exists.
-    render(<EcuLab />);
-    fireEvent.click(screen.getByRole('button', { name: 'SANDBOX' }));
-    fireEvent.click(screen.getByRole('button', { name: /Done building/i }));
-    fireEvent.click(screen.getByRole('button', { name: /Calibration set/i }));
-    fireEvent.click(screen.getByRole('button', { name: /Sounds good/i }));
-    fireEvent.click(screen.getByRole('button', { name: /Measured — now race it/i }));
-    expect(screen.getByText(/STEP 5 · RACE IT/i)).toBeTruthy();
-  });
 });
 
 describe('playback pacing', () => {

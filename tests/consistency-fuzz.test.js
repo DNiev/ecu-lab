@@ -25,7 +25,7 @@ function advise(eng) {
   const pull = eng.pull(100);
   const cc = S.INJECTOR_OPTS[eng.build.injIdx].cc;
   const advice = S.calibrationAdvice({
-    ve: eng.tables.ve, veTruth: eng.veTruth, timing: eng.tables.timing, afr: eng.tables.afr,
+    ve: eng.tables.ve, veTruth: eng.veTruth, timing: eng.tables.timing, afr: eng.tables.afr, layout: eng.tables.layout, camAt: eng.camAt,
     derived: eng.derived, fuel: eng.fuel, mods: eng.build.mods, turboOn: eng.build.turboOn,
     boostCurve: eng.build.boostCurve, compressor: eng.compressor, turbine: eng.turbine,
     injectorCc: cc, ecuInjectorCc: cc, mafScalar: 1,
@@ -56,9 +56,11 @@ describe('the advisor and the pull log agree on random builds', () => {
         for (const c of [...advice.overAdvanced, ...advice.pastMbt]) eng.tables.timing[c.ri][c.ci] = c.suggested;
       }
       const left = eng.pull(100).points.filter((p) => p.margin < 0);
-      // What timing cannot fix — an injector out of time, a mixture far lean — the pull log
-      // names separately; the advisor's job is the spark table, and there it must finish.
-      const sparkFixable = left.filter((p) => !p.fuelLimited && p.lambda < 1.05);
+      // What timing cannot fix — an injector out of time, a mixture far lean, a knock limit
+      // past the most retard a spark table holds (less the advisor's 1.5° of safety) — the
+      // pull log names separately; the advisor's job is the spark table, and there it must
+      // finish.
+      const sparkFixable = left.filter((p) => !p.fuelLimited && p.lambda < 1.05 && p.threshold >= S.SPARK_MIN_DEG + 1.5);
       if (sparkFixable.length) failures.push(`seed ${build.seed}: still knocks at ${sparkFixable.map((p) => p.rpm).join(', ')} RPM after four rounds of advice`);
     }
     expect(failures).toEqual([]);

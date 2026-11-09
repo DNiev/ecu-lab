@@ -68,6 +68,21 @@ function ReadVeCell() {
 }
 
 /** A bare SelectionDock over the store's timing table, with a cell pre-selectable. */
+/**
+ * The spark table these tests' numbers are written against, held fixed so that retuning
+ * the shipped stock calibration does not rewrite tests about undo.
+ */
+const FIXED_TIMING = [
+  [10, 16, 20, 23, 23, 27, 27, 29],
+  [10, 16, 20, 23, 23, 27, 27, 29],
+  [10, 16, 20, 23, 23, 27, 27, 29],
+  [14, 22, 28, 33, 36, 37, 38, 39],
+  [16, 30, 36, 40, 42, 43, 43, 43],
+  [14, 34, 40, 44, 46, 47, 47, 47],
+];
+/** @param {any} s */
+const withFixedTiming = (s) => ({ ...s, tune: { ...s.tune, timing: FIXED_TIMING.map((r) => [...r]) } });
+
 function EcuLabTuneHarness() {
   const [tune, dispatch] = useTune();
   return (
@@ -307,7 +322,7 @@ describe('the dock slider commits once, on release', () => {
     // Asserting the DEPTH is the point. Asserting only the final table value would
     // pass just as well with eighteen entries recorded.
     render(
-      <StoreProvider>
+      <StoreProvider init={withFixedTiming}>
         <Depth />
         <EcuLabTuneHarness />
       </StoreProvider>,
@@ -337,7 +352,7 @@ describe('the dock slider commits once, on release', () => {
     // commits, their edit is held in the draft forever and never reaches the table —
     // the control looks like it works and silently discards every change.
     render(
-      <StoreProvider>
+      <StoreProvider init={withFixedTiming}>
         <Depth />
         <EcuLabTuneHarness />
       </StoreProvider>,
@@ -367,7 +382,7 @@ describe('the dock slider commits once, on release', () => {
     // `metaKey` is FALSE on the release of Meta itself. Stopping at `keyup z` pins one
     // case and not the boundary between cases.
     render(
-      <StoreProvider>
+      <StoreProvider init={withFixedTiming}>
         <Depth />
         <EcuLabTuneHarness />
       </StoreProvider>,
@@ -404,7 +419,7 @@ describe('the dock slider commits once, on release', () => {
     // spelled as "not a modifier" would pass the Cmd+Z test above (once its fourth
     // event is handled) and still commit on all of these.
     render(
-      <StoreProvider>
+      <StoreProvider init={withFixedTiming}>
         <Depth />
         <EcuLabTuneHarness />
       </StoreProvider>,
@@ -429,7 +444,7 @@ describe('the dock slider commits once, on release', () => {
     // pass on another's account, and the committed VALUE is asserted, not just depth.
     for (const key of ['ArrowLeft', 'ArrowUp', 'ArrowDown', 'Home', 'End', 'PageUp', 'PageDown']) {
       const { unmount } = render(
-        <StoreProvider>
+        <StoreProvider init={withFixedTiming}>
           <Depth />
           <EcuLabTuneHarness />
         </StoreProvider>,
@@ -449,7 +464,7 @@ describe('the dock slider commits once, on release', () => {
     // previous cell's abandoned value, and the next release would write that stale
     // number into a cell the player never dragged.
     render(
-      <StoreProvider>
+      <StoreProvider init={withFixedTiming}>
         <Depth />
         <EcuLabTuneHarness />
       </StoreProvider>,
@@ -464,9 +479,9 @@ describe('the dock slider commits once, on release', () => {
     fireEvent.click(screen.getByRole('button', { name: 'SELECT OTHER' }));
 
     // Literals, not `not.toBe('40')` (passes for any non-40 value, including another
-    // stale draft) or a value re-read from the component's own earlier render. 14 is
+    // stale draft) or a value re-read from the component's own earlier render. 16 is
     // DEFAULT_TIMING[1][1], cell(1,1)'s real committed value.
-    expect(/** @type {HTMLInputElement} */ (screen.getByRole('slider')).value).toBe('14');
+    expect(/** @type {HTMLInputElement} */ (screen.getByRole('slider')).value).toBe('16');
     // Nothing was ever committed, and the first cell still holds its original value —
     // 10, DEFAULT_TIMING[0][0].
     expect(screen.getByTestId('depth').textContent).toBe('0');
@@ -478,7 +493,7 @@ describe('the dock slider commits once, on release', () => {
     // ever move (0,0) -> (1,1), which differs in both indices, so a selKey missing
     // EITHER one would still satisfy them. This isolates the column.
     render(
-      <StoreProvider>
+      <StoreProvider init={withFixedTiming}>
         <Depth />
         <EcuLabTuneHarness />
       </StoreProvider>,
@@ -492,15 +507,15 @@ describe('the dock slider commits once, on release', () => {
     // Same row, next column over: cell(0,1), current 14 (DEFAULT_TIMING[0][1]).
     fireEvent.click(screen.getByRole('button', { name: 'SELECT SAME ROW' }));
 
-    expect(/** @type {HTMLInputElement} */ (screen.getByRole('slider')).value).toBe('14');
-    expect(screen.getByTestId('dock-readout').textContent).toBe('14°');
+    expect(/** @type {HTMLInputElement} */ (screen.getByRole('slider')).value).toBe('16');
+    expect(screen.getByTestId('dock-readout').textContent).toBe('16°');
     expect(screen.getByTestId('depth').textContent).toBe('0');
   });
 
   it('drops an uncommitted draft when the selection moves to a different row in the same column', () => {
     // T3: the mirror of T2 — selKey must include the row, not just the column.
     render(
-      <StoreProvider>
+      <StoreProvider init={withFixedTiming}>
         <Depth />
         <EcuLabTuneHarness />
       </StoreProvider>,
@@ -524,7 +539,7 @@ describe('the dock slider commits once, on release', () => {
     // (the grid's heat tint now updates on release, not continuously) — nothing else
     // in the suite ever reads it. Pins `shown`, not `current`, feeding the big number.
     render(
-      <StoreProvider>
+      <StoreProvider init={withFixedTiming}>
         <Depth />
         <EcuLabTuneHarness />
       </StoreProvider>,
@@ -544,7 +559,7 @@ describe('the dock slider commits once, on release', () => {
     // the window) leaves the draft live with no pointerup ever landing. Reaching for a
     // stepper instead must win outright — not queue behind the abandoned drag.
     render(
-      <StoreProvider>
+      <StoreProvider init={withFixedTiming}>
         <Depth />
         <EcuLabTuneHarness />
       </StoreProvider>,
@@ -575,7 +590,7 @@ describe('the dock slider commits once, on release', () => {
     // or, via SET_TABLE, clear build.presetId / set tablesDirty for a table that
     // never actually changed.
     render(
-      <StoreProvider>
+      <StoreProvider init={withFixedTiming}>
         <Depth />
         <EcuLabTuneHarness />
       </StoreProvider>,
@@ -606,7 +621,7 @@ describe('the dock slider commits once, on release', () => {
     // moves `current` AFTER the no-op release, with the selection never changing, so a
     // stale draft and a cleared one disagree.
     render(
-      <StoreProvider>
+      <StoreProvider init={withFixedTiming}>
         <UndoControls />
         <Depth />
         <EcuLabTuneHarness />
@@ -642,7 +657,7 @@ describe('the dock slider commits once, on release', () => {
     // table out from under the dock a different way: undoing the very commit that
     // just happened, with the selection never changing.
     render(
-      <StoreProvider>
+      <StoreProvider init={withFixedTiming}>
         <UndoControls />
         <Depth />
         <EcuLabTuneHarness />
@@ -673,7 +688,7 @@ describe('the dock slider commits once, on release', () => {
     // the stated mitigation for this task's accepted cost, still read 42; a late
     // pointerup then wrote 42 back over the undo and took the redo branch with it.
     render(
-      <StoreProvider>
+      <StoreProvider init={withFixedTiming}>
         <UndoControls />
         <Depth />
         <EcuLabTuneHarness />
@@ -714,7 +729,7 @@ describe('the dock slider commits once, on release', () => {
     // `setAbs` fans the released value across all 8 cells of the row — verified
     // correct by the reviewer, but previously unpinned.
     render(
-      <StoreProvider>
+      <StoreProvider init={withFixedTiming}>
         <Depth />
         <EcuLabTuneHarness />
       </StoreProvider>,
@@ -738,11 +753,11 @@ describe('the dock slider commits once, on release', () => {
     // slider exactly on the row's mean and releasing is a genuine edit (it flattens
     // every cell to that value), and an unscoped guard silently discards it.
     //
-    // Row 0 starts [10,14,20,26,30,32,33,34] (sum 199). +1 on cell(0,0) makes it
-    // [11,14,20,26,30,32,33,34], sum 200, mean EXACTLY 25 — the row selection's
+    // Row 0 starts [10,16,20,23,23,27,27,29] (sum 175). +1 on cell(0,0) makes it
+    // [11,16,20,23,23,27,27,29], sum 176, mean EXACTLY 22 — the row selection's
     // `current` for the rest of this test.
     render(
-      <StoreProvider>
+      <StoreProvider init={withFixedTiming}>
         <Depth />
         <EcuLabTuneHarness />
       </StoreProvider>,
@@ -750,22 +765,22 @@ describe('the dock slider commits once, on release', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'SELECT' })); // cell(0,0), current 10
     fireEvent.click(within(screen.getByTestId('selection-dock')).getByRole('button', { name: '+1' }));
-    expect(screen.getByTestId('row0').textContent).toBe('[11,14,20,26,30,32,33,34]');
+    expect(screen.getByTestId('row0').textContent).toBe('[11,16,20,23,23,27,27,29]');
     expect(screen.getByTestId('depth').textContent).toBe('1');
 
-    fireEvent.click(screen.getByRole('button', { name: 'SELECT ROW' })); // row 0, current (mean) 25
-    expect(screen.getByTestId('dock-readout').textContent).toBe('25°');
+    fireEvent.click(screen.getByRole('button', { name: 'SELECT ROW' })); // row 0, current (mean) 22
+    expect(screen.getByTestId('dock-readout').textContent).toBe('22°');
 
     const slider = screen.getByRole('slider');
     fireEvent.change(slider, { target: { value: '40' } });
-    fireEvent.change(slider, { target: { value: '25' } }); // lands exactly back on the mean
+    fireEvent.change(slider, { target: { value: '22' } }); // lands exactly back on the mean
     fireEvent.pointerUp(slider);
 
     // An unscoped `draft === current` guard would treat this as a no-op and throw the
     // fan-out away, leaving depth 1 and the row unchanged. The real behaviour is that
     // this flattens the row and burns a second undo entry.
     expect(screen.getByTestId('depth').textContent).toBe('2');
-    expect(screen.getByTestId('row0').textContent).toBe('[25,25,25,25,25,25,25,25]');
+    expect(screen.getByTestId('row0').textContent).toBe('[22,22,22,22,22,22,22,22]');
   });
 
   it('commits one value across the whole column as a single entry, for a column selection', () => {
@@ -773,7 +788,7 @@ describe('the dock slider commits once, on release', () => {
     // `setAbs`, entirely uncovered. Column 0 starts [10,10,10,14,16,14]
     // (DEFAULT_TIMING[*][0]).
     render(
-      <StoreProvider>
+      <StoreProvider init={withFixedTiming}>
         <Depth />
         <EcuLabTuneHarness />
       </StoreProvider>,

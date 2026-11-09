@@ -26,7 +26,7 @@ import {
   DEFAULT_ENGINE_CONFIG, DEFAULT_MODS, ENGINE_PRESETS, OCTANE_OPTS, TURBINE_OPTS,
   applyPreset, computeHardwareVE, turbineWithCount,
 } from '../../src/sim/index.js';
-import { LOAD, RPM } from '../../src/sim/tables.js';
+import { RPM } from '../../src/sim/tables.js';
 import EcuLab, { DYNO_PULL_MS, EcuLabApp } from '../../src/ui/EcuLab.jsx';
 import { Bar } from '../../src/ui/primitives/Bar.jsx';
 import { StoreProvider, useBuild, useTune } from '../../src/ui/state/StoreProvider.jsx';
@@ -137,19 +137,9 @@ describe('moving the tune-grid cursor', () => {
 
     fireEvent.click(screen.getByRole('button', { name: /TUNE/ }));
     const grid = within(screen.getByTestId('tuning-grid'));
-    // TuningGrid renders, in DOM order: RPM.length column-header buttons (each
-    // itself a numeric label, so a text-pattern filter can't tell them apart from
-    // data cells), then one row per LOAD entry — a numeric row-header button
-    // followed by RPM.length data-cell buttons. Slicing by that known layout is
-    // what actually isolates the data cells; text content alone can collide (a VE
-    // cell can legitimately read "100", same as a LOAD header).
-    const allButtons = grid.getAllByRole('button');
-    const dataCells = [];
-    let idx = RPM.length;
-    for (let row = 0; row < LOAD.length; row += 1) {
-      idx += 1; // row-header button
-      for (let col = 0; col < RPM.length; col += 1) { dataCells.push(allButtons[idx]); idx += 1; }
-    }
+    // The data cells, by their accessible names ("<rpm> RPM, <load> kPa"): the grid is
+    // sized to the engine, so its shape is not a constant to slice by.
+    const dataCells = grid.getAllByRole('button', { name: / RPM, [\d.]+ kPa$/ });
 
     // Selecting a grid cell mounts the SelectionDock, whose readout line names the
     // selected cell's coordinates: "<rpm> RPM · <map> kPa MAP". Reading it after two
@@ -158,7 +148,7 @@ describe('moving the tune-grid cursor', () => {
     // same cell twice) would leave the header intact and the test would pass while
     // proving nothing.
     const cellLabel = () => within(screen.getByTestId('selection-dock'))
-      .getByText(/^\d+ RPM · \d+ kPa MAP$/).textContent;
+      .getByText(/^\d+ RPM · [\d.]+ kPa MAP$/).textContent;
 
     fireEvent.click(dataCells[0]);
     const first = cellLabel();
@@ -279,12 +269,11 @@ function BuildProbe({ onBuild }) {
 }
 
 describe('choosing a turbine', () => {
-  it('drops the twin-turbo count the preset installed', () => {
-    // SET_TURBINE resets `turbineCount` to 1 as well as setting `turbineIdx`, because
-    // the count belongs to the preset's induction layout, not to the housing you just
-    // picked. Route this control through SET_BUILD_FIELD and the count survives: a
-    // twin count against a turbine chosen as a single, silently doubling the airflow
-    // the sim is handed. Nothing else in the suite covers that.
+  it('keeps a twin setup when the housing changes, and the Turbos picker sets the count', () => {
+    // The number of turbos is its own control on BUILD › Induction. Swapping the housing
+    // must not quietly drop a twin to a single — and the Single/Twin picker must be what
+    // changes it, or the compressor and turbine airflow the sim is handed stop matching
+    // what the screen shows.
     launch();
     const picker = presetPicker();
     const twin = ENGINE_PRESETS.find((p) => applyPreset(p).turbineCount > 1);
@@ -300,8 +289,12 @@ describe('choosing a turbine', () => {
     const current = TURBINE_OPTS[applyPreset(twin).turbineIdx].label;
     const other = TURBINE_OPTS.map((o) => o.label).find((l) => l !== current);
     fireEvent.click(screen.getByRole('button', { name: new RegExp(`^${other}`) }));
+    expect(inductionSummary()).toMatch(/Twin/);
 
+    fireEvent.click(screen.getByRole('button', { name: 'Single' }));
     expect(inductionSummary()).not.toMatch(/Twin/);
+    fireEvent.click(screen.getByRole('button', { name: 'Twin' }));
+    expect(inductionSummary()).toMatch(/Twin/);
   });
 });
 
@@ -599,17 +592,20 @@ describe('every segmented control', () => {
     total += expectEverySegHasOneSelection();
 
     // Guard the sweep itself: if navigation silently failed, the per-tab assertions
-    // above would each pass on whatever happened to be showing. Nineteen is the count
+    // above would each pass on whatever happened to be showing. Twenty-six is the count
     // of segmented controls those three stops reach today:
-    //   BUILD 15 — Engine: Configuration, Block, Head, Cam Phasers, Ignition Coils, Plug
-    //     Gap; Induction: MAP Sensor, Compressor, Wastegate Actuator (the spring picker
+    //   BUILD 22 — Engine: Configuration, Block, Head, Valvetrain Layout, Valves per
+    //     Cylinder, Cam Followers, Spark Plugs per Cylinder, Friction Level, Cam Phasers,
+    //     Fuel Injection, Ignition Coils, Plug Gap; Induction: MAP Sensor, Compressor, Turbos (single or
+    //     twin), Wastegate Actuator (the spring picker
     //     only appears for a pneumatic gate), Nitrous Kit (its shot and bottle pickers
     //     only appear with a kit fitted); Fuel: Octane, Regulation, Base Pressure,
     //     Wideband Controller; Exhaust: Diameter.
     //   TUNE > INJECTORS 3 — the map-slot picker above every TUNE view, ECU Injector
     //     Scaling, and the ECU's Pressure Compensation.
     //   DYNO 1 — the manifold-pressure picker.
-    expect(total).toBe(19);
+    //   (BUILD › ENGINE also has Pistons and rods, the bottom-end picker.)
+    expect(total).toBe(27);
   });
 });
 

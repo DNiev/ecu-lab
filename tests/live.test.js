@@ -196,3 +196,17 @@ describe('the rev limiter', () => {
     }
   });
 });
+
+describe('manifold vacuum', () => {
+  // A custom engine revs to 11,000 RPM. A ceiling on the speed term at 1.2 × the 7500 RPM
+  // datum would hold a part-open throttle above 9000 at the vacuum it pulls at 9000.
+  it('keeps deepening with engine speed past 9000 RPM at a part-open throttle', () => {
+    const at = (rpm) => S.steadyManifoldKpa(0.3, S.vacuumSpeedFrac(rpm), 0);
+    expect(at(10000)).toBeLessThan(at(9000));
+    expect(at(11000)).toBeLessThan(at(10000));
+  });
+
+  it('still floors at a closed throttle', () => {
+    expect(S.steadyManifoldKpa(0, S.vacuumSpeedFrac(11000), 0)).toBeCloseTo(S.BARO_KPA * 0.12, 6);
+  });
+});

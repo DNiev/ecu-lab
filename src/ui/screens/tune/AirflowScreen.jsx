@@ -16,11 +16,13 @@ import { SelectModeBar } from '../../components/SelectModeBar.jsx';
 import { SelectionDock } from '../../components/SelectionDock.jsx';
 import { TuneAdvisory } from '../../components/TuneAdvisory.jsx';
 import { TuningGrid } from '../../components/TuningGrid.jsx';
+import { GridOrSurface } from '../../components/surface/GridOrSurface.jsx';
 import { VeLogCorrection } from '../../components/VeLogCorrection.jsx';
 import { ExpandableInfo } from '../../components/ExpandableInfo.jsx';
 import { UndoControls } from '../../components/UndoControls.jsx';
 import { Eyebrow } from '../../primitives/Eyebrow.jsx';
-import { mafErrorPct, veCorrections } from '../../../sim/index.js';
+import { layoutById, mafErrorPct, veCorrections } from '../../../sim/index.js';
+import { LayoutSwitch } from '../../components/LayoutSwitch.jsx';
 import { ACTIONS } from '../../state/reducer.js';
 import { useTune } from '../../state/StoreProvider.jsx';
 
@@ -49,6 +51,10 @@ import styles from './AirflowScreen.module.css';
 export function AirflowScreen({ children, veLog }) {
   const [tune, dispatch] = useTune();
   const { ve, selection, rangeMode, baseline, diffView } = tune;
+  // The breakpoints this table sits on (sim/layouts.js); see SparkScreen.jsx. The VE log
+  // bins onto them, so its advice is about these cells on either layout.
+  const axes = layoutById(tune.layout).ve;
+  const dims = { rows: axes.load.length, cols: axes.rpm.length };
   /** @param {Selection|null} value */
   const setSelection = (value) => dispatch({ type: ACTIONS.SET_TUNE_FIELD, field: 'selection', value });
   /**
@@ -64,9 +70,9 @@ export function AirflowScreen({ children, veLog }) {
   // A handful of `.some()`-free array reads, no allocation in the hot path —
   // plainly on every render, matching SparkScreen/FuelScreen.
   const samples = React.useMemo(() => (veLog ? [...veLog.pull, ...veLog.live] : []), [veLog]);
-  const corr = React.useMemo(() => veCorrections(samples), [samples]);
+  const corr = React.useMemo(() => veCorrections(samples, axes), [samples, axes]);
   const report = veLogReport(veLog ? {
-    corr, ve, airModel: veLog.airModel, pullInfo: veLog.pullInfo, liveSamples: veLog.live.length,
+    corr, ve, airModel: veLog.airModel, pullInfo: veLog.pullInfo, liveSamples: veLog.live.length, axes,
   } : null, selection);
 
   return (
@@ -78,10 +84,13 @@ export function AirflowScreen({ children, veLog }) {
             <UndoControls />
           </div>
           <div className={styles.intro}>How completely the cylinder fills at each engine speed and load. Rows are manifold pressure (MAP kPa &mdash; about 100 is wide open, higher is boost); columns are RPM. Tap any cell for reference data; drag or shift-click for a range.</div>
-          <SelectModeBar rangeMode={rangeMode} setRangeMode={setRangeMode} setSelection={setSelection} diffView={diffView} setDiffView={setDiffView} />
-          <TuningGrid data={ve} min={10} max={130} decimals={0} selection={selection} setSelection={setSelection} rangeMode={rangeMode} setData={setTable} baseline={baseline.ve} diffView={diffView} diffScale={10} />
+          <LayoutSwitch />
+          <SelectModeBar rangeMode={rangeMode} setRangeMode={setRangeMode} setSelection={setSelection} diffView={diffView} setDiffView={setDiffView} dims={dims} />
+          <GridOrSurface data={ve} min={10} max={130} decimals={0} unit="%" title="Volumetric efficiency" axes={axes}>
+            <TuningGrid data={ve} min={10} max={130} decimals={0} selection={selection} setSelection={setSelection} rangeMode={rangeMode} setData={setTable} baseline={baseline.ve} diffView={diffView} diffScale={10} axes={axes} />
+          </GridOrSurface>
           {veLog && (
-            <VeLogCorrection corr={corr} pullCount={veLog.pull.length} liveCount={veLog.live.length}
+            <VeLogCorrection corr={corr} axes={axes} pullCount={veLog.pull.length} liveCount={veLog.live.length}
               pullInfo={veLog.pullInfo} mafPct={mafErrorPct(samples)} airModel={veLog.airModel} onApply={veLog.onApply} />
           )}
 
@@ -97,7 +106,7 @@ export function AirflowScreen({ children, veLog }) {
         </AdvisorPanel>
       </div>
       <div className={styles.spacer} />
-      <SelectionDock data={ve} setData={setTable} selection={selection} min={10} max={130} decimals={0} unit="%" onClose={() => setSelection(null)} kind="ve" baseline={baseline.ve} />
+      <SelectionDock data={ve} setData={setTable} selection={selection} min={10} max={130} decimals={0} unit="%" onClose={() => setSelection(null)} kind="ve" baseline={baseline.ve} axes={axes} />
     </>
   );
 }

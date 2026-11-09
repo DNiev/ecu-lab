@@ -253,15 +253,15 @@ function Field({ meta, value, def, onChange, liveVars }) {
   const yVar = AXIS_VAR[meta.yLabel];
   const marker = liveVars && xVar && liveVars[xVar] != null
     ? { x: liveVars[xVar], y: yVar ? liveVars[yVar] : undefined } : null;
-  return <TableField meta={meta} value={value} def={def} onChange={onChange} marker={marker} changed={changed} />;
+  return <TableField meta={meta} value={value} def={def} onChange={onChange} marker={marker} changed={changed} axisVars={{ x: xVar ?? null, y: yVar ?? null }} />;
 }
 
 /**
  * A table behind a disclosure button: folded until opened, because a view full of open
  * tables is a wall.
- * @param {{meta: any, value: any, def: any, onChange: (v: any) => void, marker: any, changed: boolean}} props
+ * @param {{meta: any, value: any, def: any, onChange: (v: any) => void, marker: any, changed: boolean, axisVars: {x: string|null, y: string|null}}} props
  */
-function TableField({ meta, value, def, onChange, marker, changed }) {
+function TableField({ meta, value, def, onChange, marker, changed, axisVars }) {
   const [open, setOpen] = React.useState(false);
   const bodyId = React.useId();
   return (
@@ -275,7 +275,7 @@ function TableField({ meta, value, def, onChange, marker, changed }) {
       {open && (
         <div className={styles.tableBody} id={bodyId}>
           <Help meta={meta} />
-          <CalTable table={value} def={def} meta={meta} onChange={onChange} marker={marker} />
+          <CalTable table={value} def={def} meta={meta} onChange={onChange} marker={marker} axisVars={axisVars} />
         </div>
       )}
     </div>

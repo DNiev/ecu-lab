@@ -6,14 +6,16 @@
  * all build the same picture the same way.
  */
 
-import { computeHardwareVE } from '../airflow.js';
+import { hardwareVeAt } from '../airflow.js';
 import { AMBIENT_C, AMBIENT_K, KELVIN_OFFSET } from '../constants.js';
 import { FUEL_CHOICES } from '../hardware.js';
 import { DYNO_GEAR } from './calibration.js';
 import { ECU_COEFF as E } from './ecuCoefficients.js';
 import { baroAtAltitude } from './ecuHardware.js';
 import { blendFuel } from './fuelBlend.js';
-import { VE_PHASE_SAMPLES, VVT_OPTS } from './vvt.js';
+import { clamp } from '../math.js';
+import { read2 } from './ecuTables.js';
+import { VE_PHASE_SAMPLES, VVT_AUTHORITY, VVT_OPTS, veAtPhase } from './vvt.js';
 
 /**
  * The ECU-side hardware a build starts with. Chosen so that no existing build is
@@ -109,10 +111,78 @@ export function dynoConditions(env, faults = {}, nitrous = null) {
  * @param {object} cfg engine config
  * @param {object} mods
  * @param {object} hwForVe the `computeHardwareVE` hardware argument
- * @returns {number[][][]}
+ * @returns {((rpm: number, kpa: number) => number)[]} the engine's breathing at each phase,
+ *   at any speed and pressure
  */
 export function veTruthByPhaseFor(cfg, mods, hwForVe) {
   const vvt = VVT_OPTS.find((o) => o.id === (cfg?.vvt ?? 'none')) ?? VVT_OPTS[0];
-  if (!vvt.intake) return [computeHardwareVE(cfg, mods, hwForVe)];
-  return VE_PHASE_SAMPLES.map((deg) => computeHardwareVE(cfg, mods, { ...hwForVe, intakeCamAdvanceDeg: deg }));
+  if (!vvt.intake) return [hardwareVeAt(cfg, mods, hwForVe)];
+  return VE_PHASE_SAMPLES.map((deg) => hardwareVeAt(cfg, mods, { ...hwForVe, intakeCamAdvanceDeg: deg }));
+}
+
+/**
+ * The engine's TRUE breathing with its intake cam where the calibration puts it: the
+ * phase-sampled curves (`veTruthByPhaseFor`) read at the intake-advance target for each
+ * speed and pressure, exactly as the running ECU positions the phaser. A fixed-cam engine,
+ * or no VVT calibration, is its parked curve. Everything that grades or generates tables
+ * must use this, not the parked curve: the cylinder fills at the phase the cam is at.
+ *
+ * @param {object} cfg engine config
+ * @param {object} mods
+ * @param {object} hwForVe the `computeHardwareVE` hardware argument
+ * @param {{intakeTarget: import('./ecuTables.js').Map2D}|null|undefined} vvtCal the ECU's VVT calibration
+ * @returns {(rpm: number, kpa: number) => number} VE, percent
+ */
+export function scheduledVeAt(cfg, mods, hwForVe, vvtCal) {
+  const phases = veTruthByPhaseFor(cfg, mods, hwForVe);
+  const camAt = intakeCamAt(cfg, vvtCal);
+  if (phases.length === 1 || !camAt) return phases[0];
+  return (rpm, kpa) => veAtPhase(phases, rpm, kpa, camAt(rpm, kpa));
+}
+
+/**
+ * Where the calibration puts the intake cam at a speed and pressure, crank degrees of
+ * advance, as the ECU positions the phaser in steady state; null for an engine without an
+ * intake phaser (whatever its VVT map says, nothing moves).
+ *
+ * @param {object} cfg engine config
+ * @param {{intakeTarget: import('./ecuTables.js').Map2D}|null|undefined} vvtCal
+ * @returns {((rpm: number, kpa: number) => number)|null}
+ */
+export function intakeCamAt(cfg, vvtCal) {
+  const vvt = VVT_OPTS.find((o) => o.id === (cfg?.vvt ?? 'none')) ?? VVT_OPTS[0];
+  if (!vvt.intake || !vvtCal?.intakeTarget) return null;
+  return (rpm, kpa) => clamp(read2(vvtCal.intakeTarget, rpm, kpa), 0, VVT_AUTHORITY.intake);
+}
+
+/** Steps a factory phaser schedule is searched in, crank degrees. */
+const FACTORY_PHASE_STEP_DEG = 2.5;
+
+/**
+ * A factory intake-cam schedule: at every breakpoint, the advance that fills the cylinder
+ * best. That is what a production calibration does at full load (best torque); at part load
+ * real calibrations also trade some filling for internal EGR and economy, which this model
+ * does not reward, so it schedules for filling there too. Null for a fixed-cam engine.
+ *
+ * @param {object} cfg engine config
+ * @param {object} mods
+ * @param {object} hwForVe the `computeHardwareVE` hardware argument
+ * @param {number[]} rpmAx ascending rpm breakpoints of the ECU's VVT map
+ * @param {number[]} mapAx ascending kPa breakpoints of the ECU's VVT map
+ * @returns {number[][]|null} advance, crank degrees, indexed [map][rpm]
+ */
+export function factoryIntakeSchedule(cfg, mods, hwForVe, rpmAx, mapAx) {
+  const phases = veTruthByPhaseFor(cfg, mods, hwForVe);
+  if (phases.length === 1) return null;
+  const steps = [];
+  for (let d = 0; d <= VVT_AUTHORITY.intake + 1e-9; d += FACTORY_PHASE_STEP_DEG) steps.push(d);
+  return mapAx.map((kpa) => rpmAx.map((rpm) => {
+    let best = 0; let bestVe = -Infinity;
+    for (const d of steps) {
+      const v = veAtPhase(phases, rpm, kpa, d);
+      // Ties go to the least advance: the parked cam is the failsafe position.
+      if (v > bestVe + 1e-9) { bestVe = v; best = d; }
+    }
+    return best;
+  }));
 }

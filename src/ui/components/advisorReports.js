@@ -59,7 +59,9 @@ export function sparkReport(calAdvice, selection) {
     if (holds(overAdvanced, cell.ri, cell.ci)) {
       return {
         tone: 'danger',
-        headline: `${(cell.current - cell.knockCeiling).toFixed(1)} deg past the knock limit`,
+        headline: cell.sparkCannotFix
+          ? 'Past the knock limit at any spark the table can hold'
+          : `${(cell.current - cell.knockCeiling).toFixed(1)} deg past the knock limit`,
         state: 'cell-over',
         detail: { cell },
       };
@@ -198,6 +200,8 @@ export const VE_LOG_GOOD_PCT = 2;
  * @property {'blend'|'sd'|'maf'} airModel
  * @property {{state: 'none'|'stale'|'part-load'|'unused'|'ok', changed?: string[]}} pullInfo
  * @property {number} liveSamples
+ * @property {import('../../sim/layouts.js').TableAxes} [axes] the VE table's breakpoints, when
+ *   not the ECU Lab grid
  */
 
 /**
@@ -215,16 +219,20 @@ export function veLogReport(log, selection) {
     return { tone: 'info', headline: 'MAF strategy: the VE table is not in the fuel path', state: 'maf-model', detail: {} };
   }
   const { corr, ve } = log;
-  const rect = selection ? rectOf(selection) : { r1: 0, c1: 0, r2: LOAD.length - 1, c2: RPM.length - 1 };
+  // The VE table's own breakpoints: the ECU Lab grid's unless the tune sits on an engine
+  // computer's (a layout's VE is always on manifold pressure, sim/layouts.js).
+  const rows = log.axes?.load ?? LOAD;
+  const cols = log.axes?.rpm ?? RPM;
+  const rect = selection ? rectOf(selection, { rows: rows.length, cols: cols.length }) : { r1: 0, c1: 0, r2: rows.length - 1, c2: cols.length - 1 };
   /** @type {any[]} */
   const logged = [];
   for (let ri = rect.r1; ri <= rect.r2; ri += 1) {
     for (let ci = rect.c1; ci <= rect.c2; ci += 1) {
       const c = corr.cell[ri]?.[ci];
-      if (c) logged.push({ ...c, ri, ci, rpm: RPM[ci], load: LOAD[ri], table: ve[ri][ci], pct: (c.ratio - 1) * 100 });
+      if (c) logged.push({ ...c, ri, ci, rpm: cols[ci], load: rows[ri], table: ve[ri][ci], pct: (c.ratio - 1) * 100 });
     }
   }
-  const where = selection?.type === 'cell' ? `${RPM[rect.c1]} RPM, ${LOAD[rect.r1]} kPa` : selection ? 'the selected cells' : null;
+  const where = selection?.type === 'cell' ? `${cols[rect.c1]} RPM, ${rows[rect.r1]} kPa` : selection ? 'the selected cells' : null;
   if (!logged.length) {
     return {
       tone: 'info',

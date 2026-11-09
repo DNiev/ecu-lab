@@ -37,15 +37,16 @@ const out = {
   drivetrainEff: S.DRIVETRAIN_EFF,
   presets: S.ENGINE_PRESETS.map((preset) => {
     const patch = S.applyPreset(preset);
+    const fuel = S.tankFuel(patch);
     const derived = S.deriveEngine(patch.engineConfig);
     const r = S.simulateSweep({
       loadKpa: 100,
       ve: patch.ve, veTruth: patch.ve,
       timing: patch.timing, afr: patch.afr,
       turboOn: patch.turboOn, boostCurve: patch.boostCurve,
-      octaneBonus: S.OCTANE_OPTS[patch.octaneIdx].bonus,
-      octaneLabel: S.OCTANE_OPTS[patch.octaneIdx].label,
-      fuel: S.OCTANE_OPTS[patch.octaneIdx],
+      octaneBonus: fuel.bonus,
+      octaneLabel: fuel.label,
+      fuel,
       injectorCc: S.INJECTOR_OPTS[patch.injIdx].cc,
       ecuInjectorCc: patch.ecuInjectorCc,
       injectorLabel: S.INJECTOR_OPTS[patch.injIdx].label,

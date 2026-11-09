@@ -57,7 +57,7 @@ describe('correcting VE from a dyno pull', () => {
     for (let ci = 1; ci < S.RPM.length; ci += 1) {
       // The wideband alone says 10-16% more air; the intake really flows 0-5% more.
       expect(cell[WOT][ci].lambdaRatio).toBeGreaterThan(1.08);
-      expect(ratio[WOT][ci]).toBeCloseTo(eng.veTruth[WOT][ci] / stock.veTruth[WOT][ci], 1);
+      expect(ratio[WOT][ci]).toBeCloseTo(eng.veTruth(S.RPM[ci], S.LOAD[WOT]) / stock.veTruth(S.RPM[ci], S.LOAD[WOT]), 1);
     }
   });
 

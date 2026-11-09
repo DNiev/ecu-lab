@@ -1,5 +1,5 @@
 /**
- * HOME > Career & Last Pull.
+ * HOME > Sandbox Stats & Last Pull.
  *
  * Career totals, and the headline figures from the most recent dyno pull. Nothing
  * here is computed: `scores` is the shell's, because the DYNO tab's score panel reads
@@ -46,12 +46,12 @@ export function StatsScreen({ active, onToggle, scores, scoresStale = false }) {
   return (
     <BuildSection
       active={active} onClick={() => onToggle('stats')}
-      icon={Trophy} label="Career & Last Pull"
+      icon={Trophy} label="Sandbox Stats & Last Pull"
       sub={result ? `Best ${bestScore} · ${pullCount} pulls logged` : `${pullCount} pulls logged`}
     >
       <div className={`${styles.row} ${styles.rowGapWide}`}>
         <StatTile label="BEST PULL" value={bestScore} tone="acc" />
-        <StatTile label="CAREER TOTAL" value={totalScore} tone="alt" />
+        <StatTile label="TOTAL SCORE" value={totalScore} tone="alt" />
         <StatTile label="PULLS" value={pullCount} />
       </div>
       {result && scores ? (

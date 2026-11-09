@@ -24,6 +24,7 @@
  * their limit, and transients — anything where the mixture was not the VE table's doing.
  */
 
+import { readTable } from './layouts.js';
 import { interp2 } from './math.js';
 import { LOAD, RPM } from './tables.js';
 
@@ -88,9 +89,10 @@ export function veSamplesFromPull(points) {
  *
  * @param {object[]} rows LIVE log rows
  * @param {number[][]} ve the VE table now
+ * @param {import('./layouts.js').TableAxes} [axes] its breakpoints, when not the ECU Lab grid
  * @returns {VeSample[]}
  */
-export function veSamplesFromLive(rows, ve) {
+export function veSamplesFromLive(rows, ve, axes) {
   const out = [];
   let prev = null;
   for (const r of rows ?? []) {
@@ -102,7 +104,7 @@ export function veSamplesFromLive(rows, ve) {
     const s = sample({
       rpm: r.rpm, mapKpa: r.sMap, lambdaRatio: r.sLambda / r.lambdaTarget,
       trim: (1 + (r.stft ?? 0) / 100) * (1 + (r.ltft ?? 0) / 100), maf: 1 + (r.mafPct ?? 0) / 100,
-      rescale: r.veTable / Math.max(1, interp2(ve, r.rpm, r.sMap)), source: 'live',
+      rescale: r.veTable / Math.max(1, axes ? readTable(ve, axes, r.rpm, r.sMap) : interp2(ve, r.rpm, r.sMap)), source: 'live',
     });
     if (!(s.ratio > 0.6 && s.ratio < 1.6)) continue;
     out.push(s);
@@ -139,16 +141,20 @@ function bracket(axis, v) {
  * The correction each cell's data asks for.
  *
  * @param {VeSample[]} samples
+ * @param {import('./layouts.js').TableAxes} [axes] the VE table's breakpoints, when not the
+ *   ECU Lab grid (a layout's VE is always on manifold pressure)
  * @returns {{ratio: (number|null)[][], weight: number[][], cell: (VeCell|null)[][], cells: number}}
  *   `ratio[row][col]` the mean factor for a cell with enough data, else null; `cell`
  *   the same cell with the parts it was worked out from
  */
-export function veCorrections(samples) {
+export function veCorrections(samples, axes) {
   const keys = ['ratio', 'lambdaRatio', 'trim', 'maf', 'rescale'];
-  const acc = LOAD.map(() => RPM.map(() => ({ weight: 0, samples: 0, ratio: 0, lambdaRatio: 0, trim: 0, maf: 0, rescale: 0 })));
+  const rows = axes?.load ?? LOAD;
+  const cols = axes?.rpm ?? RPM;
+  const acc = rows.map(() => cols.map(() => ({ weight: 0, samples: 0, ratio: 0, lambdaRatio: 0, trim: 0, maf: 0, rescale: 0 })));
   for (const s of samples) {
-    for (const [ri, wr] of bracket(LOAD, s.mapKpa)) {
-      for (const [ci, wc] of bracket(RPM, s.rpm)) {
+    for (const [ri, wr] of bracket(rows, s.mapKpa)) {
+      for (const [ci, wc] of bracket(cols, s.rpm)) {
         const w = wr * wc;
         if (w < MIN_SHARE) continue;
         const a = acc[ri][ci];

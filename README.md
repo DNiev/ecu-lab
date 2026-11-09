@@ -17,6 +17,17 @@ and run a quarter mile with it.
 
 It is a teaching tool, not a game with a horsepower slider.
 
+Three ways in: **SANDBOX** is free play; **TUTORIAL** is five minutes on the basics, with
+the full Tuning Course under HOME › Learn; **CAREER** is a tuning shop of your own.
+Customers bring cars with real faults and describe what the car does, never what is wrong
+with it: a cast of named customers, and new walk-ins every day without end, generated
+from faults the simulator genuinely produces and harder as the shop's name grows. Every
+job is graded on the same simulator as everything else: the car you hand back is pulled
+and idled, and power bought with knock or a lean top end is not a finished job. Money
+buys a dyno, lifts and tools and pays the running costs; training opens more of the ECU,
+and eventually engine building, where customers bring a wish list instead of a fault.
+Its save is separate from SANDBOX's, and switching between them loses nothing.
+
 ## The design rule
 
 **Nothing adds horsepower.** Every part changes airflow, pressure, temperature or fuel
@@ -41,7 +52,13 @@ model say so, not because someone typed 250.
   trace rather than from a correlation
 - **Knock** as an autoignition integral over the unburned end gas, so octane,
   compression, charge temperature, residual dilution and mixture all reach it through
-  the pressure history instead of through separate corrections
+  the pressure history instead of through separate corrections. Each fuel carries its
+  RON and MON, and the integral reads Kalghatgi's octane index for the engine's own
+  conditions, so a stock 10.3:1 engine on 91 is knock-limited through the midrange, as
+  a real one is
+- **Port or direct injection** per engine, as the real ones have it: port-injected fuel
+  boils off the intake valve, direct-injected fuel cools the cylinder's own air, filling
+  it better and holding off knock
 - **Torque** as `IMEP − friction − PMEP → BMEP → T = BMEP × Vd / 4π`. Pumping work is
   exhaust manifold pressure minus intake, with its real sign, so a turbine's
   backpressure is a cost and a well-matched one can hand work back
@@ -109,6 +126,8 @@ src/
     ecu/             engine management: calibration, sensors, controllers, protections,
                      the live ECU and its pull-log events
   ui/            presentation only — no physics below this line
+    career/        CAREER: the shop, its customers and jobs, and the grading, which
+                   runs the real simulator on the car handed back
   storage.js     persistence adapter (artifact host / localStorage / memory)
 tests/           physics intent tests + the behavioural fingerprint
 ```

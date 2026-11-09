@@ -113,14 +113,14 @@ describe('StatsScreen', () => {
   it('shows the career off the store, and says so when there is no pull to report', () => {
     mount(<StatsScreen active onToggle={noop} scores={null} />);
     expect(screen.getByText('BEST PULL')).toBeTruthy();
-    expect(screen.getByText('CAREER TOTAL')).toBeTruthy();
+    expect(screen.getByText('TOTAL SCORE')).toBeTruthy();
     expect(screen.getByText(/No dyno pull logged yet/)).toBeTruthy();
   });
 
   it('reports which section it is when its header is clicked', () => {
     const onToggle = vi.fn();
     mount(<StatsScreen active={false} onToggle={onToggle} scores={null} />);
-    fireEvent.click(screen.getByText('Career & Last Pull'));
+    fireEvent.click(screen.getByText('Sandbox Stats & Last Pull'));
     expect(onToggle).toHaveBeenCalledWith('stats');
   });
 

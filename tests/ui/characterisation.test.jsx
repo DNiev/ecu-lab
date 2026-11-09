@@ -82,6 +82,9 @@ describe('entry', () => {
   it('opens the tutorial and comes back', () => {
     render(<EcuLab />);
     fireEvent.click(screen.getByRole('button', { name: 'TUTORIAL' }));
+    // It opens on its contents page: what you will learn, then the chapters.
+    expect(screen.getByText('TUTORIAL · CONTENTS')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'START' }));
     expect(screen.getByText(/TUTORIAL · 1\//)).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'SKIP' }));
     expect(screen.getByRole('button', { name: /BUILD/ })).toBeTruthy();
@@ -102,7 +105,7 @@ describe('navigation', () => {
       // The live engine is its own tab now. HOME in free play has no jobs board — that
       // is CAREER's — so its marker is the stats section it opens on.
       LIVE: () => screen.getByText('Live Engine'),
-      HOME: () => screen.getByText('Career & Last Pull'),
+      HOME: () => screen.getByText('Sandbox Stats & Last Pull'),
       BUILD: () => screen.getByText('Garage'),
     };
     for (const tab of ['TUNE', 'DYNO', 'LIVE', 'HOME', 'BUILD']) {

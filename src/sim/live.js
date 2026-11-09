@@ -13,12 +13,14 @@
 import { BARO_KPA, DRIVETRAIN_EFF, PSI_TO_KPA } from './constants.js';
 import { COEFF } from './coefficients.js';
 import { frictionTorqueNm } from './friction.js';
-import { clamp, interp1, interp2 } from './math.js';
+import { clamp, curveAt } from './math.js';
 import { solveInduction } from './turbo.js';
 import { chargeTempK, INDUCTION_REF_EXHAUST_K } from './thermo.js';
 import { evaluatePoint } from './point.js';
+import { trappedAirGrams } from './cycle.js';
+import { needsAirmass, readEcuTable, truthReader } from './layouts.js';
 import { assertBoostCurve } from './sweep.js';
-import { RPM } from './tables.js';
+
 import { liveStepEcu } from './ecu/liveEcu.js';
 
 /** Crank + flywheel + damper rotational inertia, kg·m². */
@@ -65,6 +67,19 @@ export function sensorRead(prev, trueVal, lagFactor, noiseAmp) {
 }
 
 /**
+ * Engine speed as the manifold vacuum model reads it: against a fixed RPM datum, not this
+ * engine's redline (see COEFF.MANIFOLD_VACUUM_RPM_NORM). Callers pass a speed already
+ * held to the redline, so no ceiling is needed here: an engine built to 11,000 RPM keeps
+ * pulling harder vacuum all the way up, as it does below the datum.
+ *
+ * @param {number} rpm engine speed, held to the redline
+ * @returns {number}
+ */
+export function vacuumSpeedFrac(rpm) {
+  return Math.max(0, rpm / COEFF.MANIFOLD_VACUUM_RPM_NORM);
+}
+
+/**
  * Manifold pressure the throttle and engine settle at, before any boost.
  *
  * A closed throttle at high RPM pulls far harder vacuum than the same opening at idle,
@@ -77,7 +92,7 @@ export function sensorRead(prev, trueVal, lagFactor, noiseAmp) {
  * overlap its cam phasers have added.
  *
  * @param {number} aFrac throttle opening, 0..1
- * @param {number} nFrac engine speed against COEFF.MANIFOLD_VACUUM_RPM_NORM
+ * @param {number} nFrac engine speed against COEFF.MANIFOLD_VACUUM_RPM_NORM (`vacuumSpeedFrac`)
  * @param {number} overlapDeg valve overlap, degrees
  * @returns {number} kPa
  */
@@ -147,8 +162,11 @@ export function liveStep(st, dt, input, cfg) {
   const s = { ...st };
   const {
     ve, veTruth, timing, afr, derived, fuel, injectorCc, ecuInjectorCc, mods, mafScalar,
-    mafErrorBase, turboOn, boostCurve, turbine, compressor,
+    mafErrorBase, turboOn, boostCurve, turbine, compressor, layout = null,
   } = cfg;
+  const tables = { ve, timing, afr, layout };
+  const truthAt = truthReader(veTruth, tables.layout?.ve ?? null);
+  const flowAt = truthAt ?? ((r, m) => readEcuTable(tables, 've', r, { mapKpa: m }));
   if (turboOn) assertBoostCurve(boostCurve);
   const redline = derived.redline ?? (REDLINE_CUT - LIMITER_OVERSHOOT_RPM);
   const limiterCutRpm = redline + LIMITER_OVERSHOOT_RPM;
@@ -207,12 +225,12 @@ export function liveStep(st, dt, input, cfg) {
     const aFrac = clamp(effThrottle, 0, 100) / 100;
     // Normalised against a fixed RPM datum, not this engine's redline — see
     // COEFF.MANIFOLD_VACUUM_RPM_NORM in coefficients.js for why that is deliberate.
-    const nFrac = clamp(rpmClamped / COEFF.MANIFOLD_VACUUM_RPM_NORM, 0, 1.2);
+    const nFrac = vacuumSpeedFrac(rpmClamped);
     const loadKpa = steadyManifoldKpa(aFrac, nFrac, derived.overlapDeg || 0);
-    const boostTarget = turboOn ? interp1(RPM, boostCurve, rpmClamped) : 0;
+    const boostTarget = turboOn ? curveAt(boostCurve, rpmClamped) : 0;
     const steady = solveInduction({
       rpm: rpmClamped, loadKpa, turboOn, boostTargetPsi: boostTarget, turbine, compressor,
-      veAt: (mapKpa) => interp2(veTruth ?? ve, rpmClamped, mapKpa),
+      veAt: (mapKpa) => flowAt(rpmClamped, mapKpa),
       derived,
       intakeKAt: (boostPsi) => chargeTempK(boostPsi, mods.intercooler),
       lambda: 1, exhaustK: INDUCTION_REF_EXHAUST_K,
@@ -239,8 +257,11 @@ export function liveStep(st, dt, input, cfg) {
       mapKpa: Math.min(loadKpa, BARO_KPA) + boostPsi * PSI_TO_KPA,
       boostShortfallPsi: Math.max(0, boostTarget - boostPsi),
     };
-    const veVal = interp2(ve, rpmClamped, man.mapKpa);
-    const veActualVal = veTruth ? interp2(veTruth, rpmClamped, man.mapKpa) : undefined;
+    const veVal = readEcuTable(tables, 've', rpmClamped, { mapKpa: man.mapKpa });
+    const veActualVal = truthAt ? truthAt(rpmClamped, man.mapKpa) : undefined;
+    const airmassG = needsAirmass(layout)
+      ? trappedAirGrams({ veActual: veVal, mapKpa: man.mapKpa, chargeK: chargeTempK(man.boostPsi, mods.intercooler), sweptM3: (derived.displacementL / derived.cyl) / 1000 })
+      : 0;
     // Spark-based idle stabilisation: the air path is slow (throttle -> manifold ->
     // cylinder takes several cycles), so real ECUs hold idle with IGNITION timing,
     // which changes torque on the very next firing event. Air trim handles the slow
@@ -249,8 +270,8 @@ export function liveStep(st, dt, input, cfg) {
     if (s.running && userThrottle < 3 && s.rpm < 1600) {
       idleSpark = clamp((IDLE_TARGET_RPM - s.rpm) * COEFF.IDLE_SPARK_GAIN, -COEFF.IDLE_SPARK_LIMIT, COEFF.IDLE_SPARK_LIMIT);
     }
-    const timingVal = interp2(timing, rpmClamped, man.mapKpa) + idleSpark;
-    const afrCmd = interp2(afr, rpmClamped, man.mapKpa) / coldEnrich;
+    const timingVal = readEcuTable(tables, 'timing', rpmClamped, { mapKpa: man.mapKpa, airmassG }) + idleSpark;
+    const afrCmd = readEcuTable(tables, 'afr', rpmClamped, { mapKpa: man.mapKpa, airmassG }) / coldEnrich;
     pt = evaluatePoint({
       rpm: rpmClamped, mapKpa: man.mapKpa, boostPsi: man.boostPsi,
       veVal, veActualVal, timingVal, afrCommanded: afrCmd, fuel,
@@ -275,9 +296,7 @@ export function liveStep(st, dt, input, cfg) {
   const starterNm = s.cranking ? 180 : 0;
   // Cranking has no combustion, so the starter works against motoring friction.
   const crankingDrag = s.cranking
-    ? frictionTorqueNm(Math.max(s.rpm, 0), derived.displacementL, pt ? pt.map : BARO_KPA, 0, {
-        bearingFmepPa: derived.bearingFmepPa, balanceShaftFrac: derived.balanceShaftFrac,
-      })
+    ? frictionTorqueNm(Math.max(s.rpm, 0), derived.displacementL, pt ? pt.map : BARO_KPA, 0, derived)
     : 0;
   const netNm = crankNm + starterNm - crankingDrag - (s.running ? input.load : 0);
   const alpha = netNm / ENGINE_INERTIA;
