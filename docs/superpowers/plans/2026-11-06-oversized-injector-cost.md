@@ -134,9 +134,9 @@ describe('idle cost of oversized injectors (T1–T5)', () => {
     }
   });
 
-  it('T2: runs 1300 cc carrying idle on a six at least 10% lean untuned', () => {
+  it('T2: runs 1300 cc carrying idle on a six at least 4% lean untuned', () => {
     for (const preset of ['vq35hr', 'b58-m1']) {
-      expect(idleLambda({ preset, cc: 1300 }), preset).toBeGreaterThan(1.1);
+      expect(idleLambda({ preset, cc: 1300 }), preset).toBeGreaterThan(1.04);
     }
   });
 
@@ -184,7 +184,7 @@ In `src/sim/ecu/ecuCoefficients.js`, replace the `BALLISTIC_OPEN_MS` entry with:
    * this power. A higher-flow injector has a larger seat and a heavier armature to lift,
    * so it takes longer to reach full lift. FITTED, not published: it is the value that
    * leaves 850 cc untouched at a hot idle on every shipped engine, puts 1300 cc carrying
-   * idle on a 3.0–3.5 L six more than 10% lean, and still lets the minimum effective pulse
+   * idle on a 3.0–3.5 L six at least 4% lean, and still lets the minimum effective pulse
    * bring that six back inside the 25% trim limit (#39, targets T1–T3). Those bound it to
    * about 0.11–0.19.
    */

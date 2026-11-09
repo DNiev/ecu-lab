@@ -71,7 +71,7 @@ log. A wide-open-throttle pull never reaches idle.
 | # | Case | Expected |
 |---|---|---|
 | T1 | 315–850 cc, gasoline, hot idle, every shipped engine | λ within 0.5% of today |
-| T2 | 1300 cc carrying idle on a 3.0–3.5 L six, gasoline, minimum pulse 0 | delivered fuel at least 10% short of what the ECU computed (seen as trim in closed loop, and as lean λ with closed loop off); event fires |
+| T2 | 1300 cc carrying idle on a 3.0–3.5 L six, gasoline, minimum pulse 0 | at least 4% lean with closed loop off (the idle controller adds air as the mixture weakens, which pulls the pulse partly back out of the ballistic region); event fires |
 | T3 | as T2, minimum pulse set to the injector's ballistic threshold | rich, but within the 25% trim limit |
 | T4 | far oversized for the cylinder (1300 cc on a 1.4 L four; the smallest shipped cylinder, about 0.5 L, is T3's case) | past the trim limit even with the minimum pulse set |
 | T5 | the same injector on E85 against gasoline | smaller error on E85 (longer pulses) |
