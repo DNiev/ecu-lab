@@ -138,7 +138,10 @@ export function evaluatePoint({
 }) {
   // A port kit on a direct-injected engine carries this share of the fuel; the direct
   // injectors carry the rest. Zero without a kit, and zero off boost on factory staging.
-  const portKit = E?.portKit ?? null;
+  // A kit only exists on a direct-injected engine: the VE scaling below divides out
+  // VE_DIRECT_INJECTION, which a port engine never had, so guard it here rather than rely
+  // on every caller to have checked.
+  const portKit = derived.injection === 'direct' ? (E?.portKit ?? null) : null;
   const portShare = portKit ? clamp(portKit.share, 0, 1) : 0;
   // A supercharger brings its own compressor: its ceiling and its efficiency, which set
   // how hot the charge arrives. Without one, the turbo's compressor as always.

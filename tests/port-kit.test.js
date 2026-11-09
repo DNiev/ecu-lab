@@ -12,6 +12,7 @@ const idx = (cc) => S.INJECTOR_OPTS.findIndex((o) => o.cc === cc);
 const direct = { ...S.DEFAULT_ENGINE_CONFIG, injection: 'direct' };
 const port = { ...S.DEFAULT_ENGINE_CONFIG, injection: 'port' };
 const kit = { injIdx: idx(1300), ecuInjectorCc: 1300 };
+const portKit = { injectorCc: 1300, ecuInjectorCc: 1300 };
 
 describe('port kit hardware', () => {
   it('exists only on a direct-injected engine', () => {
@@ -64,7 +65,13 @@ describe('metering through a staged kit (T6–T9)', () => {
 
   it('T7: pays the ballistic cost when the port share is raised at idle', () => {
     const eng = b58({ portKit: kit }, { 'injector.portShare': flatShare(50) });
-    expect(eng.pull(30).events.some((e) => e.type === 'ballistic')).toBe(true);
+    const pull = eng.pull(30);
+    expect(pull.events.some((e) => e.type === 'ballistic')).toBe(true);
+    // The event is the port bank's: the direct injectors alone are not in their ballistic
+    // region at this load, so a bare engine reports nothing and the port message names the kit.
+    expect(pull.points.some((p) => p.portBallistic)).toBe(true);
+    expect(pull.events.find((e) => e.type === 'ballistic').msg).toMatch(/^Port injectors/);
+    expect(b58().pull(30).events.some((e) => e.type === 'ballistic')).toBe(false);
   });
 
   it('T8: gives back charge cooling and knock margin as port share rises', () => {
@@ -83,5 +90,61 @@ describe('metering through a staged kit (T6–T9)', () => {
     const small = { injIdx: idx(315), ecuInjectorCc: 315 };
     const pull = b58({ portKit: small }, { 'injector.portShare': flatShare(100) }).pull(100);
     expect(pull.points.some((p) => (p.protect ?? []).includes('duty'))).toBe(true);
+  });
+
+  it('pins the port bank fields: present with a share, absent without one', () => {
+    const withShare = at(b58({ portKit: kit }, { 'injector.portShare': flatShare(50) }).pull(100), 4000);
+    for (const f of ['portPw', 'portDuty', 'portOpen', 'portShare']) expect(withShare).toHaveProperty(f);
+    expect(withShare.portShare).toBeCloseTo(0.5, 2);
+    expect(withShare.portPw).toBeGreaterThan(0);
+    const none = at(b58({ portKit: kit }, { 'injector.portShare': flatShare(0) }).pull(100), 4000);
+    for (const f of ['portPw', 'portDuty', 'portOpen', 'portBallistic', 'portShare']) expect(none).not.toHaveProperty(f);
+    expect(at(b58().pull(100), 4000)).not.toHaveProperty('portShare');
+  });
+
+  it('conserves fuel: a kit told its real size delivers what the bare engine does', () => {
+    // Away from the ballistic region and from saturation, splitting the fuel between two
+    // banks must not add or lose any: the ECU meters the same total for the same air.
+    const bare = at(b58().pull(100), 4000);
+    const split = at(b58({ portKit: kit }, { 'injector.portShare': flatShare(50) }).pull(100), 4000);
+    expect(split.portBallistic).toBe(false);
+    expect(split.ballistic).toBe(false);
+    expect(split.portDuty).toBeLessThan(90);
+    expect(split.fuelMass).toBeCloseTo(bare.fuelMass, 0);
+    expect(Math.abs(split.fuelMass / bare.fuelMass - 1)).toBeLessThan(0.02);
+  });
+
+  it('logs both banks on the live engine, and the kit wets the port walls', () => {
+    expect(S.LOG_CHANNELS.some((c) => c.id === 'portDuty')).toBe(true);
+    expect(S.LOG_CHANNELS.some((c) => c.id === 'portPw')).toBe(true);
+    const eng = b58({ portKit: kit }, { 'injector.portShare': flatShare(60) });
+    expect(runLive(eng, { seconds: 4 }).rows.at(-1).portPw).toBeGreaterThan(0);
+    expect(runLive(b58(), { seconds: 4 }).rows.at(-1).portPw).toBe(0);
+    // More fuel on the walls means less of a tip-in's fuel reaches the cylinder at first.
+    const tip = (e) => Math.min(...runLive(e, { seconds: 1, from: runLive(e, { seconds: 4 }).state, pedal: () => 60 }).rows.map((r) => r.filmFactor));
+    expect(tip(eng)).toBeLessThan(tip(b58()));
+    // T6's last check: on the factory staging a kit sends nothing at idle.
+    expect(runLive(b58({ portKit: kit }), { seconds: 8 }).rows.at(-1).portPw).toBe(0);
+  });
+
+  it('applies the duty protection to the port bank on the live engine', () => {
+    const small = { injIdx: idx(315), ecuInjectorCc: 315 };
+    const eng = b58({ portKit: small }, { 'injector.portShare': flatShare(100) });
+    const rows = runLive(eng, { seconds: 6, pedal: () => 100, holdRpm: 5500 }).rows;
+    expect(rows.some((r) => r.portDuty > 92)).toBe(true);
+    expect(rows.some((r) => (r.protect ?? []).includes('duty'))).toBe(true);
+  });
+});
+
+describe('a kit only exists on a direct-injected engine', () => {
+  it('leaves a port engine untouched even if a kit is forced into its ECU hardware', () => {
+    const eng = makeEngine({ cal: { 'injector.portShare': flatShare(60) } });
+    expect(eng.derived.injection).toBe('port');
+    const cfg = eng.liveCfg();
+    const sweep = (hw) => S.simulateSweep({ ...cfg, loadKpa: 100, ecu: { ...cfg.ecu, hw } });
+    const plain = sweep(cfg.ecu.hw);
+    const forced = sweep({ ...cfg.ecu.hw, portKit });
+    expect(forced.points).toEqual(plain.points);
+    expect(forced.points.some((p) => 'portShare' in p)).toBe(false);
   });
 });
