@@ -202,6 +202,17 @@ export const ECU_COEFF = Object.freeze({
    * it below and T3 on the B58 above, to about 0.145–0.165.
    */
   BALLISTIC_FLOW_EXP: 0.15,
+  /**
+   * Factory staging of a port injection kit over direct injection: no port fuel up to
+   * this manifold pressure, kPa. A port set brought in at idle runs pulses short enough to
+   * be ballistic, which is exactly what staging exists to avoid, so the direct injectors
+   * carry everything off boost.
+   */
+  PORT_STAGE_START_KPA: 100,
+  /** Manifold pressure at which the port set reaches its full share, kPa. */
+  PORT_STAGE_FULL_KPA: 200,
+  /** The share of each cycle's fuel the port set carries once fully staged in, percent. */
+  PORT_STAGE_MAX_PCT: 50,
   /** Rail pressure above rating at which a pump's flow would reach zero, kPa. */
   PUMP_PRESSURE_SPAN_KPA: 900,
   PUMP_FLOW_MIN: 0.15,
