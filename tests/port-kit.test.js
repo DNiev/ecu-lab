@@ -212,6 +212,72 @@ describe('a kit only exists on a direct-injected engine', () => {
   });
 });
 
+describe('a kitted direct engine on the stock calibration tells one story', () => {
+  const E85 = S.OCTANE_OPTS.findIndex((o) => o.stoich < 12);
+  const where = (cells) => cells.map((c) => `${c.map} kPa / ${c.rpm} rpm`);
+
+  /**
+   * The B58 with a 1300 cc kit, scaled and on factory staging, after RESET ALL TO STOCK:
+   * the tables `stockCalibrationFor` writes and the engine management EcuLab dispatches
+   * with them (`defaultEcuCalibration` on the stock axes, with the stock VVT schedule).
+   */
+  const resetKitted = (octaneIdx) => {
+    const p = S.applyPreset(S.presetById('b58-m1'));
+    const eng = makeEngine({ preset: 'b58-m1', build: { portKit: kit, octaneIdx, mods: S.stockModsOf(p) } });
+    const stock = S.stockCalibrationFor({ ...eng.build });
+    Object.assign(eng.tables, { ve: stock.ve, timing: stock.timing, afr: stock.afr, layout: stock.layout });
+    eng.build.mafScalar = stock.mafScalar;
+    const resetEcu = { ...S.defaultEcuCalibration({ derived: eng.derived, gate: eng.hw.gate, axes: stock.layout.timing }), vvt: stock.ecu.vvt };
+    for (const k of Object.keys(eng.cal)) delete eng.cal[k];
+    Object.assign(eng.cal, resetEcu);
+    return eng;
+  };
+
+  it('writes the stock tables for the kit: less filling and less spark where it carries fuel, the same off boost', () => {
+    const p = S.applyPreset(S.presetById('b58-m1'));
+    const bench = { ...makeEngine({ preset: 'b58-m1', build: { octaneIdx: E85, mods: S.stockModsOf(p) } }).build };
+    const bare = S.stockCalibrationFor(bench);
+    const kitted = S.stockCalibrationFor({ ...bench, portKit: kit });
+    const L = bare.layout;
+    const rows = (axes, f) => axes.load.map((v, ri) => ({ v, ri })).filter(({ v }) => f(v));
+    // Off boost factory staging sends the kit nothing, so those rows are untouched. (The
+    // 100 kPa spark row may come down: the ECU blends it with the boosted row above, and
+    // the kit carries fuel between them.)
+    for (const { ri } of rows(L.ve, (v) => v <= 100)) expect(kitted.ve[ri]).toEqual(bare.ve[ri]);
+    for (const { ri } of rows(L.timing, (v) => v < 100)) expect(kitted.timing[ri]).toEqual(bare.timing[ri]);
+    const boosted = rows(L.ve, (v) => v >= 150);
+    expect(boosted.length).toBeGreaterThan(0);
+    for (const { ri } of boosted) kitted.ve[ri].forEach((v, ci) => expect(v).toBeLessThan(bare.ve[ri][ci]));
+    // Less charge cooling, so less spark on boost where knock sets it. (A cell MBT sets can
+    // move a tenth either way: the warmer charge burns a little differently.)
+    const spark = rows(L.timing, (v) => v >= 150).flatMap(({ ri }) => kitted.timing[ri].map((v, ci) => v - bare.timing[ri][ci]));
+    expect(Math.min(...spark)).toBeLessThan(-1);
+    expect(spark.reduce((a, b) => a + b, 0)).toBeLessThan(0);
+  });
+
+  it.each([['gasoline', null], ['E85', E85]])('on %s: the pull logs no knock, lean or rich, and TUNE agrees', (_name, oi) => {
+    const eng = resetKitted(oi ?? S.applyPreset(S.presetById('b58-m1')).octaneIdx);
+    const pull = eng.pull(100);
+    // The kit is really carrying fuel on boost, or this test proves nothing.
+    expect(pull.points.some((pt) => (pt.portShare ?? 0) > 0.2)).toBe(true);
+    const bad = pull.events.filter((e) => ['knock', 'lean', 'rich', 'unheardknock', 'knockprot', 'leanprot'].includes(e.type));
+    expect(bad.map((e) => `${e.type}: ${e.msg}`)).toEqual([]);
+    const cc = S.INJECTOR_OPTS[eng.build.injIdx].cc;
+    const a = S.calibrationAdvice({
+      ve: eng.tables.ve, veTruth: eng.veTruth, timing: eng.tables.timing, afr: eng.tables.afr, layout: eng.tables.layout,
+      camAt: eng.camAt, derived: eng.derived, fuel: eng.fuel, mods: eng.build.mods, turboOn: eng.build.turboOn,
+      boostCurve: eng.build.boostCurve, compressor: eng.compressor, turbine: eng.turbine,
+      injectorCc: cc, ecuInjectorCc: eng.build.ecuInjectorCc, mafScalar: eng.build.mafScalar,
+      mafErrorBase: S.mafErrorFactor(eng.build.mods, eng.build.turboOn), pull,
+      // As EcuLab asks: the share the kit carries, off the calibration the pull runs.
+      portShareAt: (rpm, kpa) => S.portShareAt(eng.cal, rpm, kpa),
+    });
+    expect(where(a.overAdvanced)).toEqual([]);
+    expect(where(a.wrongMix)).toEqual([]);
+    expect(pull.points.filter((pt) => pt.knock || pt.leanRisk || pt.richRisk).map((pt) => pt.rpm)).toEqual([]);
+  });
+});
+
 describe('a kit carrying all of the fuel', () => {
   const derived = S.deriveEngine(direct);
   /** One boosted point on a direct engine with 1300 cc direct injectors and a 1300 cc kit. */

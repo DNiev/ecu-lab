@@ -163,10 +163,8 @@ export function evaluatePoint({
   // Direct injection's extra filling comes from fuel evaporating in the cylinder while the
   // intake valve is open (VE_DIRECT_INJECTION). Fuel sent through a port kit cools the
   // valve instead, so the share it carries does not earn it.
-  const diFillingKept = portShare > 0
-    ? (1 + (COEFF.VE_DIRECT_INJECTION - 1) * (1 - portShare)) / COEFF.VE_DIRECT_INJECTION
-    : 1;
-  const veActual = (veActualVal ?? veVal) * diFillingKept;
+  const kitBlend = portKitBlend(derived, portShare);
+  const veActual = (veActualVal ?? veVal) * kitBlend.veScale;
   const vCylM3 = (derived.displacementL / derived.cyl) / 1000;
   // NITROUS in the intake: liquid flashing to vapour takes its latent heat from the air,
   // so the charge arrives colder and denser; the vapour then fills room the air would
@@ -273,9 +271,7 @@ export function evaluatePoint({
     : Math.min(deliveredFuelG, airChargeG / fuel.stoich);
   // Fuel through a port kit evaporates off the valve, not in the cylinder, so the charge
   // cooling a direct-injected engine relies on shrinks with the share it carries.
-  const evapInCylinder = portShare > 0
-    ? portShare * COEFF.FUEL_EVAP_IN_CYLINDER_PORT + (1 - portShare) * derived.evapInCylinder
-    : null;
+  const { evapInCylinder } = kitBlend;
   const cycDerived = E?.chamberOffsetK || evapInCylinder != null
     ? {
       ...derived,
@@ -480,6 +476,26 @@ function ecuTrimmedFactor(netFactor, openLoop, E) {
   const leftAfterLimit = Math.sign(err) * Math.max(0, Math.abs(err) - limit);
   const left = Math.abs(leftAfterLimit) > Math.abs(err * residual) ? leftAfterLimit : err * residual;
   return 1 + left;
+}
+
+/**
+ * What a port injection kit's share of the fuel takes from direct injection. Port fuel
+ * evaporates off the intake valve, not in the cylinder, so it neither earns direct
+ * injection's extra filling (`VE_DIRECT_INJECTION`) nor cools the charge the way direct
+ * fuel does (`FUEL_EVAP_IN_CYLINDER_*`). The one place this is written: the point, the
+ * factory calibration and the advisor all blend by it, so they cannot disagree.
+ *
+ * @param {{evapInCylinder: number}} derived the engine, as `deriveEngine` gives it
+ * @param {number} share fraction of the fuel through the port set, 0–1
+ * @returns {{veScale: number, evapInCylinder: number|null}} the factor on the engine's true
+ *   VE, and its in-cylinder evaporation share; null (unchanged) with no port share
+ */
+export function portKitBlend(derived, share) {
+  if (!(share > 0)) return { veScale: 1, evapInCylinder: null };
+  return {
+    veScale: (1 + (COEFF.VE_DIRECT_INJECTION - 1) * (1 - share)) / COEFF.VE_DIRECT_INJECTION,
+    evapInCylinder: share * COEFF.FUEL_EVAP_IN_CYLINDER_PORT + (1 - share) * derived.evapInCylinder,
+  };
 }
 
 /**
