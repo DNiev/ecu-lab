@@ -208,25 +208,13 @@ export function evaluatePoint({
   // it passes fuel as the square root of the pressure across it. The ECU flows it at
   // whatever pressure it assumes; the injector flows at whatever pressure is there.
   const inj = E?.inj;
-  const ecuGramsPerMs = (ecuInjectorCc * ecuFuel.density) / 60000 * (inj?.ecuFlowScale ?? 1);
-  const actualGramsPerMs = (injectorCc * fuel.density) / 60000 * (inj?.actualFlowScale ?? 1);
-  const deadEcuMs = inj?.deadEcuMs ?? INJ_DEADTIME_MS;
-  const deadActualMs = inj?.deadActualMs ?? INJ_DEADTIME_MS;
   const cycleTimeMs = 120000 / rpm;
-  // The shortest pulse the ECU will command: below it an injector is in its ballistic
-  // region, where the needle never reaches full lift and flow stops being proportional
-  // to time. Clamping trades a slightly rich idle for a repeatable one.
-  const pulseWidthMs = Math.max(fuelMassG / ecuGramsPerMs + deadEcuMs, inj?.minPwMs ?? 0);
-  const maxPulseMs = cycleTimeMs * (inj?.maxDutyFrac ?? 0.9);
-  const dutyPct = clamp((pulseWidthMs / cycleTimeMs) * 100, 0, 220);
-
-  const cappedPw = Math.min(pulseWidthMs, maxPulseMs);
-  const fuelLimited = pulseWidthMs > maxPulseMs;
-  const openMs = cappedPw - deadActualMs;
-  const deliveredFuelG = Math.max(
-    1e-6,
-    (E ? ballisticOpenMs(openMs) : openMs) * actualGramsPerMs * (E?.cylinderFuelFactor ?? 1),
-  );
+  const base = meterBank({
+    fuelG: fuelMassG, cc: injectorCc, ecuCc: ecuInjectorCc, inj, ecuFuel, fuel, cycleTimeMs, E,
+  });
+  const { ecuGramsPerMs, deadEcuMs, deadActualMs, pulseWidthMs, dutyPct } = base;
+  const fuelLimited = base.fuelLimited;
+  const deliveredFuelG = Math.max(1e-6, base.deliveredG);
   // A wet kit's fuel arrives through its own nozzle, beside the injectors. The nitrous
   // brings oxygen worth 1.57 times its mass in air, so lambda counts it: this is what the
   // flame and the wideband both see.
@@ -349,6 +337,10 @@ export function evaluatePoint({
     bfs: Number(((airChargeBelievedG / ecuFuel.stoich) / ecuGramsPerMs).toFixed(2)),
     deadTime: Number(deadEcuMs.toFixed(3)),
     deadTimeActual: Number(deadActualMs.toFixed(3)),
+    // The base bank's real opening, and whether it fell inside its ballistic region:
+    // what the pull log reports when an injector is too big for the fuel this load needs.
+    injOpen: Number(base.openMs.toFixed(3)),
+    ballistic: base.ballistic,
     railDp: Number((inj?.railDeltaKpa ?? 300).toFixed(0)),
     // What a wideband in the collector sees: cut cylinders pass their air straight
     // through, so a fuel cut reads lean even though every firing cylinder is on target.
@@ -448,22 +440,75 @@ function ecuTrimmedFactor(netFactor, openLoop, E) {
 }
 
 /**
- * Injector opening time corrected for the ballistic region. Below about a third of a
- * millisecond of open time the pintle is still accelerating and never reaches full
- * lift, so the injector passes proportionally less than its rating says. Above it, flow
- * is linear in time, which is the only region a flow rating describes.
+ * The open time below which an injector is ballistic: the pintle is still accelerating
+ * and never reaches full lift. It grows with the flow rating, because a bigger injector
+ * has a heavier armature to lift (`BALLISTIC_FLOW_EXP`), and that is the whole cost of
+ * oversizing: the bigger the injector, the more of idle and light load falls inside it.
+ *
+ * @param {number} cc static flow rating, cc/min
+ * @returns {number} ms
+ */
+export function ballisticFromMs(cc) {
+  return ECU_COEFF.BALLISTIC_OPEN_MS * (cc / ECU_COEFF.BALLISTIC_REF_CC) ** ECU_COEFF.BALLISTIC_FLOW_EXP;
+}
+
+/**
+ * Injector opening time corrected for the ballistic region. Below
+ * {@link ballisticFromMs} the pintle is still accelerating and never reaches full lift,
+ * so the injector passes proportionally less than its rating says. Above it, flow is
+ * linear in time, which is the only region a flow rating describes.
  *
  * @param {number} openMs pulse width minus dead time
+ * @param {number} [cc] the injector's flow rating, cc/min; the reference size when absent
  * @returns {number} equivalent full-flow opening time, ms
  */
-export function ballisticOpenMs(openMs) {
-  const linearFrom = ECU_COEFF.BALLISTIC_OPEN_MS;
+export function ballisticOpenMs(openMs, cc = ECU_COEFF.BALLISTIC_REF_CC) {
+  const linearFrom = ballisticFromMs(cc);
   if (openMs >= linearFrom) return openMs;
   if (openMs <= 0) return 0;
   // Flow ramps up as the needle lifts: quadratic in time, meeting the linear region at
   // its start. Always less than the rating predicts, which is why a tiny commanded pulse
   // runs lean and erratic.
   return (openMs * openMs) / linearFrom;
+}
+
+/**
+ * One bank of injectors metering its share of a cycle's fuel: the pulse the ECU commands
+ * for the size it has been TOLD is fitted, and what the injectors really deliver.
+ *
+ * @param {object} b
+ * @param {number} b.fuelG fuel the ECU wants from this bank this cycle, g
+ * @param {number} b.cc fitted flow rating, cc/min
+ * @param {number} b.ecuCc the flow rating the ECU has been told, cc/min
+ * @param {object} [b.inj] injector reality versus belief (`PointInput.inj`)
+ * @param {{density: number}} b.ecuFuel the fuel the ECU believes is in the tank
+ * @param {{density: number}} b.fuel the fuel actually in the tank
+ * @param {number} b.cycleTimeMs one engine cycle, ms
+ * @param {object|null} b.E the ECU context, when there is one
+ * @returns {{ecuGramsPerMs: number, deadEcuMs: number, deadActualMs: number, pulseWidthMs: number,
+ *   dutyPct: number, openMs: number, fuelLimited: boolean, deliveredG: number, ballistic: boolean}}
+ */
+function meterBank({ fuelG, cc, ecuCc, inj, ecuFuel, fuel, cycleTimeMs, E }) {
+  const ecuGramsPerMs = (ecuCc * ecuFuel.density) / 60000 * (inj?.ecuFlowScale ?? 1);
+  const actualGramsPerMs = (cc * fuel.density) / 60000 * (inj?.actualFlowScale ?? 1);
+  const deadEcuMs = inj?.deadEcuMs ?? INJ_DEADTIME_MS;
+  const deadActualMs = inj?.deadActualMs ?? INJ_DEADTIME_MS;
+  // The shortest pulse the ECU will command: below it an injector is in its ballistic
+  // region, where the needle never reaches full lift and flow stops being proportional
+  // to time. Clamping trades a slightly rich idle for a repeatable one.
+  const pulseWidthMs = Math.max(fuelG / ecuGramsPerMs + deadEcuMs, inj?.minPwMs ?? 0);
+  const maxPulseMs = cycleTimeMs * (inj?.maxDutyFrac ?? 0.9);
+  const cappedPw = Math.min(pulseWidthMs, maxPulseMs);
+  const openMs = cappedPw - deadActualMs;
+  return {
+    ecuGramsPerMs, deadEcuMs, deadActualMs, pulseWidthMs, openMs,
+    dutyPct: clamp((pulseWidthMs / cycleTimeMs) * 100, 0, 220),
+    fuelLimited: pulseWidthMs > maxPulseMs,
+    deliveredG: (E ? ballisticOpenMs(openMs, cc) : openMs) * actualGramsPerMs * (E?.cylinderFuelFactor ?? 1),
+    // The epsilon keeps a minimum pulse set exactly to the threshold from flagging on
+    // the rounding of (pulse + dead) − dead.
+    ballistic: !!E && openMs > 0 && openMs < ballisticFromMs(cc) - 1e-9,
+  };
 }
 
 /**

@@ -186,8 +186,22 @@ export const ECU_COEFF = Object.freeze({
   DEADTIME_PER_KPA: 0.0005,
   /** Below this battery voltage the injector driver no longer switches. */
   INJECTOR_MIN_V: 6,
-  /** Open time below which the pintle never reaches full lift, ms. */
+  /** Open time below which the pintle never reaches full lift, ms, for a BALLISTIC_REF_CC injector. */
   BALLISTIC_OPEN_MS: 0.35,
+  /** The injector size BALLISTIC_OPEN_MS describes, cc/min: the stock 315 cc part. */
+  BALLISTIC_REF_CC: 315,
+  /**
+   * How the ballistic region grows with flow rating: open time scales as (cc / ref) to
+   * this power. A higher-flow injector has a larger seat and a heavier armature to lift,
+   * so it takes longer to reach full lift. FITTED, not published: it is the value that
+   * leaves 850 cc untouched at a hot idle on every shipped engine, puts 1300 cc carrying
+   * idle on a 3.0–3.5 L six at least 4% lean, and still lets the minimum effective pulse
+   * bring that six back inside the 25% trim limit (#39, targets T1–T3). The untuned error
+   * is modest because the idle controller adds air as the mixture weakens, which lengthens
+   * the pulse and pulls it partly back out of the ballistic region. T2 on the VQ35HR bounds
+   * it below and T3 on the B58 above, to about 0.145–0.165.
+   */
+  BALLISTIC_FLOW_EXP: 0.15,
   /** Rail pressure above rating at which a pump's flow would reach zero, kPa. */
   PUMP_PRESSURE_SPAN_KPA: 900,
   PUMP_FLOW_MIN: 0.15,

@@ -352,7 +352,7 @@ export const ECU_META = [
   { path: 'injector.deadTime', section: 'injectors', group: 'Injector data', label: 'Dead time', kind: 'curve', unit: 'ms', xLabel: 'Battery V', min: 0, max: 4, step: 0.02, decimals: 2,
     help: 'The delay between the ECU opening an injector and fuel flowing, while the coil builds enough force to lift the needle. It grows as voltage falls. Get it wrong and every pulse is off by the error — worst at idle and cranking, where pulses are short.' },
   { path: 'injector.minEffPwMs', section: 'injectors', group: 'Injector data', label: 'Minimum effective pulse', kind: 'number', unit: 'ms', min: 0, max: 1, step: 0.05, decimals: 2,
-    help: 'The shortest opening the ECU will command. Below about 0.35 ms an injector is ballistic — the needle never fully lifts and delivers less than its rating predicts.' },
+    help: 'The shortest opening the ECU will command. Below it an injector is ballistic: the needle never fully lifts and delivers less than its rating predicts. About 0.35 ms on a stock 315 cc injector and longer on bigger ones (0.43 ms at 1300 cc), which is why oversized injectors idle badly until this is set.' },
   { path: 'injector.pressureComp', section: 'injectors', group: 'Fuel pressure', label: 'Pressure compensation', kind: 'enum',
     options: [{ id: 'none', label: 'None (assumes constant)' }, { id: 'manifold', label: 'Fixed rail, MAP-referenced' }, { id: 'sensor', label: 'Rail pressure sensor' }],
     help: 'An injector flows as the square root of the pressure across it. A return-style regulator keeps that constant; a returnless rail does not, and under boost the injectors flow less unless the ECU compensates.' },
