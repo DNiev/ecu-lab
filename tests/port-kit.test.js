@@ -211,3 +211,32 @@ describe('a kit only exists on a direct-injected engine', () => {
     expect(forced.points.some((p) => 'portShare' in p)).toBe(false);
   });
 });
+
+describe('a kit carrying all of the fuel', () => {
+  const derived = S.deriveEngine(direct);
+  /** One boosted point on a direct engine with 1300 cc direct injectors and a 1300 cc kit. */
+  const point = (E) => S.evaluatePoint({
+    rpm: 3000, mapKpa: 150, boostPsi: (150 - S.BARO_KPA) / S.PSI_TO_KPA, veVal: 95, timingVal: 10, afrCommanded: 11.8,
+    fuel: S.OCTANE_OPTS[0], mods: { ...S.DEFAULT_MODS, turboFitted: true }, mafScalar: 1, mafErrorBase: 1,
+    injectorCc: 1300, ecuInjectorCc: 1300, derived, compressor: S.COMPRESSOR_OPTS[1], ecu: E,
+  });
+  // The live engine at 15 V (dead time about 0.85 ms) with the minimum pulse at its 1 ms
+  // ceiling: a direct bank asked for nothing would still open for 0.15 ms, inside its
+  // ballistic region, and deliver fuel nobody asked for.
+  const inj = { minPwMs: 1, deadEcuMs: 0.85, deadActualMs: 0.85 };
+
+  it('leaves the direct injectors shut: no pulse, no duty, not ballistic', () => {
+    const all = point({ inj, portKit: { ...portKit, share: 1 } });
+    expect(all.pw).toBe(0);
+    expect(all.duty).toBe(0);
+    expect(all.injOpen).toBe(0);
+    expect(all.ballistic).toBe(false);
+  });
+
+  it('delivers exactly the port bank\'s fuel, as if it were the only bank', () => {
+    const all = point({ inj, portKit: { ...portKit, share: 1 } });
+    // The same 1300 cc injectors metering everything as one bank, with no kit.
+    const one = point({ inj });
+    expect(all.fuelMass).toBe(one.fuelMass);
+  });
+});

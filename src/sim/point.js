@@ -225,8 +225,12 @@ export function evaluatePoint({
   // whatever pressure it assumes; the injector flows at whatever pressure is there.
   const inj = E?.inj;
   const cycleTimeMs = 120000 / rpm;
+  // A kit handed all of the fuel leaves the direct injectors shut. Metered anyway, they
+  // would still be commanded the minimum pulse for no fuel at all, open inside their
+  // ballistic region, and deliver fuel nobody asked for.
   const base = meterBank({
     fuelG: fuelMassG * (1 - portShare), cc: injectorCc, ecuCc: ecuInjectorCc, inj, ecuFuel, fuel, cycleTimeMs, E,
+    shut: portShare >= 1,
   });
   // The port set rides on the same rail and the same dead-time table as the direct
   // injectors (both simplifications, see the spec): only its size and share differ.
@@ -524,14 +528,21 @@ export function ballisticOpenMs(openMs, cc = ECU_COEFF.BALLISTIC_REF_CC) {
  * @param {{density: number}} b.fuel the fuel actually in the tank
  * @param {number} b.cycleTimeMs one engine cycle, ms
  * @param {object|null} b.E the ECU context, when there is one
+ * @param {boolean} [b.shut] the bank is not fired at all this cycle: no pulse, no fuel
  * @returns {{ecuGramsPerMs: number, deadEcuMs: number, deadActualMs: number, pulseWidthMs: number,
  *   dutyPct: number, openMs: number, fuelLimited: boolean, deliveredG: number, ballistic: boolean}}
  */
-function meterBank({ fuelG, cc, ecuCc, inj, ecuFuel, fuel, cycleTimeMs, E }) {
+function meterBank({ fuelG, cc, ecuCc, inj, ecuFuel, fuel, cycleTimeMs, E, shut = false }) {
   const ecuGramsPerMs = (ecuCc * ecuFuel.density) / 60000 * (inj?.ecuFlowScale ?? 1);
   const actualGramsPerMs = (cc * fuel.density) / 60000 * (inj?.actualFlowScale ?? 1);
   const deadEcuMs = inj?.deadEcuMs ?? INJ_DEADTIME_MS;
   const deadActualMs = inj?.deadActualMs ?? INJ_DEADTIME_MS;
+  if (shut) {
+    return {
+      ecuGramsPerMs, deadEcuMs, deadActualMs, pulseWidthMs: 0, openMs: 0,
+      dutyPct: 0, fuelLimited: false, deliveredG: 0, ballistic: false,
+    };
+  }
   // The shortest pulse the ECU will command: below it an injector is in its ballistic
   // region, where the needle never reaches full lift and flow stops being proportional
   // to time. Clamping trades a slightly rich idle for a repeatable one.
