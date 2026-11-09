@@ -108,6 +108,8 @@ export function DataScreen() {
   );
   const shown = pointAt(result.points, scrubRpm) ?? result.points[0];
   const gauges = pointGauges(shown);
+  // Either injector bank can be the one at its limit (a staged port kit has its own duty).
+  const busiestDuty = Math.max(shown.duty, shown.portDuty ?? 0);
 
   // Three of the eight gauges above carry their verdict ONLY through
   // StatTile's `.danger .value { color: var(--danger) }` — colour with no text
@@ -117,7 +119,7 @@ export function DataScreen() {
   // technology. Wording and thresholds are carried over verbatim from the old
   // Injectors/Heat/Pressure rows (`git show 07288c2` has them).
   const riskNotes = [
-    utilisationTone(shown.duty) === 'danger' && {
+    utilisationTone(busiestDuty) === 'danger' && {
       key: 'injectors',
       text: `Injectors at the limit — ${shown.pw} ms of the ${(120000 / shown.rpm).toFixed(1)} ms available.`,
     },
@@ -136,7 +138,7 @@ export function DataScreen() {
   // readout's border, and they have always been different numbers. Swapping one for the
   // other here would change when the panel goes amber, which is a behaviour change
   // nobody asked for hiding inside a refactor.
-  const warn = !bad && (shown.duty > 85 || shown.egtRisk);
+  const warn = !bad && (busiestDuty > 85 || shown.egtRisk);
   const tone = bad ? 'danger' : warn ? 'warn' : 'ok';
 
   // From the DATA, never from SWEEP_START_RPM/SWEEP_END_RPM: a low-redline build makes

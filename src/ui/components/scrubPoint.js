@@ -93,12 +93,15 @@ export function initialScrubRpm(points, logFocusRpm) {
  */
 export function pointGauges(p) {
   const mixture = p.leanRisk || p.richRisk ? 'danger' : 'neutral';
+  // The busier of the two injector banks: a staged port kit can be at its limit while the
+  // direct injectors are not, and one DUTY reading should not hide that.
+  const duty = Math.max(p.duty, p.portDuty ?? 0);
   return [
     { key: 'maf', label: 'AIRFLOW', value: p.maf, unit: 'g/s', tone: 'neutral' },
     { key: 'map', label: 'MAP', value: p.map, unit: 'kPa', tone: 'neutral' },
     { key: 'iat', label: 'IAT', value: p.iat, unit: '°C', tone: 'neutral' },
     { key: 'lambda', label: 'LAMBDA', value: p.lambda, unit: 'λ', tone: mixture },
-    { key: 'duty', label: 'DUTY', value: p.duty, unit: '%', tone: utilisationTone(p.duty) },
+    { key: 'duty', label: 'DUTY', value: duty, unit: '%', tone: utilisationTone(duty) },
     { key: 'pw', label: 'INJ PW', value: p.pw, unit: 'ms', tone: p.fuelLimited ? 'danger' : 'neutral' },
     { key: 'egt', label: 'EGT', value: p.egt, unit: '°C', tone: p.egtRisk ? 'danger' : 'neutral' },
     { key: 'peakPressure', label: 'PEAK P', value: p.peakPressure, unit: 'bar', tone: p.pressureRisk ? 'danger' : 'neutral' },

@@ -92,6 +92,29 @@ describe('metering through a staged kit (T6–T9)', () => {
     expect(pull.points.some((p) => (p.protect ?? []).includes('duty'))).toBe(true);
   });
 
+  it('reports a saturated port kit in the pull log with the port bank\'s own duty', () => {
+    // Handed all the fuel, the 315 cc kit is the injector that runs out, while the direct
+    // bank sits nearly idle. The event must judge the kit, not the bank that is not busy.
+    const small = { injIdx: idx(315), ecuInjectorCc: 315 };
+    const pull = b58({ portKit: small }, { 'injector.portShare': flatShare(100) }).pull(100);
+    const ev = pull.events.find((e) => e.type === 'fuel');
+    expect(ev.msg).toMatch(/^Port injectors maxed/);
+    const peakPort = Math.max(...pull.points.filter((p) => p.fuelLimited).map((p) => p.portDuty ?? 0));
+    expect(ev.msg).toContain(`up to ${peakPort}% duty`);
+    expect(ev.cause).toMatch(/port kit/);
+    // Without a kit the wording is the one it always was.
+    const bare = b58({}, {}).pull(100).events.find((e) => e.type === 'fuel');
+    if (bare) expect(bare.msg).toMatch(/^Injectors maxed/);
+  });
+
+  it('previews the busier bank\'s duty, so TUNE shows a saturated kit', () => {
+    const small = { injIdx: idx(315), ecuInjectorCc: 315 };
+    const eng = b58({ portKit: small }, { 'injector.portShare': flatShare(100) });
+    const preview = eng.dutyPreview(5000);
+    expect(preview).toBe(at(eng.pull(100), 5000).portDuty);
+    expect(preview).toBeGreaterThan(at(eng.pull(100), 5000).duty);
+  });
+
   it('pins the port bank fields: present with a share, absent without one', () => {
     const withShare = at(b58({ portKit: kit }, { 'injector.portShare': flatShare(50) }).pull(100), 4000);
     for (const f of ['portPw', 'portDuty', 'portOpen', 'portShare']) expect(withShare).toHaveProperty(f);

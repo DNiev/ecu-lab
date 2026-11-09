@@ -103,6 +103,9 @@ export function LiveScreen({ tachFullScaleRpm, onStart, onStop, onToggleSound, o
   // thirty reads below.
   const live = /** @type {Record<string, any>} */ (session.live);
   const engineOff = !live.running && !live.cranking;
+  // The busier injector bank: a staged port kit has its own duty, and can be at its limit
+  // while the direct injectors are not.
+  const busiestDuty = live.live ? Math.max(live.live.duty, live.live.portDuty ?? 0) : 0;
 
   return (
     <>
@@ -215,7 +218,7 @@ export function LiveScreen({ tachFullScaleRpm, onStart, onStop, onToggleSound, o
         </div>
         <div className={styles.gaugeRow}>
           <LiveGauge label="INJ PW" value={live.live ? live.live.pw : '—'} unit="ms" />
-          <LiveGauge label="DUTY" value={live.live ? live.live.duty : '—'} unit="%" warn={!!(live.live && live.live.duty > 90)} />
+          <LiveGauge label="DUTY" value={live.live ? busiestDuty : '—'} unit="%" warn={busiestDuty > 90} />
           <LiveGauge label="IDLE AIR" value={engineOff ? '—' : Math.round(live.idleTrim)} unit={engineOff ? '' : '%'} />
           <LiveGauge label="FUEL" value={engineOff ? 'OFF' : live.fuelCut ? 'CUT' : 'ON'} unit="" color={engineOff ? T.ink2 : live.fuelCut ? T.warn : T.ok} />
         </div>

@@ -157,6 +157,15 @@ describe('pointGauges', () => {
     expect(byKey({ ...CLEAN, duty: 90.1 }, 'duty').tone).toBe('danger');
   });
 
+  it('reads the busier injector bank, so a saturated port kit is not hidden', () => {
+    const portBound = { ...CLEAN, duty: 20, portDuty: 96 };
+    expect(byKey(portBound, 'duty').value).toBe(96);
+    expect(byKey(portBound, 'duty').tone).toBe('danger');
+    // Without a kit the direct bank's duty is the reading, as before.
+    expect(byKey({ ...CLEAN, duty: 20 }, 'duty').value).toBe(20);
+    expect(byKey({ ...CLEAN, duty: 96, portDuty: 10 }, 'duty').value).toBe(96);
+  });
+
   it('tones pulse width danger when the injectors ran out of time', () => {
     expect(byKey({ ...CLEAN, fuelLimited: true }, 'pw').tone).toBe('danger');
     expect(byKey(CLEAN, 'pw').tone).toBe('neutral');

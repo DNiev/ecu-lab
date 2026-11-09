@@ -89,7 +89,8 @@ function check(c, ctx) {
       return { check: c, pass: egt <= c.max, measured: `peak ${Math.round(egt)} °C; ${c.max} °C allowed` };
     }
     case 'maxDuty': {
-      const duty = Math.max(...r.points.map((p) => p.duty));
+      // A staged port kit can be the injector that runs out while the direct bank is idle.
+      const duty = Math.max(...r.points.map((p) => Math.max(p.duty, p.portDuty ?? 0)));
       return { check: c, pass: duty <= c.max, measured: `peak ${Math.round(duty)}% duty; ${c.max}% allowed` };
     }
     case 'untouched': {
