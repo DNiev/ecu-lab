@@ -339,6 +339,7 @@ describe('FuelScreen', () => {
 });
 
 describe('InjectorsScreen', () => {
+  const quietProps = { dutyPreview: 10, injectorCc: 315 };
 
   it('scales a port kit separately, and flags it until told its size', () => {
     function FitKit() {
@@ -357,7 +358,6 @@ describe('InjectorsScreen', () => {
     fireEvent.click(screen.getByText('RESCALE PORT KIT TO 1300cc'));
     expect(screen.getByText('Port kit scaling matches the fitted injectors.')).toBeTruthy();
   });
-  const quietProps = { dutyPreview: 10, injectorCc: 315 };
 
   it('shows the shell-computed duty preview as dangerous only past its own threshold, not a recomputed one', () => {
     // 137 lands well past utilisationColor's own >90 danger band; nothing in

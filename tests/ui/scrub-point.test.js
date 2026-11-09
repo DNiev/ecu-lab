@@ -166,6 +166,14 @@ describe('pointGauges', () => {
     expect(byKey({ ...CLEAN, duty: 96, portDuty: 10 }, 'duty').value).toBe(96);
   });
 
+  it('reads the pulse width of the bank the duty reading belongs to', () => {
+    const portBound = { ...CLEAN, pw: 2.4, duty: 20, portPw: 17.7, portDuty: 96 };
+    expect(byKey(portBound, 'pw').value).toBe(17.7);
+    // The direct bank busier, or no kit at all: the direct pulse width, as before.
+    expect(byKey({ ...portBound, duty: 97 }, 'pw').value).toBe(2.4);
+    expect(byKey({ ...CLEAN, pw: 2.4, duty: 20 }, 'pw').value).toBe(2.4);
+  });
+
   it('tones pulse width danger when the injectors ran out of time', () => {
     expect(byKey({ ...CLEAN, fuelLimited: true }, 'pw').tone).toBe('danger');
     expect(byKey(CLEAN, 'pw').tone).toBe('neutral');

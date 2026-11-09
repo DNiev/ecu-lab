@@ -121,7 +121,9 @@ export function InjectorsScreen({ dutyPreview, dutyRpm = 6500, injectorCc, child
  * @returns {React.ReactElement}
  */
 function PortKitScaling({ kit, dispatch }) {
-  const kitCc = INJECTOR_OPTS[kit.injIdx].cc;
+  // The same fallback `portKitOf` applies to an index that matches no injector, so the
+  // screen and the sim agree on which size the kit is.
+  const kitCc = (INJECTOR_OPTS[kit.injIdx] ?? INJECTOR_OPTS[0]).cc;
   const kitEcu = kit.ecuInjectorCc;
   const setKitEcu = (cc) => dispatch({ type: ACTIONS.SET_BUILD_FIELD, field: 'portKit', value: { ...kit, ecuInjectorCc: cc } });
   return (

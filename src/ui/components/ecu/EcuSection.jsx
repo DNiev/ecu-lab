@@ -74,12 +74,17 @@ export function EcuSection({ section, title, icon, intro, liveVars = null, embed
   };
   const resetSection = () => {
     let next = cal;
-    for (const m of ECU_META.filter((x) => x.section === section)) next = setCal(next, m.path, getCal(def, m.path));
+    // Only the fields on this page: "Factory" must not write a port share table into a
+    // calibration whose build has no kit.
+    for (const m of ECU_META.filter((x) => x.section === section && fitted(x))) next = setCal(next, m.path, getCal(def, m.path));
     dispatch({ type: ACTIONS.SET_ECU, value: next, label: `Reset ${title}` });
   };
-  // A calibration saved before a setting existed has no value for it: it reads as the
-  // factory one, as the ECU's own lookups do, rather than as an edit or as a hole.
-  const calValue = (m) => getCal(cal, m.path) ?? getCal(def, m.path);
+  // A calibration saved before the port share table existed has no value for it, and the
+  // ECU's own lookup (portShareAt) falls back to factory staging, so the table reads as the
+  // factory one rather than as an edit or as a hole. That fallback exists on the ECU side
+  // for no other setting, so only the fields that `needs` a part get it here; any other
+  // missing value stays missing, as it always has.
+  const calValue = (m) => (m.needs ? getCal(cal, m.path) ?? getCal(def, m.path) : getCal(cal, m.path));
   const changedCount = ECU_META.filter((m) => m.section === section && fitted(m)
     && isChanged(m, calValue(m), getCal(def, m.path))).length;
   const sectionModified = changedCount > 0;

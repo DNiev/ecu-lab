@@ -18,7 +18,7 @@ import { cleanup, fireEvent, render, screen, within } from '@testing-library/rea
 import React from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { DEFAULT_ENGINE_CONFIG, MOD_INFO, deriveEngine } from '../../src/sim/index.js';
+import { DEFAULT_ENGINE_CONFIG, INJECTOR_OPTS, MOD_INFO, deriveEngine } from '../../src/sim/index.js';
 import { EngineScreen } from '../../src/ui/screens/build/EngineScreen.jsx';
 import { ExhaustScreen } from '../../src/ui/screens/build/ExhaustScreen.jsx';
 import { FuelSystemScreen } from '../../src/ui/screens/build/FuelSystemScreen.jsx';
@@ -120,17 +120,6 @@ describe('InductionScreen', () => {
 });
 
 describe('FuelSystemScreen', () => {
-
-  it('offers a port injection kit only on a direct-injected engine', () => {
-    function MakeDirect() {
-      const [, dispatch] = useBuild();
-      return <button type="button" onClick={() => dispatch({ type: ACTIONS.SET_ENGINE_CONFIG_PATCH, patch: { injection: 'direct' } })}>make direct</button>;
-    }
-    mount(<><MakeDirect /><FuelSystemScreen active onToggle={noop} /></>);
-    expect(screen.queryByText('Port Injection Kit')).toBeNull();
-    fireEvent.click(screen.getByText('make direct'));
-    expect(screen.getByText('Port Injection Kit')).toBeTruthy();
-  });
   it('sets the fuel octane on the build slice', () => {
     mount(<FuelSystemScreen active onToggle={noop} />);
     fireEvent.click(screen.getByRole('button', { name: '100' }));
@@ -157,6 +146,38 @@ describe('FuelSystemScreen', () => {
     expect(screen.getByText('91 · 315cc (stock)')).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: '650cc' }));
     expect(screen.getByText('91 · 650cc')).toBeTruthy();
+  });
+
+  /** Makes the engine direct-injected, and prints the fitted port kit so a test can read the build slice. */
+  function DirectEngine() {
+    const [build, dispatch] = useBuild();
+    return (
+      <>
+        <button type="button" onClick={() => dispatch({ type: ACTIONS.SET_ENGINE_CONFIG_PATCH, patch: { injection: 'direct' } })}>make direct</button>
+        <output aria-label="fitted port kit">{JSON.stringify(build.portKit)}</output>
+      </>
+    );
+  }
+  const kitPicker = () => screen.getByText('Port Injection Kit').nextElementSibling;
+  const fittedKit = () => JSON.parse(screen.getByLabelText('fitted port kit').textContent);
+
+  it('offers a port injection kit only on a direct-injected engine', () => {
+    mount(<><DirectEngine /><FuelSystemScreen active onToggle={noop} /></>);
+    expect(screen.queryByText('Port Injection Kit')).toBeNull();
+    fireEvent.click(screen.getByText('make direct'));
+    expect(screen.getByText('Port Injection Kit')).toBeTruthy();
+  });
+
+  it('fits a port kit at the stock ECU scaling on first pick, and None takes it off', () => {
+    mount(<><DirectEngine /><FuelSystemScreen active onToggle={noop} /></>);
+    fireEvent.click(screen.getByText('make direct'));
+    expect(fittedKit()).toBeNull();
+    fireEvent.click(within(kitPicker()).getByRole('button', { name: '1300cc' }));
+    // The ECU has never been told about the new kit: it starts at the stock 315 cc, and
+    // telling it the real size is TUNE › INJECTORS.
+    expect(fittedKit()).toEqual({ injIdx: INJECTOR_OPTS.findIndex((o) => o.cc === 1300), ecuInjectorCc: 315 });
+    fireEvent.click(within(kitPicker()).getByRole('button', { name: 'None' }));
+    expect(fittedKit()).toBeNull();
   });
 
   it('reports which section it is when its header is clicked', () => {

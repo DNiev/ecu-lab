@@ -17,6 +17,7 @@ import React from 'react';
 
 import { clamp } from '../../../sim/index.js';
 import { Button } from '../../primitives/Button.jsx';
+import { busiestBank } from '../../components/scrubPoint.js';
 import { DialMark } from '../../components/DialMark.jsx';
 import { ExpandableInfo } from '../../components/ExpandableInfo.jsx';
 import { Eyebrow } from '../../primitives/Eyebrow.jsx';
@@ -104,8 +105,8 @@ export function LiveScreen({ tachFullScaleRpm, onStart, onStop, onToggleSound, o
   const live = /** @type {Record<string, any>} */ (session.live);
   const engineOff = !live.running && !live.cranking;
   // The busier injector bank: a staged port kit has its own duty, and can be at its limit
-  // while the direct injectors are not.
-  const busiestDuty = live.live ? Math.max(live.live.duty, live.live.portDuty ?? 0) : 0;
+  // while the direct injectors are not. The pulse width is read from the same bank.
+  const busiest = live.live ? busiestBank(live.live) : null;
 
   return (
     <>
@@ -217,8 +218,8 @@ export function LiveScreen({ tachFullScaleRpm, onStart, onStop, onToggleSound, o
           <LiveGauge label="TIMING" value={live.live ? live.live.timing : '—'} unit="°" warn={!!(live.live && (live.ecu ? live.ecu.knockNow : live.live.knock))} />
         </div>
         <div className={styles.gaugeRow}>
-          <LiveGauge label="INJ PW" value={live.live ? live.live.pw : '—'} unit="ms" />
-          <LiveGauge label="DUTY" value={live.live ? busiestDuty : '—'} unit="%" warn={busiestDuty > 90} />
+          <LiveGauge label="INJ PW" value={busiest ? busiest.pw : '—'} unit="ms" />
+          <LiveGauge label="DUTY" value={busiest ? busiest.duty : '—'} unit="%" warn={!!busiest && busiest.duty > 90} />
           <LiveGauge label="IDLE AIR" value={engineOff ? '—' : Math.round(live.idleTrim)} unit={engineOff ? '' : '%'} />
           <LiveGauge label="FUEL" value={engineOff ? 'OFF' : live.fuelCut ? 'CUT' : 'ON'} unit="" color={engineOff ? T.ink2 : live.fuelCut ? T.warn : T.ok} />
         </div>

@@ -236,11 +236,22 @@ export function ecuSweepEvents(points, { cal, hw, hardCut, endRpm }) {
   });
 
   groupRuns(points, (p) => has(p, 'duty')).forEach((run) => {
+    // Protection fires on the busier of the two banks. Name the kit when it is the bank
+    // that ran out, or the player is told to size up injectors that have room. `portDuty`
+    // exists only when a kit is sent fuel, so without one this is the plain wording.
+    // (The points are post-cut, so the test is which bank was busier, not whether it
+    // still shows more than the limit.)
+    const busiest = run.reduce((a, b) => (Math.max(b.duty, b.portDuty ?? 0) > Math.max(a.duty, a.portDuty ?? 0) ? b : a));
+    const port = (busiest.portDuty ?? 0) > busiest.duty;
     events.push({
       type: 'dutyprot', severity: 2, impact: imp(8, run), ...span(run),
-      msg: `Injector duty protection cut boost across ${label(run)}`,
-      cause: `Duty passed ${cal.protect.dutyLimitPct}%. Beyond it the injectors cannot add fuel as boost adds air.`,
-      fix: 'On BUILD → FUEL SYSTEM, fit larger injectors — sized to run about 80–85% duty at peak — and enter their flow rate on TUNE → INJECTORS. Or lower the boost target on BUILD → INDUCTION.',
+      msg: `${port ? 'Port kit duty' : 'Injector duty'} protection cut boost across ${label(run)}`,
+      cause: port
+        ? `Port kit duty passed ${cal.protect.dutyLimitPct}%. Beyond it the port injectors cannot add fuel as boost adds air: the port share table is sending the kit more of the fuel than it can flow.`
+        : `Duty passed ${cal.protect.dutyLimitPct}%. Beyond it the injectors cannot add fuel as boost adds air.`,
+      fix: port
+        ? 'On BUILD → FUEL SYSTEM, fit a larger port injection kit (then set its ECU scaling on TUNE → INJECTORS), or lower the port share where it runs out on TUNE → INJECTORS so the direct injectors carry more. Or lower the boost target on BUILD → INDUCTION.'
+        : 'On BUILD → FUEL SYSTEM, fit larger injectors — sized to run about 80–85% duty at peak — and enter their flow rate on TUNE → INJECTORS. Or lower the boost target on BUILD → INDUCTION.',
     });
   });
 

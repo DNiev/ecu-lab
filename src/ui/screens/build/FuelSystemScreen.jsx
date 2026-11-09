@@ -77,7 +77,7 @@ export function FuelSystemScreen({ active, onToggle }) {
           <div className={styles.labelSpaced}>Port Injection Kit</div>
           <PickList
             options={[{ label: 'None', value: 'none' }, ...INJECTOR_OPTS.map((o) => ({ label: o.label, value: o.label }))]}
-            value={build.portKit ? INJECTOR_OPTS[build.portKit.injIdx].label : 'none'}
+            value={build.portKit ? (INJECTOR_OPTS[build.portKit.injIdx] ?? INJECTOR_OPTS[0]).label : 'none'}
             onChange={(v) => dispatch({
               type: ACTIONS.SET_BUILD_FIELD, field: 'portKit',
               // A new kit's ECU scaling starts at the stock size, not the fitted one: the

@@ -102,9 +102,49 @@ describe('metering through a staged kit (T6–T9)', () => {
     const peakPort = Math.max(...pull.points.filter((p) => p.fuelLimited).map((p) => p.portDuty ?? 0));
     expect(ev.msg).toContain(`up to ${peakPort}% duty`);
     expect(ev.cause).toMatch(/port kit/);
-    // Without a kit the wording is the one it always was.
-    const bare = b58({}, {}).pull(100).events.find((e) => e.type === 'fuel');
-    if (bare) expect(bare.msg).toMatch(/^Injectors maxed/);
+    // The direct bank is idling here, so the cause says the problem is the share, not the direct injectors.
+    expect(ev.cause).toContain('The direct injectors are not the ones out of room');
+    expect(ev.fix).toContain('fit a larger port injection kit (then enter its flow rate on TUNE → INJECTORS)');
+  });
+
+  it('keeps the injector wording exactly as it was when there is no kit and the injectors run out', () => {
+    // A 315 cc direct set on a boosted B58 saturates. Without a kit nothing about the
+    // events may change: the strings below are what the parent of the port kit work printed.
+    const eng = b58({ injIdx: idx(315), ecuInjectorCc: 315 });
+    const pull = eng.pull(100);
+    expect(pull.points.some((p) => p.fuelLimited)).toBe(true);
+    expect(pull.points.every((p) => !('portDuty' in p))).toBe(true);
+
+    const fuel = pull.events.find((e) => e.type === 'fuel');
+    expect(fuel.msg).toMatch(/^Injectors maxed across \d+–\d+ RPM \(up to \d+% duty\) — mixture leaned to [\d.]+:1$/);
+    expect(fuel.cause).toMatch(/^Required pulse width \([\d.]+ ms\) exceeds 90% of the [\d.]+ ms available per engine cycle at \d+ RPM, so the 315cc \(stock\) injectors physically cannot deliver the commanded fuel\.$/);
+    expect(fuel.fix).toBe('On BUILD → FUEL SYSTEM, fit larger injectors — size them to run about 80–85% duty at peak — then enter their flow rate on TUNE → INJECTORS. Or lower the boost target in this range on BUILD → INDUCTION so demand fits the injectors you have.');
+
+    const prot = pull.events.find((e) => e.type === 'dutyprot');
+    expect(prot.msg).toMatch(/^Injector duty protection cut boost across \d+–\d+ RPM$/);
+    expect(prot.cause).toMatch(/^Duty passed \d+%\. Beyond it the injectors cannot add fuel as boost adds air\.$/);
+    expect(prot.fix).toBe('On BUILD → FUEL SYSTEM, fit larger injectors — sized to run about 80–85% duty at peak — and enter their flow rate on TUNE → INJECTORS. Or lower the boost target on BUILD → INDUCTION.');
+  });
+
+  it('names the port kit in the duty protection event when the kit tripped it', () => {
+    const small = { injIdx: idx(315), ecuInjectorCc: 315 };
+    const pull = b58({ portKit: small }, { 'injector.portShare': flatShare(100) }).pull(100);
+    const ev = pull.events.find((e) => e.type === 'dutyprot');
+    expect(ev.msg).toMatch(/^Port kit duty protection cut boost across/);
+    expect(ev.cause).toMatch(/^Port kit duty passed \d+%/);
+    expect(ev.cause).toMatch(/port share/);
+    expect(ev.fix).toMatch(/larger port injection kit/);
+    expect(ev.fix).toMatch(/port share/);
+    expect(ev.fix).toMatch(/TUNE → INJECTORS/);
+  });
+
+  it('keeps the plain duty protection wording when the direct bank tripped it, even with a kit fitted', () => {
+    // Small direct injectors, a kit that is sent nothing: the direct bank is the one out of room.
+    const eng = b58({ portKit: kit, injIdx: idx(315), ecuInjectorCc: 315 }, { 'injector.portShare': flatShare(0) });
+    const ev = eng.pull(100).events.find((e) => e.type === 'dutyprot');
+    expect(ev.msg).toMatch(/^Injector duty protection cut boost across/);
+    expect(ev.cause).toMatch(/^Duty passed \d+%\. Beyond it the injectors cannot/);
+    expect(ev.fix).toMatch(/^On BUILD → FUEL SYSTEM, fit larger injectors/);
   });
 
   it('previews the busier bank\'s duty, so TUNE shows a saturated kit', () => {

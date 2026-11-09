@@ -366,6 +366,17 @@ describe('DataScreen', () => {
     expect(inj.textContent).toBe('Injectors at the limit \u2014 6.1 ms of the 18.5 ms available.');
   });
 
+  it('names the port kit, and its pulse width, when the port bank is the busier one', () => {
+    // The direct bank idles at 20 % duty / 2.4 ms while the staged kit is at 96 % / 17.7 ms:
+    // the sentence must quote the kit's pulse width, not the direct injectors' (#39).
+    const portBound = { ...FAKE_POINT, rpm: 6500, duty: 20, pw: 2.4, portDuty: 96, portPw: 17.7 };
+    const { container } = mountWithResult(
+      <DataScreen />, { result: { points: [portBound], events: [], peakHp: 111, peakTq: 222 }, histogram: null, logFocusRpm: 6500 },
+    );
+    const inj = container.querySelector('[data-risk-note="injectors"]');
+    expect(inj.textContent).toBe('Port injectors at the limit \u2014 17.7 ms of the 18.5 ms available.');
+  });
+
   it('shows the pressure risk sentence for a point with pressureRisk, and not the heat one', () => {
     const PRESSURE_RISK_RESULT = {
       points: [{ ...FAKE_POINT, pressureRisk: true }],
