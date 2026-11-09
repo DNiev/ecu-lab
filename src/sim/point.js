@@ -107,6 +107,9 @@ import { chargeTempK, exhaustTempK } from './thermo.js';
  *   injector reality versus belief: real flow from the pressure across it and the
  *   pump's capacity, the flow the ECU assumes, true and assumed dead time, the shortest
  *   pulse the ECU will command, and the duty ceiling
+ * @property {{injectorCc: number, ecuInjectorCc: number, share: number}} [portKit] a port
+ *   injection kit staged over direct injection: its fitted and believed sizes, and the
+ *   share (0–1) of this cycle's fuel the ECU sends through it
  * @property {{retardDeg?: number, deadbandDeg?: number, falseRetardDeg?: number,
  *   maxRetardDeg?: number, enabled?: boolean, stepDeg?: number}} [knock] knock control. `retardDeg` is a
  *   live controller's current retard; without it the steady-state controller settles at
@@ -133,6 +136,10 @@ export function evaluatePoint({
   injectorCc, ecuInjectorCc, derived, compressor, turbine = null,
   empKpa: empOverride, wastegateRelief = 0, ecu: E = null, blower = null, nitrous = null, cam = null,
 }) {
+  // A port kit on a direct-injected engine carries this share of the fuel; the direct
+  // injectors carry the rest. Zero without a kit, and zero off boost on factory staging.
+  const portKit = E?.portKit ?? null;
+  const portShare = portKit ? clamp(portKit.share, 0, 1) : 0;
   // A supercharger brings its own compressor: its ceiling and its efficiency, which set
   // how hot the charge arrives. Without one, the turbo's compressor as always.
   const compressorOver = blower ? false : boostPsi > compressor.boostCeiling;
@@ -150,7 +157,13 @@ export function evaluatePoint({
   //              oracle and fuels from this and nothing else.
   // The gap between them IS the fuel-trim histogram's entire signal. Share one VE and the
   // gap is identically zero, the histogram reads nothing, and no iteration can close it.
-  const veActual = veActualVal ?? veVal;
+  // Direct injection's extra filling comes from fuel evaporating in the cylinder while the
+  // intake valve is open (VE_DIRECT_INJECTION). Fuel sent through a port kit cools the
+  // valve instead, so the share it carries does not earn it.
+  const diFillingKept = portShare > 0
+    ? (1 + (COEFF.VE_DIRECT_INJECTION - 1) * (1 - portShare)) / COEFF.VE_DIRECT_INJECTION
+    : 1;
+  const veActual = (veActualVal ?? veVal) * diFillingKept;
   const vCylM3 = (derived.displacementL / derived.cyl) / 1000;
   // NITROUS in the intake: liquid flashing to vapour takes its latent heat from the air,
   // so the charge arrives colder and denser; the vapour then fills room the air would
@@ -210,11 +223,18 @@ export function evaluatePoint({
   const inj = E?.inj;
   const cycleTimeMs = 120000 / rpm;
   const base = meterBank({
-    fuelG: fuelMassG, cc: injectorCc, ecuCc: ecuInjectorCc, inj, ecuFuel, fuel, cycleTimeMs, E,
+    fuelG: fuelMassG * (1 - portShare), cc: injectorCc, ecuCc: ecuInjectorCc, inj, ecuFuel, fuel, cycleTimeMs, E,
   });
+  // The port set rides on the same rail and the same dead-time table as the direct
+  // injectors (both simplifications, see the spec): only its size and share differ.
+  const portBank = portShare > 0
+    ? meterBank({
+      fuelG: fuelMassG * portShare, cc: portKit.injectorCc, ecuCc: portKit.ecuInjectorCc, inj, ecuFuel, fuel, cycleTimeMs, E,
+    })
+    : null;
   const { ecuGramsPerMs, deadEcuMs, deadActualMs, pulseWidthMs, dutyPct } = base;
-  const fuelLimited = base.fuelLimited;
-  const deliveredFuelG = Math.max(1e-6, base.deliveredG);
+  const fuelLimited = base.fuelLimited || !!portBank?.fuelLimited;
+  const deliveredFuelG = Math.max(1e-6, base.deliveredG + (portBank?.deliveredG ?? 0));
   // A wet kit's fuel arrives through its own nozzle, beside the injectors. The nitrous
   // brings oxygen worth 1.57 times its mass in air, so lambda counts it: this is what the
   // flame and the wideband both see.
@@ -244,8 +264,17 @@ export function evaluatePoint({
   const burnedFuelG = n2o
     ? Math.min(totalFuelG, oxygenAsAirG / fuel.stoich)
     : Math.min(deliveredFuelG, airChargeG / fuel.stoich);
-  const cycDerived = E?.chamberOffsetK
-    ? { ...derived, chamberOffsetK: (derived.chamberOffsetK || 0) + E.chamberOffsetK }
+  // Fuel through a port kit evaporates off the valve, not in the cylinder, so the charge
+  // cooling a direct-injected engine relies on shrinks with the share it carries.
+  const evapInCylinder = portShare > 0
+    ? portShare * COEFF.FUEL_EVAP_IN_CYLINDER_PORT + (1 - portShare) * derived.evapInCylinder
+    : null;
+  const cycDerived = E?.chamberOffsetK || evapInCylinder != null
+    ? {
+      ...derived,
+      ...(E?.chamberOffsetK ? { chamberOffsetK: (derived.chamberOffsetK || 0) + E.chamberOffsetK } : {}),
+      ...(evapInCylinder != null ? { evapInCylinder } : {}),
+    }
     : derived;
   const cyc = cycleInputsFor({
     rpm, mapKpa, empKpa, intakeK: cylChargeK,
@@ -341,6 +370,13 @@ export function evaluatePoint({
     // what the pull log reports when an injector is too big for the fuel this load needs.
     injOpen: Number(base.openMs.toFixed(3)),
     ballistic: base.ballistic,
+    ...(portBank ? {
+      portPw: Number(portBank.pulseWidthMs.toFixed(2)),
+      portDuty: Math.round(portBank.dutyPct),
+      portOpen: Number(portBank.openMs.toFixed(3)),
+      portBallistic: portBank.ballistic,
+      portShare: Number(portShare.toFixed(3)),
+    } : {}),
     railDp: Number((inj?.railDeltaKpa ?? 300).toFixed(0)),
     // What a wideband in the collector sees: cut cylinders pass their air straight
     // through, so a fuel cut reads lean even though every firing cylinder is on target.
