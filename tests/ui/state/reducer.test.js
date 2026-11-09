@@ -20,6 +20,7 @@ import {
 } from '../../../src/ui/state/history.js';
 import { makeInitialState } from '../../../src/ui/state/initialState.js';
 import { ACTIONS, reducer, UNDO_SCOPE } from '../../../src/ui/state/reducer.js';
+import { customerCar } from '../../../src/ui/career/cars.js';
 import { newCareer } from '../../../src/ui/career/shop.js';
 import { RUN_LIMIT } from '../../../src/ui/state/runLog.js';
 
@@ -567,11 +568,11 @@ describe('APPLY_PRESET — exact write surface (catches drift in both directions
   // the old test only compared a hand-built map against the local fixture's own key
   // set — never against what the reducer actually writes. This test instead seeds
   // EVERY field of EVERY slice with a sentinel a real write can never produce, dispatches
-  // for real, and asserts the walked set of changed fields against the 35-field
-  // contract this action documents: a stray write grows the changed set past 35, a
-  // dropped write shrinks it below 35, and the failure message names the field either
+  // for real, and asserts the walked set of changed fields against the 36-field
+  // contract this action documents: a stray write grows the changed set past 36, a
+  // dropped write shrinks it below 36, and the failure message names the field either
   // way.
-  it('changes exactly the 35 documented fields, plus the two history fields', () => {
+  it('changes exactly the 36 documented fields, plus the two history fields', () => {
     const before = makeSentinelState();
     const after = reducer(before, { type: ACTIONS.APPLY_PRESET, preset: N54_PRESET });
     const changed = changedFieldKeys(before, after);
@@ -586,8 +587,8 @@ describe('APPLY_PRESET — exact write surface (catches drift in both directions
       // The factory car's ECU-side parts, which its factory calibration is set up for.
       'build.fuelSystem', 'build.sensorHw', 'build.wastegate', 'build.coil',
       'build.plugGapMm', 'build.ethanolPct',
-      // A factory car: no supercharger or nitrous carried over from the previous build.
-      'build.blowerId', 'build.nitrous',
+      // A factory car: no supercharger, nitrous or port kit carried over from the previous build.
+      'build.blowerId', 'build.nitrous', 'build.portKit',
       'tune.ve', 'tune.timing', 'tune.afr', 'tune.tablesDirty', 'tune.selection',
       // A new engine's ROM: every map slot back to the factory calibration.
       'tune.maps', 'tune.activeMap',
@@ -1721,12 +1722,12 @@ describe('snapshot field coverage', () => {
   // module iterates over would let a key deleted from both the list AND this
   // expectation pass vacuously. That is exactly the vulnerability a reviewer found —
   // cutting BUILD_KEYS to 3 entries and TUNE_KEYS to 2 left all 871 tests green.
-  it('snapshots exactly the documented 24 build and 9 tune fields', () => {
+  it('snapshots exactly the documented 25 build and 9 tune fields', () => {
     const snap = snapshot(makeInitialState());
     expect(Object.keys(snap.build).sort()).toEqual([
       'assumed', 'blowerId', 'blowerRatio', 'boostCurve', 'coil', 'compressorIdx', 'ecuInjectorCc',
       'engineConfig', 'engineReady', 'ethanolPct', 'exhaustDiaIdx', 'fuelSystem', 'injIdx', 'mafScalar',
-      'mods', 'nitrous', 'octaneIdx', 'plugGapMm', 'presetId', 'sensorHw', 'turbineCount',
+      'mods', 'nitrous', 'octaneIdx', 'plugGapMm', 'portKit', 'presetId', 'sensorHw', 'turbineCount',
       'turbineIdx', 'turboOn', 'wastegate',
     ]);
     expect(Object.keys(snap.tune).sort()).toEqual([
@@ -2065,5 +2066,60 @@ describe('tune.diffView (#106)', () => {
     expect(toggled.tune.diffView).toBe(true);
     expect(toggled.history.past).toHaveLength(0);
     expect(toggled.history.future).toHaveLength(1);
+  });
+});
+
+describe('port injection kit (#39, T10)', () => {
+  const kit = { injIdx: INJECTOR_OPTS.findIndex((o) => o.cc === 1300), ecuInjectorCc: 1300 };
+  const directState = () => {
+    const s = makeInitialState();
+    const withDirect = reducer(s, { type: ACTIONS.SET_ENGINE_CONFIG_PATCH, patch: { injection: 'direct' } });
+    return reducer(withDirect, { type: ACTIONS.SET_BUILD_FIELD, field: 'portKit', value: kit });
+  };
+
+  it('starts with no kit', () => {
+    expect(makeInitialState().build.portKit).toBeNull();
+  });
+
+  it('takes the kit off when the engine is switched to port injection', () => {
+    const s = reducer(directState(), { type: ACTIONS.SET_ENGINE_CONFIG_PATCH, patch: { injection: 'port' } });
+    expect(s.build.portKit).toBeNull();
+  });
+
+  it('keeps the kit through an unrelated engine change', () => {
+    const s = reducer(directState(), { type: ACTIONS.SET_ENGINE_CONFIG_PATCH, patch: { compression: 9.5 } });
+    expect(s.build.portKit).toEqual(kit);
+  });
+
+  it('a preset is a factory car: no kit', () => {
+    const preset = applyPreset(ENGINE_PRESETS.find((p) => p.id === 'b58-m1'));
+    const s = reducer(directState(), { type: ACTIONS.APPLY_PRESET, preset });
+    expect(s.build.portKit).toBeNull();
+  });
+
+  it('undoing a preset load brings the kit back', () => {
+    const preset = applyPreset(ENGINE_PRESETS.find((p) => p.id === 'b58-m1'));
+    const loaded = reducer(directState(), { type: ACTIONS.APPLY_PRESET, preset });
+    expect(reducer(loaded, { type: ACTIONS.UNDO }).build.portKit).toEqual(kit);
+  });
+
+  it('RESET ALL TO STOCK leaves the injectors, and so the kit, alone', () => {
+    // A reset writes the bolt-ons and the calibration; it never touches injIdx or
+    // ecuInjectorCc (the player sizes those), so a staged kit is not a stock part it removes.
+    const s = reducer(directState(), { type: ACTIONS.RESET_TO_STOCK, ve: [[70]] });
+    expect(s.build.portKit).toEqual(kit);
+  });
+
+  it('an old state with no portKit fits no kit', () => {
+    // A career lift saved before the field existed: its build has no `portKit` key at all.
+    const { portKit: _gone, ...old } = directState().build;
+    expect(ecuHardwareOf(old).portKit).toBeNull();
+    const lift = { jobId: 'any', car: { build: old, tune: makeInitialState().tune }, day: 1 };
+    expect(ecuHardwareOf(lift.car.build).portKit).toBeNull();
+  });
+
+  it('a career car starts with no kit', () => {
+    expect(customerCar({ preset: 'b58-m1' }).build.portKit).toBeNull();
+    expect(customerCar({}).build.portKit).toBeNull();
   });
 });

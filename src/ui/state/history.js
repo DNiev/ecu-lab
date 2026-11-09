@@ -59,7 +59,7 @@ export const HISTORY_LIMIT = 50;
  */
 const BUILD_KEYS = [
   'engineConfig', 'mods', 'turboOn', 'boostCurve', 'turbineIdx', 'turbineCount',
-  'compressorIdx', 'injIdx', 'ecuInjectorCc', 'octaneIdx', 'exhaustDiaIdx',
+  'compressorIdx', 'injIdx', 'ecuInjectorCc', 'portKit', 'octaneIdx', 'exhaustDiaIdx',
   'mafScalar', 'presetId', 'fuelSystem', 'sensorHw', 'wastegate', 'coil', 'plugGapMm',
   'ethanolPct', 'engineReady', 'assumed',
   // APPLY_PRESET takes off any supercharger and nitrous kit (a preset is a factory car).
