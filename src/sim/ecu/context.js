@@ -68,7 +68,8 @@ export function tankFuel(build) {
 export function portKitOf(build) {
   const kit = build.portKit;
   if (!kit || build.engineConfig?.injection !== 'direct') return null;
-  return { injectorCc: (INJECTOR_OPTS[kit.injIdx] ?? INJECTOR_OPTS[0]).cc, ecuInjectorCc: kit.ecuInjectorCc };
+  // An older or hand-edited kit may lack a field: the smallest injector, as for `injIdx`.
+  return { injectorCc: (INJECTOR_OPTS[kit.injIdx] ?? INJECTOR_OPTS[0]).cc, ecuInjectorCc: kit.ecuInjectorCc ?? INJECTOR_OPTS[0].cc };
 }
 
 /**

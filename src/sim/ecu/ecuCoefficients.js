@@ -199,7 +199,7 @@ export const ECU_COEFF = Object.freeze({
    * bring that six back inside the 25% trim limit (#39, targets T1–T3). The untuned error
    * is modest because the idle controller adds air as the mixture weakens, which lengthens
    * the pulse and pulls it partly back out of the ballistic region. T2 on the VQ35HR bounds
-   * it below and T3 on the B58 above, to about 0.145–0.165.
+   * it below and T3 on the B58 above, to about 0.15–0.165.
    */
   BALLISTIC_FLOW_EXP: 0.15,
   /**

@@ -18,10 +18,14 @@ vi.mock('../../src/sim/index.js', async (importOriginal) => ({
 const { evaluateJob } = await import('../../src/ui/career/evaluate.js');
 const { customerCar } = await import('../../src/ui/career/cars.js');
 
+/** @type {import('../../src/ui/career/jobs.js').Job} */
 const job = {
-  id: 'duty-test', pay: 100, rep: 1, hint: 'Try again.',
-  car: { preset: 'b58-m1' },
+  id: 'duty-test', tier: 1,
+  customer: { name: 'Test', car: 'B58', color: 'silver' },
+  says: 'It runs out of fuel up top.', wants: 'Make the injectors keep up.', work: [],
+  car: { preset: 'b58-m1' }, needs: {}, minRep: 0, pay: 100, rep: 1,
   checks: [{ type: 'maxDuty', max: 90, kind: 'request', label: 'Injectors keep up' }],
+  hint: 'Try again.', teaches: 'Read the busier bank.',
 };
 
 const grade = (points) => {

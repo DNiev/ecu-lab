@@ -158,7 +158,7 @@ describe('FuelSystemScreen', () => {
       </>
     );
   }
-  const kitPicker = () => screen.getByText('Port Injection Kit').nextElementSibling;
+  const kitPicker = () => /** @type {HTMLElement} */ (screen.getByText('Port Injection Kit').nextElementSibling);
   const fittedKit = () => JSON.parse(screen.getByLabelText('fitted port kit').textContent);
 
   it('offers a port injection kit only on a direct-injected engine', () => {

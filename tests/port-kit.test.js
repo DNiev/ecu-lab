@@ -20,6 +20,8 @@ describe('port kit hardware', () => {
     expect(S.portKitOf({ engineConfig: port, portKit: kit })).toBeNull();
     expect(S.portKitOf({ engineConfig: direct, portKit: null })).toBeNull();
     expect(S.portKitOf({ engineConfig: direct })).toBeNull();
+    // A kit saved without its ECU scaling reads as the stock scaling, as a missing size reads as the stock injector.
+    expect(S.portKitOf({ engineConfig: direct, portKit: /** @type {any} */ ({ injIdx: idx(1300) }) })).toEqual({ injectorCc: 1300, ecuInjectorCc: S.INJECTOR_OPTS[0].cc });
     expect(S.ecuHardwareOf({ engineConfig: direct, octaneIdx: 0, portKit: kit }).portKit).toEqual({ injectorCc: 1300, ecuInjectorCc: 1300 });
   });
 });
@@ -279,7 +281,7 @@ describe('a kitted direct engine on the stock calibration tells one story', () =
 });
 
 describe('a kit carrying all of the fuel', () => {
-  const derived = S.deriveEngine(direct);
+  const derived = S.deriveEngine({ ...S.DEFAULT_ENGINE_CONFIG, injection: /** @type {const} */ ('direct') });
   /** One boosted point on a direct engine with 1300 cc direct injectors and a 1300 cc kit. */
   const point = (E) => S.evaluatePoint({
     rpm: 3000, mapKpa: 150, boostPsi: (150 - S.BARO_KPA) / S.PSI_TO_KPA, veVal: 95, timingVal: 10, afrCommanded: 11.8,

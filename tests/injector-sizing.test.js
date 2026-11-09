@@ -1,8 +1,9 @@
 /**
  * Oversized injectors cost fuelling accuracy where pulses are short (#39).
  *
- * Intent tests, by design: they pin directions and thresholds the spec names (T1–T10 in
- * docs/superpowers/specs/2026-11-06-oversized-injector-cost-design.md), not magnitudes.
+ * Intent tests, by design: they pin directions and thresholds the spec names (T1–T5 in
+ * docs/superpowers/specs/2026-11-06-oversized-injector-cost-design.md; T6–T10 are in
+ * tests/port-kit.test.js), not magnitudes.
  * Every run is a live engine settled at a hot idle with closed loop OFF, so the mixture
  * shows the metering error directly instead of a trim hiding it.
  */
