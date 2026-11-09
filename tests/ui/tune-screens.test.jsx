@@ -24,6 +24,7 @@ import { cleanup, fireEvent, render, screen, within } from '@testing-library/rea
 import React from 'react';
 import { afterAll, afterEach, describe, expect, it, vi } from 'vitest';
 
+import { INJECTOR_OPTS } from '../../src/sim/index.js';
 import { AirflowScreen } from '../../src/ui/screens/tune/AirflowScreen.jsx';
 import { FuelScreen } from '../../src/ui/screens/tune/FuelScreen.jsx';
 import { InjectorsScreen } from '../../src/ui/screens/tune/InjectorsScreen.jsx';
@@ -338,6 +339,24 @@ describe('FuelScreen', () => {
 });
 
 describe('InjectorsScreen', () => {
+
+  it('scales a port kit separately, and flags it until told its size', () => {
+    function FitKit() {
+      const [, dispatch] = useBuild();
+      return (
+        <button type="button" onClick={() => {
+          dispatch({ type: ACTIONS.SET_ENGINE_CONFIG_PATCH, patch: { injection: 'direct' } });
+          dispatch({ type: ACTIONS.SET_BUILD_FIELD, field: 'portKit', value: { injIdx: INJECTOR_OPTS.findIndex((o) => o.cc === 1300), ecuInjectorCc: 315 } });
+        }}>fit kit</button>
+      );
+    }
+    mount(<><FitKit /><InjectorsScreen {...quietProps} /></>);
+    expect(screen.queryByText(/ECU Port Injector Scaling/)).toBeNull();
+    fireEvent.click(screen.getByText('fit kit'));
+    expect(screen.getByText(/ECU Port Injector Scaling/)).toBeTruthy();
+    fireEvent.click(screen.getByText('RESCALE PORT KIT TO 1300cc'));
+    expect(screen.getByText('Port kit scaling matches the fitted injectors.')).toBeTruthy();
+  });
   const quietProps = { dutyPreview: 10, injectorCc: 315 };
 
   it('shows the shell-computed duty preview as dangerous only past its own threshold, not a recomputed one', () => {

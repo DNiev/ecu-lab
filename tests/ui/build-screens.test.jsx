@@ -24,7 +24,7 @@ import { ExhaustScreen } from '../../src/ui/screens/build/ExhaustScreen.jsx';
 import { FuelSystemScreen } from '../../src/ui/screens/build/FuelSystemScreen.jsx';
 import { InductionScreen } from '../../src/ui/screens/build/InductionScreen.jsx';
 import { ACTIONS } from '../../src/ui/state/reducer.js';
-import { StoreProvider, useTune } from '../../src/ui/state/StoreProvider.jsx';
+import { StoreProvider, useBuild, useTune } from '../../src/ui/state/StoreProvider.jsx';
 
 afterEach(cleanup);
 
@@ -120,6 +120,17 @@ describe('InductionScreen', () => {
 });
 
 describe('FuelSystemScreen', () => {
+
+  it('offers a port injection kit only on a direct-injected engine', () => {
+    function MakeDirect() {
+      const [, dispatch] = useBuild();
+      return <button type="button" onClick={() => dispatch({ type: ACTIONS.SET_ENGINE_CONFIG_PATCH, patch: { injection: 'direct' } })}>make direct</button>;
+    }
+    mount(<><MakeDirect /><FuelSystemScreen active onToggle={noop} /></>);
+    expect(screen.queryByText('Port Injection Kit')).toBeNull();
+    fireEvent.click(screen.getByText('make direct'));
+    expect(screen.getByText('Port Injection Kit')).toBeTruthy();
+  });
   it('sets the fuel octane on the build slice', () => {
     mount(<FuelSystemScreen active onToggle={noop} />);
     fireEvent.click(screen.getByRole('button', { name: '100' }));

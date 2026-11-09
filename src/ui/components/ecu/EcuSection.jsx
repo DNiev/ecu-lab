@@ -55,8 +55,12 @@ export function EcuSection({ section, title, icon, intro, liveVars = null, embed
     () => defaultEcuCalibration({ derived: deriveEngine(build.engineConfig), gate: ecuHardwareOf(build).gate }),
     [build],
   );
-  const fields = ECU_META.filter((m) => m.section === section && (showPro || !m.pro));
-  const hiddenPro = ECU_META.filter((m) => m.section === section && m.pro).length;
+  const hwNow = ecuHardwareOf(build);
+  // A field that only means something with a part fitted (the port share table needs a
+  // port kit) is not offered without it.
+  const fitted = (m) => !m.needs || !!hwNow[m.needs];
+  const fields = ECU_META.filter((m) => m.section === section && fitted(m) && (showPro || !m.pro));
+  const hiddenPro = ECU_META.filter((m) => m.section === section && fitted(m) && m.pro).length;
   const groups = [];
   for (const f of fields) {
     let g = groups.find((x) => x.name === f.group);
@@ -73,11 +77,14 @@ export function EcuSection({ section, title, icon, intro, liveVars = null, embed
     for (const m of ECU_META.filter((x) => x.section === section)) next = setCal(next, m.path, getCal(def, m.path));
     dispatch({ type: ACTIONS.SET_ECU, value: next, label: `Reset ${title}` });
   };
-  const changedCount = ECU_META.filter((m) => m.section === section
-    && isChanged(m, getCal(cal, m.path), getCal(def, m.path))).length;
+  // A calibration saved before a setting existed has no value for it: it reads as the
+  // factory one, as the ECU's own lookups do, rather than as an edit or as a hole.
+  const calValue = (m) => getCal(cal, m.path) ?? getCal(def, m.path);
+  const changedCount = ECU_META.filter((m) => m.section === section && fitted(m)
+    && isChanged(m, calValue(m), getCal(def, m.path))).length;
   const sectionModified = changedCount > 0;
   const guide = PAGE_GUIDES[section];
-  const mismatches = setupMismatches(ecuHardwareOf(build), cal).filter((m) => m.section === section);
+  const mismatches = setupMismatches(hwNow, cal).filter((m) => m.section === section);
 
   return (
     <section className={embedded ? styles.embedded : styles.section} aria-label={title}>
@@ -111,7 +118,7 @@ export function EcuSection({ section, title, icon, intro, liveVars = null, embed
         <div key={g.name} className={styles.group}>
           <div className={styles.groupName}>{g.name}</div>
           {g.fields.map((m) => (
-            <Field key={m.path} meta={m} value={getCal(cal, m.path)} def={getCal(def, m.path)}
+            <Field key={m.path} meta={m} value={calValue(m)} def={getCal(def, m.path)}
               onChange={(v) => set(m.path, v)} liveVars={liveVars} />
           ))}
         </div>
