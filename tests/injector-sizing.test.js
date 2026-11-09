@@ -115,6 +115,27 @@ describe('the pull log reports it', () => {
     expect(ballisticEvents(tuned.pull(LIGHT_KPA))).toHaveLength(0);
   });
 
+  it('names a minimum pulse that clears the event when typed in exactly', () => {
+    const build = { injIdx: idx(1300), ecuInjectorCc: 1300 };
+    const [ev] = ballisticEvents(makeEngine({ preset: 'vq35hr', build }).pull(LIGHT_KPA));
+    const named = Number(ev.fix.match(/minimum effective pulse to about ([\d.]+) ms/)[1]);
+    // A value the field can hold (its own step), and not short of the threshold.
+    const step = S.ECU_META.find((m) => m.path === 'injector.minEffPwMs').step;
+    expect(Math.abs(named / step - Math.round(named / step))).toBeLessThan(1e-9);
+    expect(named).toBeGreaterThanOrEqual(S.ballisticFromMs(1300));
+    const tuned = makeEngine({ preset: 'vq35hr', build, cal: { 'injector.minEffPwMs': named } });
+    expect(ballisticEvents(tuned.pull(LIGHT_KPA))).toHaveLength(0);
+  });
+
+  it('offers a port injection kit only to a direct engine that has none', () => {
+    const build = { injIdx: idx(1300), ecuInjectorCc: 1300 };
+    const fixOf = (patch) => ballisticEvents(makeEngine({ preset: 'b58-m1', build: { ...build, ...patch } }).pull(LIGHT_KPA))[0].fix;
+    expect(fixOf({})).toMatch(/add a port injection kit/);
+    // Fitted, on factory staging: the direct injectors still carry this load, and the
+    // event is theirs, but there is no kit left to suggest.
+    expect(fixOf({ portKit: { injIdx: idx(1300), ecuInjectorCc: 1300 } })).not.toMatch(/port injection kit/);
+  });
+
   it('logs the injector open time on the live engine', () => {
     expect(S.LOG_CHANNELS.some((c) => c.id === 'injOpen')).toBe(true);
     const r = runLive(makeEngine({ preset: 'vq35hr' }), { seconds: 4 }).rows.at(-1);
