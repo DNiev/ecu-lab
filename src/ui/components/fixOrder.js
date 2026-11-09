@@ -19,7 +19,7 @@
 /** @type {{id: string, label: string, types: string[]}[]} */
 export const FIX_STEPS = [
   { id: 'setup', label: 'Setup', types: ['injscale', 'mapsensor', 'maf', 'wideband', 'fueltype'] },
-  { id: 'fuel', label: 'Fuel', types: ['rich', 'lean', 'valve', 'fuel', 'rail', 'dutyprot', 'leanprot', 'misfire'] },
+  { id: 'fuel', label: 'Fuel', types: ['rich', 'lean', 'valve', 'fuel', 'rail', 'dutyprot', 'ballistic', 'leanprot', 'misfire'] },
   { id: 'spark', label: 'Spark', types: ['knock', 'unheardknock', 'falseknock', 'knockprot', 'iatprot', 'egtprot'] },
   { id: 'boost', label: 'Boost', types: ['underboost', 'overboost', 'boostctl', 'compressor', 'blower'] },
   { id: 'nitrous', label: 'Nitrous', types: ['nitrouslean', 'nitrousknock', 'bottle', 'nitrouswindow'] },

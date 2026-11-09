@@ -56,6 +56,7 @@ const NM_PER_LBFT = 1 / 0.7376;
  * @property {number} plugGapMm
  * @property {number} injectorCc
  * @property {number} ecuInjectorCc
+ * @property {{injectorCc: number}|null} [portKit] the port injection kit, when one is fitted
  * @property {object} mods
  * @property {boolean} turboOn
  * @property {number[]} boostCurve

@@ -89,3 +89,35 @@ describe('idle cost of oversized injectors (T1–T5)', () => {
     expect(Math.abs(e85 - 1)).toBeLessThan(Math.abs(gas - 1));
   });
 });
+
+describe('the pull log reports it', () => {
+  // The brief's 30 kPa is not light enough: at 1500 RPM a 1300 cc injector opens for 0.50 ms,
+  // above its 0.43 ms threshold. 25 kPa (0.39 ms there) is inside the region and still a
+  // load that is not so light the pull also reports misfires.
+  const LIGHT_KPA = 25;
+  const ballisticEvents = (pull) => pull.events.filter((e) => e.type === 'ballistic');
+
+  it('reports a light-load pull on 1300 cc, with cause and fix', () => {
+    const eng = makeEngine({ preset: 'vq35hr', build: { injIdx: idx(1300), ecuInjectorCc: 1300 } });
+    const [ev] = ballisticEvents(eng.pull(LIGHT_KPA));
+    expect(ev).toBeTruthy();
+    expect(ev.msg).toMatch(/1300cc/);
+    expect(ev.cause.length).toBeGreaterThan(40);
+    expect(ev.fix).toMatch(/minimum effective pulse/);
+  });
+
+  it('says nothing on the stock injectors, or once the minimum pulse is set', () => {
+    expect(ballisticEvents(makeEngine({ preset: 'vq35hr' }).pull(LIGHT_KPA))).toHaveLength(0);
+    const tuned = makeEngine({
+      preset: 'vq35hr', build: { injIdx: idx(1300), ecuInjectorCc: 1300 },
+      cal: { 'injector.minEffPwMs': S.ballisticFromMs(1300) },
+    });
+    expect(ballisticEvents(tuned.pull(LIGHT_KPA))).toHaveLength(0);
+  });
+
+  it('logs the injector open time on the live engine', () => {
+    expect(S.LOG_CHANNELS.some((c) => c.id === 'injOpen')).toBe(true);
+    const r = runLive(makeEngine({ preset: 'vq35hr' }), { seconds: 4 }).rows.at(-1);
+    expect(r.injOpen).toBeGreaterThan(0);
+  });
+});

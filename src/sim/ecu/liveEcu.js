@@ -81,6 +81,7 @@ export const LOG_CHANNELS = [
   { id: 'ae', label: 'Accel enrich', unit: '%' },
   { id: 'filmFactor', label: 'Fuel reaching cylinder', unit: '%' },
   { id: 'pw', label: 'Pulse width', unit: 'ms' },
+  { id: 'injOpen', label: 'Injector open time', unit: 'ms' },
   { id: 'duty', label: 'Injector duty', unit: '%' },
   { id: 'deadTime', label: 'Dead time', unit: 'ms' },
   { id: 'railDp', label: 'Fuel ΔP', unit: 'kPa' },
@@ -536,7 +537,7 @@ export function liveStepEcu(st, dt, input, cfg) {
 
     log = {
       map: pt.map, boost: s.boostPsi, boostTarget: e.boostTargetRamped, wgDuty: duty, lambda: pt.lambdaExhaust ?? pt.lambda,
-      lambdaTarget: res.input.afrCommanded / 14.7, veTable: res.breakdown.ve[0].value, mafPct: pt.trimPct ?? 0, pw: pt.pw, duty: pt.duty, deadTime: pt.deadTime, railDp: pt.railDp,
+      lambdaTarget: res.input.afrCommanded / 14.7, veTable: res.breakdown.ve[0].value, mafPct: pt.trimPct ?? 0, pw: pt.pw, injOpen: pt.injOpen ?? 0, duty: pt.duty, deadTime: pt.deadTime, railDp: pt.railDp,
       timing: pt.timing, egt: pt.egt, misfire: pt.misfire, filmFactor: filmFactor * 100, bfs: pt.bfs,
       torque: crankNm, breakdown: res.breakdown, boostSteps: steps, closedLoopRegion: res.sensed.closedLoopRegion,
     };
@@ -631,7 +632,7 @@ export function liveStepEcu(st, dt, input, cfg) {
     // A cut cylinder passes air, which reads as an infinitely lean mixture; the log
     // clamps it where a wideband's own range ends so the trace stays readable.
     lambda: log ? Number(Math.min(2, log.lambda).toFixed(3)) : 0, lambdaTarget: log ? Number(log.lambdaTarget.toFixed(3)) : 0,
-    pw: log ? log.pw : 0, duty: log ? log.duty : 0, deadTime: log ? log.deadTime : 0, railDp: log ? log.railDp : 0,
+    pw: log ? log.pw : 0, injOpen: log ? log.injOpen : 0, duty: log ? log.duty : 0, deadTime: log ? log.deadTime : 0, railDp: log ? log.railDp : 0,
     timing: log ? log.timing : 0, egt: log ? log.egt : 0, misfire: log ? log.misfire : 0,
     filmFactor: log ? Math.round(log.filmFactor) : 100, torque: Math.round(crankNm),
     bfs: log ? log.bfs : 0, knockCount: Math.round(s.knockCount), highDet: e.highDet ? 1 : 0, launch: launchArmed ? 1 : 0,

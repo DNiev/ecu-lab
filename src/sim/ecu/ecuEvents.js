@@ -8,6 +8,7 @@
 
 import { COEFF } from '../coefficients.js';
 import { clamp, groupRuns, mergeNearbyRuns } from '../math.js';
+import { ballisticFromMs } from '../point.js';
 
 import { LINEAR_SCALES } from './sensors.js';
 
@@ -240,6 +241,25 @@ export function ecuSweepEvents(points, { cal, hw, hardCut, endRpm }) {
       msg: `Injector duty protection cut boost across ${label(run)}`,
       cause: `Duty passed ${cal.protect.dutyLimitPct}%. Beyond it the injectors cannot add fuel as boost adds air.`,
       fix: 'On BUILD → FUEL SYSTEM, fit larger injectors — sized to run about 80–85% duty at peak — and enter their flow rate on TUNE → INJECTORS. Or lower the boost target on BUILD → INDUCTION.',
+    });
+  });
+
+  // Injectors too big for the fuel this load needs: they never fully open, deliver less
+  // than the ECU calculated, and the mixture misses (#39).
+  const shortest = (p) => Math.min(p.ballistic ? p.injOpen : Infinity, p.portBallistic ? p.portOpen : Infinity);
+  groupRuns(points, (p) => p.ballistic || p.portBallistic).forEach((run) => {
+    const peak = run.reduce((a, b) => (shortest(b) < shortest(a) ? b : a));
+    const port = !!peak.portBallistic && !(peak.ballistic && peak.injOpen <= peak.portOpen);
+    const cc = port ? hw.portKit?.injectorCc : hw.injectorCc;
+    const open = port ? peak.portOpen : peak.injOpen;
+    const need = ballisticFromMs(cc).toFixed(2);
+    events.push({
+      type: 'ballistic', severity: 2, impact: imp(6, run), ...span(run),
+      msg: `${port ? 'Port injectors' : 'Injectors'} too big for this load across ${label(run)}: open ${open} ms, short of the ${need} ms a ${cc}cc injector needs to lift fully`,
+      cause: `At this load each cylinder needs so little fuel that the ${cc}cc injectors are open only ${open} ms. Below about ${need} ms the needle never reaches full lift, so they deliver less than the ECU calculated, and the mixture runs lean and varies from pulse to pulse. A bigger injector has a longer region like this, so it misses most at idle and light load, where an engine spends most of its life.`,
+      fix: port
+        ? 'On TUNE → INJECTORS, lower the port share at light load so the direct injectors carry it. That is what factory staging does: the port set only comes in where the direct injectors run out.'
+        : `On TUNE → INJECTORS, set the minimum effective pulse to about ${need} ms. The engine idles slightly rich but steady, and the trims pull it back. If it still sits past the trim limit, the injectors are too big for this engine: fit smaller ones on BUILD → FUEL SYSTEM${hw.cfg?.injection === 'direct' ? ', or keep smaller direct injectors and add a port injection kit for the top end' : ''}.`,
     });
   });
 
