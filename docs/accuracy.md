@@ -282,6 +282,21 @@ Learn article 39. None of them changes the direction of any lesson.
    liquid, 3 W/K from wall to still air, a 250 W heater — and the liquid is one
    temperature. A real bottle cools at the liquid's surface first, where the boiling is,
    so its pressure can sag faster in the first seconds than it does here.
+16. **How fast a big injector's short-pulse region grows is fitted, not measured.** Below
+   its ballistic threshold an injector delivers less than its open time says, and the
+   threshold grows with flow rating as `(cc / 315)^BALLISTIC_FLOW_EXP`. No published curve
+   across sizes was found, so the exponent is fitted to two lessons: a 1300 cc injector
+   carrying idle on a 3.0–3.5 L six runs clearly lean, and the minimum effective pulse on
+   TUNE → INJECTORS still brings it inside the trim limit. Delivery below the threshold is
+   one smooth curve; real injectors scatter shot to shot there, and the model does not.
+17. **A port injection kit shares the direct engine's fuel model.** Both banks run off the
+   one low-pressure rail model a direct engine already has (no high-pressure pump), and
+   they share one dead-time table. Its share of the fuel blends charge cooling, the filling
+   direct injection earns, and the port wall film in proportion; a real port set's
+   targeting and spray timing are not modelled. RESET ALL TO STOCK writes its tables for
+   the kit on factory staging, and TUNE's advisor grades them on the share the port share
+   table sends, because a kit carrying half the fuel on boost costs E85 enough charge
+   cooling to knock on tables written for direct injection alone.
 
 Sources for the supercharger and nitrous figures: Eaton (TVS R1900: 1.9 L/rev, 18,000 rpm,
 pressure ratio ~1.8, up to 75% efficient), Whipple (W175AX 2.9 L: 18,000 rpm, peak

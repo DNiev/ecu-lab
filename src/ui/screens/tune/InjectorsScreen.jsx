@@ -76,6 +76,9 @@ export function InjectorsScreen({ dutyPreview, dutyRpm = 6500, injectorCc, child
       ) : (
         <div className={styles.matchNote}>ECU scaling matches the fitted injectors.</div>
       )}
+      {build.portKit && build.engineConfig?.injection === 'direct' && (
+        <PortKitScaling kit={build.portKit} dispatch={dispatch} />
+      )}
       <ExpandableInfo title="Injector scaling — the step everyone forgets">
         The ECU never commands "fuel" — it commands a pulse width, calculated for the injector size it has been <i>told</i> is fitted. Bolt in bigger injectors without updating that number and every pulse delivers proportionally more fuel than intended, so the engine runs rich everywhere regardless of what your AFR table says.
         <br /><br />Every real tuning platform has this constant: UpRev calls it the <b className={styles.em}>K-fuel multiplier</b> (lower it for bigger injectors), HP Tuners calls it <b className={styles.em}>injector flow rate</b>. It is the first thing you change after a fuel system upgrade, before touching any table.
@@ -105,5 +108,40 @@ export function InjectorsScreen({ dutyPreview, dutyRpm = 6500, injectorCc, child
       </Panel>
       {children}
     </div>
+  );
+}
+
+/**
+ * The port kit's own ECU scaling, apart from the direct injectors': the two banks are
+ * different hardware and the ECU is told each one's size separately, so one can be
+ * right while the other is wrong.
+ * @param {object} props
+ * @param {{injIdx: number, ecuInjectorCc: number}} props.kit the fitted port kit
+ * @param {(action: any) => void} props.dispatch
+ * @returns {React.ReactElement}
+ */
+function PortKitScaling({ kit, dispatch }) {
+  // The same fallback `portKitOf` applies to an index that matches no injector, so the
+  // screen and the sim agree on which size the kit is.
+  const kitCc = (INJECTOR_OPTS[kit.injIdx] ?? INJECTOR_OPTS[0]).cc;
+  const kitEcu = kit.ecuInjectorCc;
+  const setKitEcu = (cc) => dispatch({ type: ACTIONS.SET_BUILD_FIELD, field: 'portKit', value: { ...kit, ecuInjectorCc: cc } });
+  return (
+    <>
+      <div className={styles.label}>
+        ECU Port Injector Scaling <span className={styles.subLabel}>— what the ECU thinks the port kit is</span>
+      </div>
+      <Seg label="ECU Port Injector Scaling" options={INJECTOR_OPTS.map((o) => ({ label: `${o.cc}`, id: o.cc }))} value={kitEcu} onChange={setKitEcu} equal />
+      {kitEcu !== kitCc ? (
+        <div className={styles.mismatchBanner}>
+          <b>Port kit scaling mismatch.</b> The kit is {kitCc}cc but the ECU is calibrated for {kitEcu}cc, so wherever the port set is staged in, it delivers about {((kitCc / kitEcu) * 100).toFixed(0)}% of its share of the fuel.
+          <div className={styles.mismatchAction}>
+            <Button onClick={() => setKitEcu(kitCc)}>RESCALE PORT KIT TO {kitCc}cc</Button>
+          </div>
+        </div>
+      ) : (
+        <div className={styles.matchNote}>Port kit scaling matches the fitted injectors.</div>
+      )}
+    </>
   );
 }

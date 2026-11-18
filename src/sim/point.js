@@ -107,6 +107,9 @@ import { chargeTempK, exhaustTempK } from './thermo.js';
  *   injector reality versus belief: real flow from the pressure across it and the
  *   pump's capacity, the flow the ECU assumes, true and assumed dead time, the shortest
  *   pulse the ECU will command, and the duty ceiling
+ * @property {{injectorCc: number, ecuInjectorCc: number, share: number}} [portKit] a port
+ *   injection kit staged over direct injection: its fitted and believed sizes, and the
+ *   share (0–1) of this cycle's fuel the ECU sends through it
  * @property {{retardDeg?: number, deadbandDeg?: number, falseRetardDeg?: number,
  *   maxRetardDeg?: number, enabled?: boolean, stepDeg?: number}} [knock] knock control. `retardDeg` is a
  *   live controller's current retard; without it the steady-state controller settles at
@@ -133,6 +136,13 @@ export function evaluatePoint({
   injectorCc, ecuInjectorCc, derived, compressor, turbine = null,
   empKpa: empOverride, wastegateRelief = 0, ecu: E = null, blower = null, nitrous = null, cam = null,
 }) {
+  // A port kit on a direct-injected engine carries this share of the fuel; the direct
+  // injectors carry the rest. Zero without a kit, and zero off boost on factory staging.
+  // A kit only exists on a direct-injected engine: the VE scaling below divides out
+  // VE_DIRECT_INJECTION, which a port engine never had, so guard it here rather than rely
+  // on every caller to have checked.
+  const portKit = derived.injection === 'direct' ? (E?.portKit ?? null) : null;
+  const portShare = portKit ? clamp(portKit.share, 0, 1) : 0;
   // A supercharger brings its own compressor: its ceiling and its efficiency, which set
   // how hot the charge arrives. Without one, the turbo's compressor as always.
   const compressorOver = blower ? false : boostPsi > compressor.boostCeiling;
@@ -150,7 +160,11 @@ export function evaluatePoint({
   //              oracle and fuels from this and nothing else.
   // The gap between them IS the fuel-trim histogram's entire signal. Share one VE and the
   // gap is identically zero, the histogram reads nothing, and no iteration can close it.
-  const veActual = veActualVal ?? veVal;
+  // Direct injection's extra filling comes from fuel evaporating in the cylinder while the
+  // intake valve is open (VE_DIRECT_INJECTION). Fuel sent through a port kit cools the
+  // valve instead, so the share it carries does not earn it.
+  const kitBlend = portKitBlend(derived, portShare);
+  const veActual = (veActualVal ?? veVal) * kitBlend.veScale;
   const vCylM3 = (derived.displacementL / derived.cyl) / 1000;
   // NITROUS in the intake: liquid flashing to vapour takes its latent heat from the air,
   // so the charge arrives colder and denser; the vapour then fills room the air would
@@ -208,25 +222,24 @@ export function evaluatePoint({
   // it passes fuel as the square root of the pressure across it. The ECU flows it at
   // whatever pressure it assumes; the injector flows at whatever pressure is there.
   const inj = E?.inj;
-  const ecuGramsPerMs = (ecuInjectorCc * ecuFuel.density) / 60000 * (inj?.ecuFlowScale ?? 1);
-  const actualGramsPerMs = (injectorCc * fuel.density) / 60000 * (inj?.actualFlowScale ?? 1);
-  const deadEcuMs = inj?.deadEcuMs ?? INJ_DEADTIME_MS;
-  const deadActualMs = inj?.deadActualMs ?? INJ_DEADTIME_MS;
   const cycleTimeMs = 120000 / rpm;
-  // The shortest pulse the ECU will command: below it an injector is in its ballistic
-  // region, where the needle never reaches full lift and flow stops being proportional
-  // to time. Clamping trades a slightly rich idle for a repeatable one.
-  const pulseWidthMs = Math.max(fuelMassG / ecuGramsPerMs + deadEcuMs, inj?.minPwMs ?? 0);
-  const maxPulseMs = cycleTimeMs * (inj?.maxDutyFrac ?? 0.9);
-  const dutyPct = clamp((pulseWidthMs / cycleTimeMs) * 100, 0, 220);
-
-  const cappedPw = Math.min(pulseWidthMs, maxPulseMs);
-  const fuelLimited = pulseWidthMs > maxPulseMs;
-  const openMs = cappedPw - deadActualMs;
-  const deliveredFuelG = Math.max(
-    1e-6,
-    (E ? ballisticOpenMs(openMs) : openMs) * actualGramsPerMs * (E?.cylinderFuelFactor ?? 1),
-  );
+  // A kit handed all of the fuel leaves the direct injectors shut. Metered anyway, they
+  // would still be commanded the minimum pulse for no fuel at all, open inside their
+  // ballistic region, and deliver fuel nobody asked for.
+  const base = meterBank({
+    fuelG: fuelMassG * (1 - portShare), cc: injectorCc, ecuCc: ecuInjectorCc, inj, ecuFuel, fuel, cycleTimeMs, E,
+    shut: portShare >= 1,
+  });
+  // The port set rides on the same rail and the same dead-time table as the direct
+  // injectors (both simplifications, see the spec): only its size and share differ.
+  const portBank = portShare > 0
+    ? meterBank({
+      fuelG: fuelMassG * portShare, cc: portKit.injectorCc, ecuCc: portKit.ecuInjectorCc, inj, ecuFuel, fuel, cycleTimeMs, E,
+    })
+    : null;
+  const { ecuGramsPerMs, deadEcuMs, deadActualMs, pulseWidthMs, dutyPct } = base;
+  const fuelLimited = base.fuelLimited || !!portBank?.fuelLimited;
+  const deliveredFuelG = Math.max(1e-6, base.deliveredG + (portBank?.deliveredG ?? 0));
   // A wet kit's fuel arrives through its own nozzle, beside the injectors. The nitrous
   // brings oxygen worth 1.57 times its mass in air, so lambda counts it: this is what the
   // flame and the wideband both see.
@@ -256,8 +269,15 @@ export function evaluatePoint({
   const burnedFuelG = n2o
     ? Math.min(totalFuelG, oxygenAsAirG / fuel.stoich)
     : Math.min(deliveredFuelG, airChargeG / fuel.stoich);
-  const cycDerived = E?.chamberOffsetK
-    ? { ...derived, chamberOffsetK: (derived.chamberOffsetK || 0) + E.chamberOffsetK }
+  // Fuel through a port kit evaporates off the valve, not in the cylinder, so the charge
+  // cooling a direct-injected engine relies on shrinks with the share it carries.
+  const { evapInCylinder } = kitBlend;
+  const cycDerived = E?.chamberOffsetK || evapInCylinder != null
+    ? {
+      ...derived,
+      ...(E?.chamberOffsetK ? { chamberOffsetK: (derived.chamberOffsetK || 0) + E.chamberOffsetK } : {}),
+      ...(evapInCylinder != null ? { evapInCylinder } : {}),
+    }
     : derived;
   const cyc = cycleInputsFor({
     rpm, mapKpa, empKpa, intakeK: cylChargeK,
@@ -349,6 +369,17 @@ export function evaluatePoint({
     bfs: Number(((airChargeBelievedG / ecuFuel.stoich) / ecuGramsPerMs).toFixed(2)),
     deadTime: Number(deadEcuMs.toFixed(3)),
     deadTimeActual: Number(deadActualMs.toFixed(3)),
+    // The base bank's real opening, and whether it fell inside its ballistic region:
+    // what the pull log reports when an injector is too big for the fuel this load needs.
+    injOpen: Number(base.openMs.toFixed(3)),
+    ballistic: base.ballistic,
+    ...(portBank ? {
+      portPw: Number(portBank.pulseWidthMs.toFixed(2)),
+      portDuty: Math.round(portBank.dutyPct),
+      portOpen: Number(portBank.openMs.toFixed(3)),
+      portBallistic: portBank.ballistic,
+      portShare: Number(portShare.toFixed(3)),
+    } : {}),
     railDp: Number((inj?.railDeltaKpa ?? 300).toFixed(0)),
     // What a wideband in the collector sees: cut cylinders pass their air straight
     // through, so a fuel cut reads lean even though every firing cylinder is on target.
@@ -448,22 +479,102 @@ function ecuTrimmedFactor(netFactor, openLoop, E) {
 }
 
 /**
- * Injector opening time corrected for the ballistic region. Below about a third of a
- * millisecond of open time the pintle is still accelerating and never reaches full
- * lift, so the injector passes proportionally less than its rating says. Above it, flow
- * is linear in time, which is the only region a flow rating describes.
+ * What a port injection kit's share of the fuel takes from direct injection. Port fuel
+ * evaporates off the intake valve, not in the cylinder, so it neither earns direct
+ * injection's extra filling (`VE_DIRECT_INJECTION`) nor cools the charge the way direct
+ * fuel does (`FUEL_EVAP_IN_CYLINDER_*`). The one place this is written: the point, the
+ * factory calibration and the advisor all blend by it, so they cannot disagree.
+ *
+ * @param {{evapInCylinder: number}} derived the engine, as `deriveEngine` gives it
+ * @param {number} share fraction of the fuel through the port set, 0–1
+ * @returns {{veScale: number, evapInCylinder: number|null}} the factor on the engine's true
+ *   VE, and its in-cylinder evaporation share; null (unchanged) with no port share
+ */
+export function portKitBlend(derived, share) {
+  if (!(share > 0)) return { veScale: 1, evapInCylinder: null };
+  return {
+    veScale: (1 + (COEFF.VE_DIRECT_INJECTION - 1) * (1 - share)) / COEFF.VE_DIRECT_INJECTION,
+    evapInCylinder: share * COEFF.FUEL_EVAP_IN_CYLINDER_PORT + (1 - share) * derived.evapInCylinder,
+  };
+}
+
+/**
+ * The open time below which an injector is ballistic: the pintle is still accelerating
+ * and never reaches full lift. It grows with the flow rating, because a bigger injector
+ * has a heavier armature to lift (`BALLISTIC_FLOW_EXP`), and that is the whole cost of
+ * oversizing: the bigger the injector, the more of idle and light load falls inside it.
+ *
+ * @param {number} cc static flow rating, cc/min
+ * @returns {number} ms
+ */
+export function ballisticFromMs(cc) {
+  return ECU_COEFF.BALLISTIC_OPEN_MS * (cc / ECU_COEFF.BALLISTIC_REF_CC) ** ECU_COEFF.BALLISTIC_FLOW_EXP;
+}
+
+/**
+ * Injector opening time corrected for the ballistic region. Below
+ * {@link ballisticFromMs} the pintle is still accelerating and never reaches full lift,
+ * so the injector passes proportionally less than its rating says. Above it, flow is
+ * linear in time, which is the only region a flow rating describes.
  *
  * @param {number} openMs pulse width minus dead time
+ * @param {number} [cc] the injector's flow rating, cc/min; the reference size when absent
  * @returns {number} equivalent full-flow opening time, ms
  */
-export function ballisticOpenMs(openMs) {
-  const linearFrom = ECU_COEFF.BALLISTIC_OPEN_MS;
+export function ballisticOpenMs(openMs, cc = ECU_COEFF.BALLISTIC_REF_CC) {
+  const linearFrom = ballisticFromMs(cc);
   if (openMs >= linearFrom) return openMs;
   if (openMs <= 0) return 0;
   // Flow ramps up as the needle lifts: quadratic in time, meeting the linear region at
   // its start. Always less than the rating predicts, which is why a tiny commanded pulse
   // runs lean and erratic.
   return (openMs * openMs) / linearFrom;
+}
+
+/**
+ * One bank of injectors metering its share of a cycle's fuel: the pulse the ECU commands
+ * for the size it has been TOLD is fitted, and what the injectors really deliver.
+ *
+ * @param {object} b
+ * @param {number} b.fuelG fuel the ECU wants from this bank this cycle, g
+ * @param {number} b.cc fitted flow rating, cc/min
+ * @param {number} b.ecuCc the flow rating the ECU has been told, cc/min
+ * @param {object} [b.inj] injector reality versus belief (`PointInput.inj`)
+ * @param {{density: number}} b.ecuFuel the fuel the ECU believes is in the tank
+ * @param {{density: number}} b.fuel the fuel actually in the tank
+ * @param {number} b.cycleTimeMs one engine cycle, ms
+ * @param {object|null} b.E the ECU context, when there is one
+ * @param {boolean} [b.shut] the bank is not fired at all this cycle: no pulse, no fuel
+ * @returns {{ecuGramsPerMs: number, deadEcuMs: number, deadActualMs: number, pulseWidthMs: number,
+ *   dutyPct: number, openMs: number, fuelLimited: boolean, deliveredG: number, ballistic: boolean}}
+ */
+function meterBank({ fuelG, cc, ecuCc, inj, ecuFuel, fuel, cycleTimeMs, E, shut = false }) {
+  const ecuGramsPerMs = (ecuCc * ecuFuel.density) / 60000 * (inj?.ecuFlowScale ?? 1);
+  const actualGramsPerMs = (cc * fuel.density) / 60000 * (inj?.actualFlowScale ?? 1);
+  const deadEcuMs = inj?.deadEcuMs ?? INJ_DEADTIME_MS;
+  const deadActualMs = inj?.deadActualMs ?? INJ_DEADTIME_MS;
+  if (shut) {
+    return {
+      ecuGramsPerMs, deadEcuMs, deadActualMs, pulseWidthMs: 0, openMs: 0,
+      dutyPct: 0, fuelLimited: false, deliveredG: 0, ballistic: false,
+    };
+  }
+  // The shortest pulse the ECU will command: below it an injector is in its ballistic
+  // region, where the needle never reaches full lift and flow stops being proportional
+  // to time. Clamping trades a slightly rich idle for a repeatable one.
+  const pulseWidthMs = Math.max(fuelG / ecuGramsPerMs + deadEcuMs, inj?.minPwMs ?? 0);
+  const maxPulseMs = cycleTimeMs * (inj?.maxDutyFrac ?? 0.9);
+  const cappedPw = Math.min(pulseWidthMs, maxPulseMs);
+  const openMs = cappedPw - deadActualMs;
+  return {
+    ecuGramsPerMs, deadEcuMs, deadActualMs, pulseWidthMs, openMs,
+    dutyPct: clamp((pulseWidthMs / cycleTimeMs) * 100, 0, 220),
+    fuelLimited: pulseWidthMs > maxPulseMs,
+    deliveredG: (E ? ballisticOpenMs(openMs, cc) : openMs) * actualGramsPerMs * (E?.cylinderFuelFactor ?? 1),
+    // The epsilon keeps a minimum pulse set exactly to the threshold from flagging on
+    // the rounding of (pulse + dead) − dead.
+    ballistic: !!E && openMs > 0 && openMs < ballisticFromMs(cc) - 1e-9,
+  };
 }
 
 /**

@@ -54,10 +54,18 @@ export function makeEcuLiveState() {
   };
 }
 
-/** Wall-film fraction and evaporation time constant by coolant temperature. */
-function filmParams(ectC, injection) {
+/**
+ * Wall-film fraction and evaporation time constant by coolant temperature. A direct
+ * injector wets far less wall than a port injector; a port kit over direct injection
+ * wets the ports in proportion to the share of fuel it carries.
+ *
+ * @param {number} ectC
+ * @param {string} injection the engine's factory injection
+ * @param {number} [portShare] share of the fuel through a port kit, 0-1
+ */
+function filmParams(ectC, injection, portShare = 0) {
   const cold = clamp((E.FILM_WARM_C - ectC) / E.FILM_COLD_SPAN_C, 0, 1);
-  const k = injection === 'direct' ? E.FILM_DIRECT_SHARE : 1;
+  const k = injection === 'direct' ? E.FILM_DIRECT_SHARE + (1 - E.FILM_DIRECT_SHARE) * portShare : 1;
   return { X: k * (E.FILM_X_WARM + E.FILM_X_COLD_ADD * cold), tau: E.FILM_TAU_WARM_S + E.FILM_TAU_COLD_ADD_S * cold };
 }
 
@@ -81,7 +89,10 @@ export const LOG_CHANNELS = [
   { id: 'ae', label: 'Accel enrich', unit: '%' },
   { id: 'filmFactor', label: 'Fuel reaching cylinder', unit: '%' },
   { id: 'pw', label: 'Pulse width', unit: 'ms' },
+  { id: 'injOpen', label: 'Injector open time', unit: 'ms' },
   { id: 'duty', label: 'Injector duty', unit: '%' },
+  { id: 'portPw', label: 'Port kit pulse width', unit: 'ms' },
+  { id: 'portDuty', label: 'Port kit duty', unit: '%' },
   { id: 'deadTime', label: 'Dead time', unit: 'ms' },
   { id: 'railDp', label: 'Fuel ΔP', unit: 'kPa' },
   { id: 'timing', label: 'Spark (used)', unit: '°' },
@@ -416,7 +427,7 @@ export function liveStepEcu(st, dt, input, cfg) {
     const decayed = e.aePct * Math.exp(-dt / Math.max(0.02, cal.fuel.accelDecayS));
     e.aePct = aeWant > 0 ? Math.max(decayed, aeWant) : aeWant < 0 ? Math.min(decayed, Math.max(-60, aeWant)) : decayed;
     if (Math.abs(e.aePct) < 0.05) e.aePct = 0;
-    const { X, tau: filmTau } = filmParams(s.coolantC, derived.injection);
+    const { X, tau: filmTau } = filmParams(s.coolantC, derived.injection, lastPt?.portShare ?? 0);
     const injPerCycle = lastPt?.fuelCmd != null && !s.fuelCut ? lastPt.fuelCmd / 1000 : 0;
     const cycles = (s.rpm / 120) * dt;
     const evap = e.film * clamp(dt / filmTau, 0, 1);
@@ -515,7 +526,7 @@ export function liveStepEcu(st, dt, input, cfg) {
     // Both act by cutting boost, which only a turbo's wastegate can do — as on the dyno, a
     // supercharged or naturally aspirated engine is left to knock control and the limits.
     if (turboOn && P.knockEnabled && e.knockRetard > P.knockRetardDeg) { prot.push('knock'); e.boostCutPsi = Math.max(e.boostCutPsi, P.knockBoostCutPsi); }
-    if (turboOn && P.dutyEnabled && pt.duty > P.dutyLimitPct) { prot.push('duty'); e.boostCutPsi = Math.max(e.boostCutPsi, P.boostCutPsi); }
+    if (turboOn && P.dutyEnabled && Math.max(pt.duty, pt.portDuty ?? 0) > P.dutyLimitPct) { prot.push('duty'); e.boostCutPsi = Math.max(e.boostCutPsi, P.boostCutPsi); }
     const rail = res.sensed.rail;
     e.railKpa = rail.railGaugeKpa;
     if (P.fuelPressEnabled && rail.deltaKpa < P.fuelMinDeltaKpa && s.running) { prot.push('fuel pressure'); e.limp = e.limp ?? 'Low fuel pressure'; }
@@ -536,7 +547,7 @@ export function liveStepEcu(st, dt, input, cfg) {
 
     log = {
       map: pt.map, boost: s.boostPsi, boostTarget: e.boostTargetRamped, wgDuty: duty, lambda: pt.lambdaExhaust ?? pt.lambda,
-      lambdaTarget: res.input.afrCommanded / 14.7, veTable: res.breakdown.ve[0].value, mafPct: pt.trimPct ?? 0, pw: pt.pw, duty: pt.duty, deadTime: pt.deadTime, railDp: pt.railDp,
+      lambdaTarget: res.input.afrCommanded / 14.7, veTable: res.breakdown.ve[0].value, mafPct: pt.trimPct ?? 0, pw: pt.pw, injOpen: pt.injOpen ?? 0, duty: pt.duty, portPw: pt.portPw ?? 0, portDuty: pt.portDuty ?? 0, deadTime: pt.deadTime, railDp: pt.railDp,
       timing: pt.timing, egt: pt.egt, misfire: pt.misfire, filmFactor: filmFactor * 100, bfs: pt.bfs,
       torque: crankNm, breakdown: res.breakdown, boostSteps: steps, closedLoopRegion: res.sensed.closedLoopRegion,
     };
@@ -631,7 +642,7 @@ export function liveStepEcu(st, dt, input, cfg) {
     // A cut cylinder passes air, which reads as an infinitely lean mixture; the log
     // clamps it where a wideband's own range ends so the trace stays readable.
     lambda: log ? Number(Math.min(2, log.lambda).toFixed(3)) : 0, lambdaTarget: log ? Number(log.lambdaTarget.toFixed(3)) : 0,
-    pw: log ? log.pw : 0, duty: log ? log.duty : 0, deadTime: log ? log.deadTime : 0, railDp: log ? log.railDp : 0,
+    pw: log ? log.pw : 0, injOpen: log ? log.injOpen : 0, duty: log ? log.duty : 0, portPw: log ? log.portPw : 0, portDuty: log ? log.portDuty : 0, deadTime: log ? log.deadTime : 0, railDp: log ? log.railDp : 0,
     timing: log ? log.timing : 0, egt: log ? log.egt : 0, misfire: log ? log.misfire : 0,
     filmFactor: log ? Math.round(log.filmFactor) : 100, torque: Math.round(crankNm),
     bfs: log ? log.bfs : 0, knockCount: Math.round(s.knockCount), highDet: e.highDet ? 1 : 0, launch: launchArmed ? 1 : 0,

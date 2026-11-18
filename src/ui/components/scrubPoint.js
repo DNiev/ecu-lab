@@ -78,6 +78,20 @@ export function initialScrubRpm(points, logFocusRpm) {
  */
 
 /**
+ * The injector bank with the higher duty: the direct injectors, or a staged port kit
+ * (`portPw`/`portDuty` exist only when the kit is sent fuel). Without a kit this is the
+ * direct bank, always. Works on a sweep point or a live engine reading, which share the
+ * field names.
+ *
+ * @param {{duty: number, pw: number, portDuty?: number, portPw?: number}} p
+ * @returns {{duty: number, pw: number, port: boolean}} `port` is true when the kit is the busier bank
+ */
+export function busiestBank(p) {
+  if ((p.portDuty ?? 0) > p.duty) return { duty: p.portDuty, pw: p.portPw ?? p.pw, port: true };
+  return { duty: p.duty, pw: p.pw, port: false };
+}
+
+/**
  * The eight readings a single number can carry.
  *
  * Volumetric efficiency, timing and mixture are deliberately absent. Each of those is an
@@ -93,13 +107,17 @@ export function initialScrubRpm(points, logFocusRpm) {
  */
 export function pointGauges(p) {
   const mixture = p.leanRisk || p.richRisk ? 'danger' : 'neutral';
+  // The busier of the two injector banks: a staged port kit can be at its limit while the
+  // direct injectors are not, and one DUTY reading should not hide that. The pulse width
+  // beside it has to come from the same bank, or the two gauges describe different injectors.
+  const { duty, pw } = busiestBank(p);
   return [
     { key: 'maf', label: 'AIRFLOW', value: p.maf, unit: 'g/s', tone: 'neutral' },
     { key: 'map', label: 'MAP', value: p.map, unit: 'kPa', tone: 'neutral' },
     { key: 'iat', label: 'IAT', value: p.iat, unit: '°C', tone: 'neutral' },
     { key: 'lambda', label: 'LAMBDA', value: p.lambda, unit: 'λ', tone: mixture },
-    { key: 'duty', label: 'DUTY', value: p.duty, unit: '%', tone: utilisationTone(p.duty) },
-    { key: 'pw', label: 'INJ PW', value: p.pw, unit: 'ms', tone: p.fuelLimited ? 'danger' : 'neutral' },
+    { key: 'duty', label: 'DUTY', value: duty, unit: '%', tone: utilisationTone(duty) },
+    { key: 'pw', label: 'INJ PW', value: pw, unit: 'ms', tone: p.fuelLimited ? 'danger' : 'neutral' },
     { key: 'egt', label: 'EGT', value: p.egt, unit: '°C', tone: p.egtRisk ? 'danger' : 'neutral' },
     { key: 'peakPressure', label: 'PEAK P', value: p.peakPressure, unit: 'bar', tone: p.pressureRisk ? 'danger' : 'neutral' },
   ];

@@ -72,6 +72,29 @@ export function FuelSystemScreen({ active, onToggle }) {
       <div className={styles.labelSpaced}>Fuel Injectors</div>
       <PickList options={INJECTOR_OPTS.map((o) => ({ label: o.label, value: o.label }))} value={INJECTOR_OPTS[injIdx].label} onChange={(v) => dispatch({ type: ACTIONS.SET_BUILD_FIELD, field: 'injIdx', value: INJECTOR_OPTS.findIndex((o) => o.label === v) })} />
 
+      {build.engineConfig?.injection === 'direct' && (
+        <>
+          <div className={styles.labelSpaced}>Port Injection Kit</div>
+          <PickList
+            options={[{ label: 'None', value: 'none' }, ...INJECTOR_OPTS.map((o) => ({ label: o.label, value: o.label }))]}
+            value={build.portKit ? (INJECTOR_OPTS[build.portKit.injIdx] ?? INJECTOR_OPTS[0]).label : 'none'}
+            onChange={(v) => dispatch({
+              type: ACTIONS.SET_BUILD_FIELD, field: 'portKit',
+              // A new kit's ECU scaling starts at the stock size, not the fitted one: the
+              // ECU has never been told about it, and telling it is TUNE › INJECTORS.
+              value: v === 'none' ? null : {
+                injIdx: INJECTOR_OPTS.findIndex((o) => o.label === v),
+                ecuInjectorCc: build.portKit?.ecuInjectorCc ?? INJECTOR_OPTS[0].cc,
+              },
+            })}
+          />
+          <ExpandableInfo title="Port injection over direct injection">
+            Direct injectors run out of flow before the rest of a big build does, because they inject against cylinder pressure in a fraction of the cycle. The usual answer is not bigger direct injectors but a <b className={styles.em}>port injection kit</b>: a second set of injectors in the intake runners, staged in by the ECU only where the direct injectors run short.
+            <br /><br />Staging is what lets a large port set live on a street engine. At idle and light load the direct injectors carry everything, so the port injectors never run the short, ballistic pulses an oversized injector cannot meter. Send them fuel at idle (TUNE › INJECTORS, port share) and they will. And port fuel cools the valve rather than the charge, so every percent the port set carries gives back some of direct injection&apos;s knock margin.
+          </ExpandableInfo>
+        </>
+      )}
+
       <div className={styles.labelSpaced}>Fuel Pump</div>
       <PickList options={PUMP_OPTS.map((o) => ({ label: o.label, value: o.id }))} value={PUMP_OPTS[fuelSystem.pumpIdx]?.id} onChange={(v) => setFs({ pumpIdx: PUMP_OPTS.findIndex((o) => o.id === v) })} />
       <div className={styles.labelSpaced}>Pressure Regulation</div>

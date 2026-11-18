@@ -8,7 +8,7 @@
 
 import { hardwareVeAt } from '../airflow.js';
 import { AMBIENT_C, AMBIENT_K, KELVIN_OFFSET } from '../constants.js';
-import { FUEL_CHOICES } from '../hardware.js';
+import { FUEL_CHOICES, INJECTOR_OPTS } from '../hardware.js';
 import { DYNO_GEAR } from './calibration.js';
 import { ECU_COEFF as E } from './ecuCoefficients.js';
 import { baroAtAltitude } from './ecuHardware.js';
@@ -58,6 +58,21 @@ export function tankFuel(build) {
 }
 
 /**
+ * A port injection kit as the ECU's hardware sees it. Only a direct-injected engine can
+ * carry one: on a port engine the injectors already are port injectors, and upgrading
+ * them is BUILD → FUEL SYSTEM's injector choice.
+ *
+ * @param {{engineConfig?: {injection?: string}, portKit?: {injIdx: number, ecuInjectorCc: number}|null}} build
+ * @returns {{injectorCc: number, ecuInjectorCc: number}|null}
+ */
+export function portKitOf(build) {
+  const kit = build.portKit;
+  if (!kit || build.engineConfig?.injection !== 'direct') return null;
+  // An older or hand-edited kit may lack a field: the smallest injector, as for `injIdx`.
+  return { injectorCc: (INJECTOR_OPTS[kit.injIdx] ?? INJECTOR_OPTS[0]).cc, ecuInjectorCc: kit.ecuInjectorCc ?? INJECTOR_OPTS[0].cc };
+}
+
+/**
  * The ECU-side hardware of a build, with defaults for anything an older state lacks.
  * @param {object} build
  * @returns {object}
@@ -76,6 +91,7 @@ export function ecuHardwareOf(build) {
     coil: build.coil ?? DEFAULT_ECU_HW.coil,
     plugGapMm: build.plugGapMm ?? DEFAULT_ECU_HW.plugGapMm,
     cfg: build.engineConfig,
+    portKit: portKitOf(build),
   };
 }
 

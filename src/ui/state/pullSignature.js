@@ -60,6 +60,7 @@
 const MEASURED_BUILD_KEYS = [
   'engineConfig', 'mods', 'turboOn', 'boostCurve', 'octaneIdx', 'injIdx', 'mafScalar',
   'turbineIdx', 'turbineCount', 'compressorIdx', 'exhaustDiaIdx', 'ecuInjectorCc',
+  'portKit',
   'fuelSystem', 'sensorHw', 'wastegate', 'coil', 'plugGapMm', 'ethanolPct',
   'blowerId', 'blowerRatio', 'nitrous',
 ];
@@ -89,6 +90,7 @@ const INPUT_LABELS = {
   compressorIdx: 'compressor',
   exhaustDiaIdx: 'exhaust',
   ecuInjectorCc: 'ECU injector size',
+  portKit: 'port injection kit',
   fuelSystem: 'fuel system',
   sensorHw: 'sensors fitted',
   wastegate: 'wastegate',

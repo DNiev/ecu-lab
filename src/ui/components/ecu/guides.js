@@ -102,6 +102,7 @@ export const FIELD_TIPS = {
   'injector.deadTime': 'How long the injectors take to open at each battery voltage. Must match the injectors fitted.',
   'injector.minEffPwMs': 'The shortest squirt the ECU will ask for. Very short pulses deliver less than expected.',
   'injector.pressureComp': 'Corrects injector flow for fuel pressure. Set "Fixed rail" if BUILD has a returnless fuel system.',
+  'injector.portShare': "How much of each cycle's fuel the port injectors carry, by RPM and manifold pressure. The direct injectors carry the rest. Keep it at zero at idle and light load.",
   'injector.maxDutyPct': 'The longest the injectors may stay open each cycle. Past about 90% there is no time left, and the mixture goes lean.',
   // SPARK
   'ignition.iatCorr': 'Timing change by intake air temperature. Take timing out at high temperatures to protect a hot engine.',
