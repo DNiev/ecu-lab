@@ -29,7 +29,7 @@ the verdict:
 - every check, run through the existing `check()`;
 - engine wear per pull, with `DAMAGING_WEAR`.
 
-It returns `{verdict, results, peakHp, score, health, damaged}`. `evaluateJob` calls it
+It returns `{verdict, results, peakHp, score, health, wearPerPull, damaged}`. `evaluateJob` calls it
 and keeps everything career-only: pay, repair, reputation and the customer's line. Career
 verdicts and payouts do not change, and `tests/career.test.js` passes untouched.
 
@@ -100,9 +100,11 @@ New actions:
   `challenges.passed`.
 - **`RESTORE_CHALLENGES {challenges}`** for the cold-start load, as `RESTORE_CAREER` does.
 
-`APPLY_PRESET`, a custom engine and RESET ALL TO STOCK also clear `session.challenge`.
-Changing the car under a challenge ends it, rather than grading a car that is not the
-challenge's.
+`APPLY_PRESET` (a factory engine or the player's own, which arrives through the same
+action) also clears `session.challenge` and `session.challengeGrade`. Changing the engine
+under a challenge ends it, rather than grading a car that is not the challenge's. RESET
+ALL TO STOCK does not: it rewrites the calibration for the hardware on the bench, which is
+a tuning move a challenge's solution may use.
 
 Career mode does not see challenges. Entering career stashes the sandbox as it does
 today, `session.challenge` included, and leaving restores it.
@@ -119,7 +121,8 @@ free. It is a list of cards. Each card shows:
 - **START**, or **ACTIVE** on the running challenge.
 
 START asks first when the bench holds an engine: "This replaces the engine on your
-bench." It has START and CANCEL. On an empty bench it starts straight away.
+bench." It has REPLACE MY ENGINE and CANCEL, inline in the card. On an empty bench it
+starts straight away. START is disabled while a pull is running.
 
 While a challenge is active, the card also shows the last grade, if there is one: each
 check, pass or not, with its `measured` text and its `HOW_TO_SEE` line.
@@ -151,7 +154,7 @@ from the same tokens as CareerBar, with no shared markup.
   - START_CHALLENGE loads the car and sets the id;
   - LEAVE_CHALLENGE keeps the car;
   - CHALLENGE_GRADED on `pass` adds the id once, and on `fail` adds nothing;
-  - APPLY_PRESET clears the challenge.
+  - APPLY_PRESET clears the challenge, and RESET_TO_STOCK keeps it.
 - **UI**, in `tests/ui/`:
   - the HOME section lists every challenge;
   - START on a loaded bench asks first, and CANCEL changes nothing;
