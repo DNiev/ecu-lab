@@ -7,8 +7,11 @@
   gap: var(--sp-sm);
 }
 
+/* Wraps: at 320px the unit, the "modified" badge and four chips are wider than the
+   card, and the chips drop to their own line rather than running off the side. */
 .bar {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: var(--sp-sm);
   font-size: var(--fs-xs);
@@ -125,7 +128,6 @@
   font-family: var(--mono);
   font-size: var(--fs-sm);
   font-weight: 700;
-  touch-action: none;
   outline: none;
 }
 
