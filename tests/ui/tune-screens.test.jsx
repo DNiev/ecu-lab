@@ -359,6 +359,23 @@ describe('InjectorsScreen', () => {
     expect(screen.getByText('Port kit scaling matches the fitted injectors.')).toBeTruthy();
   });
 
+  it('reads a kit saved without its ECU scaling as the sim does: told the stock size', () => {
+    function FitOldKit() {
+      const [, dispatch] = useBuild();
+      return (
+        <button type="button" onClick={() => {
+          dispatch({ type: ACTIONS.SET_ENGINE_CONFIG_PATCH, patch: { injection: 'direct' } });
+          dispatch({ type: ACTIONS.SET_BUILD_FIELD, field: 'portKit', value: { injIdx: INJECTOR_OPTS.findIndex((o) => o.cc === 1300) } });
+        }}>fit old kit</button>
+      );
+    }
+    mount(<><FitOldKit /><InjectorsScreen {...quietProps} /></>);
+    fireEvent.click(screen.getByText('fit old kit'));
+    const banner = screen.getByText(/Port kit scaling mismatch/).parentElement;
+    expect(banner.textContent).toContain(`calibrated for ${INJECTOR_OPTS[0].cc}cc`);
+    expect(banner.textContent).not.toMatch(/undefined|NaN/);
+  });
+
   it('shows the shell-computed duty preview as dangerous only past its own threshold, not a recomputed one', () => {
     // 137 lands well past utilisationColor's own >90 danger band; nothing in
     // InjectorsScreen computes duty itself, so this can only come from the prop.

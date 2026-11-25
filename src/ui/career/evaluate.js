@@ -8,7 +8,7 @@
  * danger it is, not as a success.
  */
 
-import { OCTANE_OPTS, computeTuningScore, simulateSweep } from '../../sim/index.js';
+import { OCTANE_OPTS, busiestBank, computeTuningScore, simulateSweep } from '../../sim/index.js';
 import { pullInputs } from '../state/pullInputs.js';
 
 import { customerCar, idleTest } from './cars.js';
@@ -90,7 +90,7 @@ function check(c, ctx) {
     }
     case 'maxDuty': {
       // A staged port kit can be the injector that runs out while the direct bank is idle.
-      const duty = Math.max(...r.points.map((p) => Math.max(p.duty, p.portDuty ?? 0)));
+      const duty = Math.max(...r.points.map((p) => busiestBank(p).duty));
       return { check: c, pass: duty <= c.max, measured: `peak ${Math.round(duty)}% duty; ${c.max}% allowed` };
     }
     case 'untouched': {

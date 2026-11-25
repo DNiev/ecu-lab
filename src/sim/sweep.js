@@ -11,7 +11,7 @@ import { COEFF } from './coefficients.js';
 import { clamp, curveAt, groupRuns, mergeNearbyRuns } from './math.js';
 import { solveInduction } from './turbo.js';
 import { chargeTempK, INDUCTION_REF_EXHAUST_K } from './thermo.js';
-import { evaluatePoint } from './point.js';
+import { busiestBank, evaluatePoint } from './point.js';
 import { trappedAirGrams } from './cycle.js';
 import { loadFor, needsAirmass, readEcuTable, truthReader } from './layouts.js';
 import { CURVE_RPM, LOAD, RPM, SPARK_MIN_DEG } from './tables.js';
@@ -155,7 +155,7 @@ export function injectorDutyPreview(input) {
   const pt = ecuDemandPoint({ cal: ecu.cal, hw: pullEcuHardware(input), cond: ecu.cond, tables: { ve, timing, afr, layout }, rpm, loadKpa });
   // The busier bank: a staged port kit has its own duty, and is what runs out first when
   // the ECU hands it more of the fuel than it can flow.
-  return Math.max(pt.duty, pt.portDuty ?? 0);
+  return busiestBank(pt).duty;
 }
 
 /** Engine speed TUNE → INJECTORS previews duty at, RPM. */
@@ -448,11 +448,8 @@ export function simulateSweep({
     // direct injectors still have room, and judging only the direct bank's duty would
     // report "maxed" at a duty nowhere near it. Without a kit `portDuty` is absent and
     // this is the direct bank's duty alone, as it always was.
-    const busiest = (p) => Math.max(p.duty, p.portDuty ?? 0);
-    const peak = run.reduce((a, b) => (busiest(b) > busiest(a) ? b : a));
-    const portLimited = (peak.portDuty ?? 0) > peak.duty;
-    const peakDuty = busiest(peak);
-    const peakPw = portLimited ? peak.portPw : peak.pw;
+    const peak = run.reduce((a, b) => (busiestBank(b).duty > busiestBank(a).duty ? b : a));
+    const { duty: peakDuty, pw: peakPw, port: portLimited } = busiestBank(peak);
     // The direct bank is "not the one out of room" only if it is under its own limit too:
     // both can saturate at once (small direct injectors AND a small kit).
     const directHasRoom = peak.duty <= (ecu?.cal?.injector?.maxDutyPct ?? 90);

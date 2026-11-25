@@ -23,7 +23,7 @@ import { trappedAirGrams } from '../cycle.js';
 import { needsAirmass, readEcuTable, truthReader } from '../layouts.js';
 import { clamp } from '../math.js';
 import { bottlePressurePsi, stepBottle } from '../nitrous.js';
-import { evaluatePoint } from '../point.js';
+import { busiestBank, evaluatePoint } from '../point.js';
 import { CURVE_RPM, RPM } from '../tables.js';
 import { chargeTempK, INDUCTION_REF_EXHAUST_K } from '../thermo.js';
 import { solveInduction } from '../turbo.js';
@@ -526,7 +526,7 @@ export function liveStepEcu(st, dt, input, cfg) {
     // Both act by cutting boost, which only a turbo's wastegate can do — as on the dyno, a
     // supercharged or naturally aspirated engine is left to knock control and the limits.
     if (turboOn && P.knockEnabled && e.knockRetard > P.knockRetardDeg) { prot.push('knock'); e.boostCutPsi = Math.max(e.boostCutPsi, P.knockBoostCutPsi); }
-    if (turboOn && P.dutyEnabled && Math.max(pt.duty, pt.portDuty ?? 0) > P.dutyLimitPct) { prot.push('duty'); e.boostCutPsi = Math.max(e.boostCutPsi, P.boostCutPsi); }
+    if (turboOn && P.dutyEnabled && busiestBank(pt).duty > P.dutyLimitPct) { prot.push('duty'); e.boostCutPsi = Math.max(e.boostCutPsi, P.boostCutPsi); }
     const rail = res.sensed.rail;
     e.railKpa = rail.railGaugeKpa;
     if (P.fuelPressEnabled && rail.deltaKpa < P.fuelMinDeltaKpa && s.running) { prot.push('fuel pressure'); e.limp = e.limp ?? 'Low fuel pressure'; }

@@ -8,7 +8,7 @@
 
 import { COEFF } from '../coefficients.js';
 import { clamp, groupRuns, mergeNearbyRuns } from '../math.js';
-import { ballisticFromMs } from '../point.js';
+import { ballisticFromMs, busiestBank } from '../point.js';
 import { ECU_META } from './calibration.js';
 
 import { LINEAR_SCALES } from './sensors.js';
@@ -242,8 +242,8 @@ export function ecuSweepEvents(points, { cal, hw, hardCut, endRpm }) {
     // exists only when a kit is sent fuel, so without one this is the plain wording.
     // (The points are post-cut, so the test is which bank was busier, not whether it
     // still shows more than the limit.)
-    const busiest = run.reduce((a, b) => (Math.max(b.duty, b.portDuty ?? 0) > Math.max(a.duty, a.portDuty ?? 0) ? b : a));
-    const port = (busiest.portDuty ?? 0) > busiest.duty;
+    const busiest = run.reduce((a, b) => (busiestBank(b).duty > busiestBank(a).duty ? b : a));
+    const { port } = busiestBank(busiest);
     events.push({
       type: 'dutyprot', severity: 2, impact: imp(8, run), ...span(run),
       msg: `${port ? 'Port kit duty' : 'Injector duty'} protection cut boost across ${label(run)}`,
@@ -264,18 +264,20 @@ export function ecuSweepEvents(points, { cal, hw, hardCut, endRpm }) {
     const port = !!peak.portBallistic && !(peak.ballistic && peak.injOpen <= peak.portOpen);
     const cc = port ? hw.portKit?.injectorCc : hw.injectorCc;
     const open = port ? peak.portOpen : peak.injOpen;
-    const need = ballisticFromMs(cc).toFixed(2);
+    // To the open time's own precision: rounded to 0.43 ms, 1300 cc's 0.433 would read as
+    // shorter than an opening of 0.431 ms this event calls short of it.
+    const need = ballisticFromMs(cc).toFixed(3);
     // The value to type: the threshold rounded UP to a step the field holds. Rounded to
     // nearest it can land just under the threshold (0.43 ms for 1300 cc's 0.433), and
-    // following the advice exactly would leave this event firing.
-    const minPw = ECU_META.find((m) => m.path === 'injector.minEffPwMs');
+    // following the advice exactly would leave this event firing. The kit has its own field.
+    const minPw = ECU_META.find((m) => m.path === (port ? 'injector.portMinPwMs' : 'injector.minEffPwMs'));
     const setTo = (Math.ceil(ballisticFromMs(cc) / minPw.step - 1e-9) * minPw.step).toFixed(minPw.decimals);
     events.push({
       type: 'ballistic', severity: 2, impact: imp(6, run), ...span(run),
       msg: `${port ? 'Port injectors' : 'Injectors'} too big for this load across ${label(run)}: open ${open} ms, short of the ${need} ms a ${cc}cc injector needs to lift fully`,
       cause: `At this load each cylinder needs so little fuel that the ${cc}cc injectors are open only ${open} ms. Below about ${need} ms the needle never reaches full lift, so they deliver less than the ECU calculated, and the mixture runs lean and varies from pulse to pulse. A bigger injector has a longer region like this, so it misses most at idle and light load, where an engine spends most of its life.`,
       fix: port
-        ? 'On TUNE → INJECTORS, lower the port share at light load so the direct injectors carry it. That is what factory staging does: the port set only comes in where the direct injectors run out.'
+        ? `On TUNE → INJECTORS, set the port kit minimum pulse to about ${setTo} ms: where the port share would open the kit for less, the ECU hands that share to the direct injectors, as the factory value does. Or lower the port share at light load, so the port set only comes in where the direct injectors run out.`
         : `On TUNE → INJECTORS, set the minimum effective pulse to about ${setTo} ms. The engine idles slightly rich but steady, and the trims pull it back. If it still sits past the trim limit, the injectors are too big for this engine: fit smaller ones on BUILD → FUEL SYSTEM${hw.cfg?.injection === 'direct' && !hw.portKit ? ', or keep smaller direct injectors and add a port injection kit for the top end' : ''}.`,
     });
   });

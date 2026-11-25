@@ -15,7 +15,7 @@
 import { Fuel } from 'lucide-react';
 import React from 'react';
 
-import { DEFAULT_ECU_HW, INJECTOR_OPTS, LINEAR_SCALES, FUEL_CHOICES, PUMP_OPTS, REGULATOR_OPTS } from '../../../sim/index.js';
+import { DEFAULT_ECU_HW, INJECTOR_OPTS, LINEAR_SCALES, FUEL_CHOICES, PUMP_OPTS, REGULATOR_OPTS, portKitOf } from '../../../sim/index.js';
 import { Toggle } from '../../primitives/Toggle.jsx';
 import { BuildSection } from '../../components/BuildSection.jsx';
 import { SetupNote } from '../../components/ecu/SetupNote.jsx';
@@ -38,6 +38,9 @@ export function FuelSystemScreen({ active, onToggle }) {
   const { octaneIdx, injIdx } = build;
   const fuelSystem = build.fuelSystem ?? DEFAULT_ECU_HW.fuelSystem;
   const sensorHw = build.sensorHw ?? DEFAULT_ECU_HW.sensorHw;
+  // The port kit as the sim reads it: null on a port engine, and the defaults for a field
+  // an older kit lacks.
+  const kit = portKitOf(build);
   const flexTank = !!FUEL_CHOICES[octaneIdx].flex;
   const setFs = (patch) => dispatch({ type: ACTIONS.SET_BUILD_FIELD, field: 'fuelSystem', value: { ...fuelSystem, ...patch } });
   const setSensors = (patch) => dispatch({ type: ACTIONS.SET_BUILD_FIELD, field: 'sensorHw', value: { ...sensorHw, ...patch } });
@@ -77,14 +80,14 @@ export function FuelSystemScreen({ active, onToggle }) {
           <div className={styles.labelSpaced}>Port Injection Kit</div>
           <PickList
             options={[{ label: 'None', value: 'none' }, ...INJECTOR_OPTS.map((o) => ({ label: o.label, value: o.label }))]}
-            value={build.portKit ? (INJECTOR_OPTS[build.portKit.injIdx] ?? INJECTOR_OPTS[0]).label : 'none'}
+            value={kit ? INJECTOR_OPTS.find((o) => o.cc === kit.injectorCc).label : 'none'}
             onChange={(v) => dispatch({
               type: ACTIONS.SET_BUILD_FIELD, field: 'portKit',
               // A new kit's ECU scaling starts at the stock size, not the fitted one: the
               // ECU has never been told about it, and telling it is TUNE › INJECTORS.
               value: v === 'none' ? null : {
                 injIdx: INJECTOR_OPTS.findIndex((o) => o.label === v),
-                ecuInjectorCc: build.portKit?.ecuInjectorCc ?? INJECTOR_OPTS[0].cc,
+                ecuInjectorCc: kit?.ecuInjectorCc ?? INJECTOR_OPTS[0].cc,
               },
             })}
           />

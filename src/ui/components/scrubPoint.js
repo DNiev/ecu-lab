@@ -11,6 +11,7 @@
  * test can reach.
  */
 
+import { busiestBank } from '../../sim/index.js';
 import { utilisationTone } from '../theme.js';
 
 /**
@@ -77,19 +78,9 @@ export function initialScrubRpm(points, logFocusRpm) {
  * @property {'neutral'|'ok'|'warn'|'danger'} tone
  */
 
-/**
- * The injector bank with the higher duty: the direct injectors, or a staged port kit
- * (`portPw`/`portDuty` exist only when the kit is sent fuel). Without a kit this is the
- * direct bank, always. Works on a sweep point or a live engine reading, which share the
- * field names.
- *
- * @param {{duty: number, pw: number, portDuty?: number, portPw?: number}} p
- * @returns {{duty: number, pw: number, port: boolean}} `port` is true when the kit is the busier bank
- */
-export function busiestBank(p) {
-  if ((p.portDuty ?? 0) > p.duty) return { duty: p.portDuty, pw: p.portPw ?? p.pw, port: true };
-  return { duty: p.duty, pw: p.pw, port: false };
-}
+// The injector bank with the higher duty (point.js): the gauges read the bank the ECU's
+// protection judges, so they cannot disagree with it.
+export { busiestBank };
 
 /**
  * The eight readings a single number can carry.

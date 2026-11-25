@@ -213,6 +213,15 @@ export const ECU_COEFF = Object.freeze({
   PORT_STAGE_FULL_KPA: 200,
   /** The share of each cycle's fuel the port set carries once fully staged in, percent. */
   PORT_STAGE_MAX_PCT: 50,
+  /**
+   * The factory minimum opening of a port kit, ms: a share that would open the port set
+   * for less goes to the direct injectors instead. Staging rises from nothing at
+   * PORT_STAGE_START_KPA, so just above it the kit would otherwise be asked for slivers
+   * of fuel, deep in its ballistic region. Set to clear that region for the largest
+   * injector BUILD offers (1300 cc, about 0.433 ms), rounded up to the field's step, so a
+   * kit of any size is clean on factory staging; a test holds it there.
+   */
+  PORT_MIN_OPEN_MS: 0.45,
   /** Rail pressure above rating at which a pump's flow would reach zero, kPa. */
   PUMP_PRESSURE_SPAN_KPA: 900,
   PUMP_FLOW_MIN: 0.15,

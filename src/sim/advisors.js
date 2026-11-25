@@ -15,7 +15,7 @@ import { mbtForCell, trappedAirGrams } from './cycle.js';
 import { exhaustManifoldKpa } from './friction.js';
 import { chargeTempK, exhaustTempK } from './thermo.js';
 import { clamp, curveAt, interp1 } from './math.js';
-import { evaluatePoint, portKitBlend } from './point.js';
+import { evaluatePoint, portKitBlend, stagedPortShare } from './point.js';
 import { reachableKpa } from './manifold.js';
 import { inductionAtMap } from './turbo.js';
 import {
@@ -193,19 +193,20 @@ function fuelCell(ri, ci, rpm, rowKpa, rowLoad, bracketOnly, current, pt) {
  *
  * 5. WITH THE FUEL WHERE THE ECU SENDS IT. A port injection kit on a direct-injected engine
  *    takes direct injection's extra filling and charge cooling away in proportion to the
- *    fuel it carries (`portKitBlend`), which is what the pull runs. `portShareAt` says how
- *    much it carries; absent, every drop is injected directly.
+ *    fuel it carries (`portKitBlend`), which is what the pull runs. `portKit` says how much
+ *    its table asks of it, staged as the ECU stages it (`stagedPortShare`); absent, every
+ *    drop is injected directly.
  *
  * @param {object} input includes `camAt`, the intake cam advance the VVT calibration holds
  *   at a speed and pressure (crank degrees), when the engine has an intake phaser, and
- *   `portShareAt(rpm, mapKpa)`, the share (0–1) of the fuel a port kit carries there, when
- *   one is fitted (`portShareAt` in ecu/calibration.js, on the calibration the pull runs)
+ *   `portKit`, a fitted port kit's staging on the calibration the pull runs
+ *   (`portStagingOf` in ecu/calibration.js)
  * @returns {{spark: object[], fuelAdv: object[], overAdvanced: object[], underAdvanced: object[], pastMbt: object[], wrongMix: object[]}}
  */
 export function calibrationAdvice({
   ve, veTruth, timing, afr, layout = null, derived, fuel, mods, turboOn, boostCurve,
   compressor, turbine, injectorCc, ecuInjectorCc, mafScalar, mafErrorBase, pull = null, camAt = null,
-  portShareAt = null,
+  portKit = null,
 }) {
   const spark = [], fuelAdv = [];
   // The breakpoints each table is on: an engine-sized layout, an engine computer's own,
@@ -264,20 +265,26 @@ export function calibrationAdvice({
     return inductionMemo.get(key);
   };
 
-  /** What a port kit takes from direct injection here (rule 5), or null with none. */
-  const kitAt = portShareAt && derived.injection === 'direct'
-    ? (rpm, mapKpa) => {
-      const b = portKitBlend(derived, clamp(portShareAt(rpm, mapKpa), 0, 1));
-      return b.evapInCylinder == null ? null : { veScale: b.veScale, derived: { ...derived, evapInCylinder: b.evapInCylinder } };
-    }
-    : () => null;
+  /**
+   * What a port kit takes from direct injection here (rule 5), or null when it carries
+   * nothing. Given the fuel the ECU commands (`fuelG`), staged as the ECU stages it: a
+   * share too short to meter goes to the direct injectors. Without it, the share asked for.
+   */
+  const kitAt = (rpm, mapKpa, fuelG = null) => {
+    if (!portKit || derived.injection !== 'direct') return null;
+    const asked = clamp(portKit.shareAt(rpm, mapKpa), 0, 1);
+    if (fuelG != null && stagedPortShare({
+      share: asked, fuelG, ecuCc: portKit.ecuInjectorCc, ecuDensity: fuel.density, minOpenMs: portKit.minOpenMs,
+    }) === 0) return null;
+    const b = portKitBlend(derived, asked);
+    return b.evapInCylinder == null ? null : { veScale: b.veScale, derived: { ...derived, evapInCylinder: b.evapInCylinder } };
+  };
 
   /** The engine at one speed and pressure, run on the player's tables. */
   const pointAt = (rpm, mapKpa, { veVal, veActualVal, timingVal, afrCommanded }) => {
     // Evaluated without an ECU, so the kit's share is applied here, as point.js applies it
     // on the ECU path: to the true filling, and through `derived` to the charge cooling.
-    const kit = kitAt(rpm, mapKpa);
-    return evaluatePoint({
+    const run = (kit) => evaluatePoint({
       rpm, mapKpa,
       ...inductionAt(rpm, mapKpa),
       veVal, veActualVal: kit ? (veActualVal ?? veVal) * kit.veScale : veActualVal, timingVal, afrCommanded,
@@ -287,6 +294,11 @@ export function calibrationAdvice({
       injectorCc, ecuInjectorCc, derived: kit ? kit.derived : derived, compressor,
       turbine: turboOn ? turbine : null,
     });
+    const kit = kitAt(rpm, mapKpa);
+    const pt = run(kit);
+    // The ECU stages on the fuel it commands, so the share it would not meter is judged on
+    // this point's own fuel, and the point is then the engine with the kit carrying nothing.
+    return kit && !kitAt(rpm, mapKpa, pt.fuelCmd / 1000) ? run(null) : pt;
   };
 
   /**
@@ -376,7 +388,7 @@ export function calibrationAdvice({
       const knockCeiling = pt.threshold - KNOCK_SAFETY_DEG;
       const mbt = mbtAtRow({
         rpm, mapKpa: gradeKpa, veCell, afrCell,
-        fuel, mods, derived: kitAt(rpm, gradeKpa)?.derived ?? derived, turboOn, turbine,
+        fuel, mods, derived: kitAt(rpm, gradeKpa, pt.fuelCmd / 1000)?.derived ?? derived, turboOn, turbine,
       });
       const safeTiming = clamp(
         Math.round(Math.min(knockCeiling, mbt) * 2) / 2, SPARK_MIN_DEG, SPARK_MAX_DEG,

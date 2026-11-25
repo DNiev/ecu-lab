@@ -103,6 +103,9 @@ describe('the pull log reports it', () => {
     const [ev] = ballisticEvents(eng.pull(LIGHT_KPA));
     expect(ev).toBeTruthy();
     expect(ev.msg).toMatch(/1300cc/);
+    // The threshold to the open time's own precision: rounded to 0.43 it would read as
+    // shorter than an opening of 0.431 ms the event calls short of it.
+    expect(ev.msg).toContain(`short of the ${S.ballisticFromMs(1300).toFixed(3)} ms`);
     expect(ev.cause.length).toBeGreaterThan(40);
     expect(ev.fix).toMatch(/minimum effective pulse/);
   });

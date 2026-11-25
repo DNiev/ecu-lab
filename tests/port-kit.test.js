@@ -6,6 +6,7 @@
 import { describe, expect, it } from 'vitest';
 
 import * as S from '../src/sim/index.js';
+import { combineCylinders } from '../src/sim/ecu/strategy.js';
 import { at, makeEngine, runLive } from './ecuHarness.js';
 
 const idx = (cc) => S.INJECTOR_OPTS.findIndex((o) => o.cc === cc);
@@ -42,10 +43,9 @@ describe('factory staging', () => {
     expect(S.portShareAt(cal, 3000, 200)).toBeCloseTo(0.5, 2);
   });
 
-  it('falls back to factory staging on a calibration saved before the table existed', () => {
-    const cal = S.defaultEcuCalibration({});
-    const { portShare: _portShare, ...injector } = cal.injector;
-    expect(S.portShareAt({ ...cal, injector }, 3000, 200)).toBeCloseTo(0.5, 2);
+  it('ships a minimum port opening that clears the ballistic region of every injector a kit can be', () => {
+    const min = S.defaultEcuCalibration({}).injector.portMinPwMs;
+    for (const o of S.INJECTOR_OPTS) expect(min).toBeGreaterThanOrEqual(S.ballisticFromMs(o.cc));
   });
 });
 
@@ -66,13 +66,18 @@ describe('metering through a staged kit (T6–T9)', () => {
   });
 
   it('T7: pays the ballistic cost when the port share is raised at idle', () => {
-    const eng = b58({ portKit: kit }, { 'injector.portShare': flatShare(50) });
+    // With the minimum port opening off: at its factory value the ECU would hand these
+    // short port pulses to the direct injectors instead.
+    const eng = b58({ portKit: kit }, { 'injector.portShare': flatShare(50), 'injector.portMinPwMs': 0 });
     const pull = eng.pull(30);
     expect(pull.events.some((e) => e.type === 'ballistic')).toBe(true);
     // The event is the port bank's: the direct injectors alone are not in their ballistic
     // region at this load, so a bare engine reports nothing and the port message names the kit.
     expect(pull.points.some((p) => p.portBallistic)).toBe(true);
-    expect(pull.events.find((e) => e.type === 'ballistic').msg).toMatch(/^Port injectors/);
+    const ev = pull.events.find((e) => e.type === 'ballistic');
+    expect(ev.msg).toMatch(/^Port injectors/);
+    // The fix names the setting that hands the short pulses back, rounded up to clear the threshold.
+    expect(ev.fix).toContain('set the port kit minimum pulse to about 0.45 ms');
     expect(b58().pull(30).events.some((e) => e.type === 'ballistic')).toBe(false);
   });
 
@@ -182,7 +187,8 @@ describe('metering through a staged kit (T6–T9)', () => {
   it('logs both banks on the live engine, and the kit wets the port walls', () => {
     expect(S.LOG_CHANNELS.some((c) => c.id === 'portDuty')).toBe(true);
     expect(S.LOG_CHANNELS.some((c) => c.id === 'portPw')).toBe(true);
-    const eng = b58({ portKit: kit }, { 'injector.portShare': flatShare(60) });
+    // Port fuel at idle, so with the minimum port opening off (it would hand these pulses back).
+    const eng = b58({ portKit: kit }, { 'injector.portShare': flatShare(60), 'injector.portMinPwMs': 0 });
     expect(runLive(eng, { seconds: 4 }).rows.at(-1).portPw).toBeGreaterThan(0);
     expect(runLive(b58(), { seconds: 4 }).rows.at(-1).portPw).toBe(0);
     // More fuel on the walls means less of a tip-in's fuel reaches the cylinder at first.
@@ -198,6 +204,60 @@ describe('metering through a staged kit (T6–T9)', () => {
     const rows = runLive(eng, { seconds: 6, pedal: () => 100, holdRpm: 5500 }).rows;
     expect(rows.some((r) => r.portDuty > 92)).toBe(true);
     expect(rows.some((r) => (r.protect ?? []).includes('duty'))).toBe(true);
+  });
+});
+
+describe('a share too small to meter goes to the direct injectors', () => {
+  const b58 = (patch = {}, cal = {}) => makeEngine({ preset: 'b58-m1', build: patch, cal });
+
+  it.each([40, 60, 80, 100])('keeps the kit out of its ballistic region on factory staging at %i%% throttle', (throttle) => {
+    // Factory staging rises from nothing at atmospheric, so just above it the kit is asked
+    // for a sliver of the fuel. Metered, that is a port pulse far inside the ballistic region.
+    const pull = b58({ portKit: kit }).pull(throttle);
+    expect(pull.points.filter((p) => p.portBallistic).map((p) => `${p.rpm}@${p.map}`)).toEqual([]);
+    expect(pull.events.filter((e) => e.type === 'ballistic').map((e) => e.msg)).toEqual([]);
+  });
+
+  it('decides on the opening the ECU would command the kit', () => {
+    const d = { ecuCc: 1300, ecuDensity: 0.745, minOpenMs: 0.45 };
+    // 1300 cc of gasoline is about 0.016 g/ms: 1% of 0.05 g is a 0.03 ms opening, half of it 1.5 ms.
+    expect(S.stagedPortShare({ share: 0.01, fuelG: 0.05, ...d })).toBe(0);
+    expect(S.stagedPortShare({ share: 0.5, fuelG: 0.05, ...d })).toBe(0.5);
+    expect(S.stagedPortShare({ share: 0, fuelG: 0.05, ...d })).toBe(0);
+    expect(S.stagedPortShare({ share: 0.01, fuelG: 0.05, ...d, minOpenMs: 0 })).toBe(0.01);
+  });
+
+  it('runs a cell it folds back exactly as the engine with no kit', () => {
+    const bare = b58().pull(80);
+    const kitted = b58({ portKit: kit }).pull(80);
+    // Boosted cells where factory staging asks for port fuel the ECU will not meter.
+    const folded = kitted.points.filter((p) => p.map > 105 && !('portShare' in p));
+    expect(folded.length).toBeGreaterThan(0);
+    for (const p of folded) {
+      const b = at(bare, p.rpm);
+      expect([p.rpm, p.lambda, p.fuelMass, p.pw]).toEqual([b.rpm, b.lambda, b.fuelMass, b.pw]);
+    }
+  });
+
+  it('does not hold the kit open for the direct bank\'s minimum pulse', () => {
+    // A 2% share with no minimum port opening: a short port pulse. The direct injectors'
+    // minimum pulse is theirs, and must not stretch it.
+    const cal = (minEff) => ({ 'injector.portShare': flatShare(2), 'injector.portMinPwMs': 0, 'injector.minEffPwMs': minEff });
+    const free = at(b58({ portKit: kit }, cal(0)).pull(100), 4000);
+    const held = at(b58({ portKit: kit }, cal(1)).pull(100), 4000);
+    expect(free.portPw).toBeGreaterThan(0);
+    expect(held.portPw).toBe(free.portPw);
+    expect(held.portOpen).toBe(free.portOpen);
+  });
+});
+
+describe('a multi-cylinder point', () => {
+  it('reports the shortest opening of any cylinder, as it reports any cylinder being ballistic', () => {
+    const merged = combineCylinders([
+      { injOpen: 0.30, portOpen: 0.50, ballistic: true, portBallistic: false },
+      { injOpen: 0.50, portOpen: 0.40, ballistic: false, portBallistic: true },
+    ]);
+    expect(merged).toMatchObject({ injOpen: 0.30, portOpen: 0.40, ballistic: true, portBallistic: true });
   });
 });
 
@@ -262,7 +322,7 @@ describe('a kitted direct engine on the stock calibration tells one story', () =
     const pull = eng.pull(100);
     // The kit is really carrying fuel on boost, or this test proves nothing.
     expect(pull.points.some((pt) => (pt.portShare ?? 0) > 0.2)).toBe(true);
-    const bad = pull.events.filter((e) => ['knock', 'lean', 'rich', 'unheardknock', 'knockprot', 'leanprot'].includes(e.type));
+    const bad = pull.events.filter((e) => ['knock', 'lean', 'rich', 'unheardknock', 'knockprot', 'leanprot', 'ballistic'].includes(e.type));
     expect(bad.map((e) => `${e.type}: ${e.msg}`)).toEqual([]);
     const cc = S.INJECTOR_OPTS[eng.build.injIdx].cc;
     const a = S.calibrationAdvice({
@@ -271,8 +331,8 @@ describe('a kitted direct engine on the stock calibration tells one story', () =
       boostCurve: eng.build.boostCurve, compressor: eng.compressor, turbine: eng.turbine,
       injectorCc: cc, ecuInjectorCc: eng.build.ecuInjectorCc, mafScalar: eng.build.mafScalar,
       mafErrorBase: S.mafErrorFactor(eng.build.mods, eng.build.turboOn), pull,
-      // As EcuLab asks: the share the kit carries, off the calibration the pull runs.
-      portShareAt: (rpm, kpa) => S.portShareAt(eng.cal, rpm, kpa),
+      // As EcuLab asks: the kit's staging, off the calibration the pull runs.
+      portKit: S.portStagingOf(eng.cal, eng.hw.portKit),
     });
     expect(where(a.overAdvanced)).toEqual([]);
     expect(where(a.wrongMix)).toEqual([]);

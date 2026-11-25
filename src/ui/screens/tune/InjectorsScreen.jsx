@@ -19,7 +19,7 @@ import React from 'react';
 
 import { Fuel } from 'lucide-react';
 
-import { INJECTOR_OPTS, FUEL_CHOICES } from '../../../sim/index.js';
+import { INJECTOR_OPTS, FUEL_CHOICES, portKitOf } from '../../../sim/index.js';
 import { ExpandableInfo } from '../../components/ExpandableInfo.jsx';
 import { Bar } from '../../primitives/Bar.jsx';
 import { Button } from '../../primitives/Button.jsx';
@@ -76,9 +76,7 @@ export function InjectorsScreen({ dutyPreview, dutyRpm = 6500, injectorCc, child
       ) : (
         <div className={styles.matchNote}>ECU scaling matches the fitted injectors.</div>
       )}
-      {build.portKit && build.engineConfig?.injection === 'direct' && (
-        <PortKitScaling kit={build.portKit} dispatch={dispatch} />
-      )}
+      {portKitOf(build) && <PortKitScaling build={build} dispatch={dispatch} />}
       <ExpandableInfo title="Injector scaling — the step everyone forgets">
         The ECU never commands "fuel" — it commands a pulse width, calculated for the injector size it has been <i>told</i> is fitted. Bolt in bigger injectors without updating that number and every pulse delivers proportionally more fuel than intended, so the engine runs rich everywhere regardless of what your AFR table says.
         <br /><br />Every real tuning platform has this constant: UpRev calls it the <b className={styles.em}>K-fuel multiplier</b> (lower it for bigger injectors), HP Tuners calls it <b className={styles.em}>injector flow rate</b>. It is the first thing you change after a fuel system upgrade, before touching any table.
@@ -116,16 +114,15 @@ export function InjectorsScreen({ dutyPreview, dutyRpm = 6500, injectorCc, child
  * different hardware and the ECU is told each one's size separately, so one can be
  * right while the other is wrong.
  * @param {object} props
- * @param {{injIdx: number, ecuInjectorCc: number}} props.kit the fitted port kit
+ * @param {object} props.build the BUILD slice, with a port kit fitted on a direct engine
  * @param {(action: any) => void} props.dispatch
  * @returns {React.ReactElement}
  */
-function PortKitScaling({ kit, dispatch }) {
-  // The same fallback `portKitOf` applies to an index that matches no injector, so the
-  // screen and the sim agree on which size the kit is.
-  const kitCc = (INJECTOR_OPTS[kit.injIdx] ?? INJECTOR_OPTS[0]).cc;
-  const kitEcu = kit.ecuInjectorCc;
-  const setKitEcu = (cc) => dispatch({ type: ACTIONS.SET_BUILD_FIELD, field: 'portKit', value: { ...kit, ecuInjectorCc: cc } });
+function PortKitScaling({ build, dispatch }) {
+  // Both sizes as the sim reads them (`portKitOf`, with its defaults for a field an older
+  // kit lacks), so the screen and the engine agree on what is fitted and what the ECU is told.
+  const { injectorCc: kitCc, ecuInjectorCc: kitEcu } = portKitOf(build);
+  const setKitEcu = (cc) => dispatch({ type: ACTIONS.SET_BUILD_FIELD, field: 'portKit', value: { ...build.portKit, ecuInjectorCc: cc } });
   return (
     <>
       <div className={styles.label}>

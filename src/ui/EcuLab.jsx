@@ -29,7 +29,7 @@ import {
   isLocatable, layoutById, presetById,
   simulateDragRun, simulateSweep, torqueCurveFromSweep, turbineWithCount,
   veRecommendations, defaultEcuCalibration, dynoConditions, ecuHardwareOf, tankFuel,
-  veTruthByPhaseFor, read1, applyVeCorrections, intakeCamAt, portShareAt, scheduledVeAt, veCorrections, veSamplesFromLive, veSamplesFromPull,
+  veTruthByPhaseFor, read1, applyVeCorrections, intakeCamAt, portStagingOf, scheduledVeAt, veCorrections, veSamplesFromLive, veSamplesFromPull,
 } from '../sim/index.js';
 import {
   beepEngineAudio, converterEngineAudio, createEngineAudio, setEngineAudioActive,
@@ -454,19 +454,21 @@ export function EcuLabApp() {
        injIdx, mods, mafScalar, engineDerived, turbine, compressor, ecuBundle, blower, blowerRatio, nitrous]);
   // Judged on the tables' own breakpoints, at the cam phase the VVT calibration holds.
   const camAt = useMemo(() => intakeCamAt(engineConfig, vvtCal), [engineConfig, vvtCal]);
-  // A port kit's share of the fuel, from the calibration the advisor's pull runs, so the
-  // advisor grades the charge cooling and filling the kit really leaves the engine.
-  const kitShareAt = useMemo(
-    () => (ecuHw.portKit ? (rpm, kpa) => portShareAt(tune.ecu, rpm, kpa) : null),
-    [ecuHw.portKit, tune.ecu],
+  // A port kit's staging, from the calibration the advisor's pull runs, so the advisor
+  // grades the charge cooling and filling the kit really leaves the engine. Built from the
+  // injector settings alone, not the whole calibration.
+  const kitInjector = tune.ecu.injector;
+  const portStaging = useMemo(
+    () => portStagingOf({ injector: kitInjector }, ecuHw.portKit),
+    [kitInjector, ecuHw.portKit],
   );
   const calAdvice = useMemo(() => calibrationAdvice({
     ve: deferredTables.ve, veTruth, timing: deferredTables.timing, afr: deferredTables.afr, layout: deferredTables.layout,
     derived: engineDerived, octaneBonus, fuel, mods, turboOn, boostCurve,
     compressor, turbine, camAt,
-    injectorCc, ecuInjectorCc, mafScalar, mafErrorBase, pull: advisorPull, portShareAt: kitShareAt,
+    injectorCc, ecuInjectorCc, mafScalar, mafErrorBase, pull: advisorPull, portKit: portStaging,
   }), [deferredTables, veTruth, engineDerived, octaneBonus, fuel, mods, turboOn, boostCurve,
-       compressor, turbine, camAt, injectorCc, ecuInjectorCc, mafScalar, mafErrorBase, advisorPull, kitShareAt]);
+       compressor, turbine, camAt, injectorCc, ecuInjectorCc, mafScalar, mafErrorBase, advisorPull, portStaging]);
 
   const veAdvice = useMemo(
     () => veRecommendations(ve, engineConfig, mods, veTruth, (layout ?? layoutById(null)).ve),

@@ -293,10 +293,14 @@ Learn article 39. None of them changes the direction of any lesson.
    one low-pressure rail model a direct engine already has (no high-pressure pump), and
    they share one dead-time table. Its share of the fuel blends charge cooling, the filling
    direct injection earns, and the port wall film in proportion; a real port set's
-   targeting and spray timing are not modelled. RESET ALL TO STOCK writes its tables for
-   the kit on factory staging, and TUNE's advisor grades them on the share the port share
-   table sends, because a kit carrying half the fuel on boost costs E85 enough charge
-   cooling to knock on tables written for direct injection alone.
+   targeting and spray timing are not modelled. Staging is a hard switch: where the share
+   would open the port set for less than its minimum pulse, the ECU hands all of it to the
+   direct injectors, with no hysteresis band, so a pull crossing that point steps between
+   the two. RESET ALL TO STOCK writes its tables for the kit on factory staging, and TUNE's
+   advisor grades them on the share the kit really carries, because a kit carrying half
+   the fuel on boost costs E85 enough charge cooling to knock on tables written for direct
+   injection alone. Both decide the switch on an estimate of the fuel the ECU commands, so
+   a cell sitting exactly on it can be staged differently from the running engine.
 
 Sources for the supercharger and nitrous figures: Eaton (TVS R1900: 1.9 L/rev, 18,000 rpm,
 pressure ratio ~1.8, up to 75% efficient), Whipple (W175AX 2.9 L: 18,000 rpm, peak

@@ -214,24 +214,14 @@ describe('the turbo kit on BUILD', () => {
 });
 
 describe('the port share table', () => {
-  /** Fits a port kit on a direct engine, and (optionally) hands back a calibration saved before the port share table existed. */
-  function FitKit({ oldSave = false }) {
+  /** Fits a port kit on a direct engine. */
+  function FitKit() {
     const [, dispatch] = useBuild();
-    const [tune] = useTune();
     return (
-      <>
-        <button type="button" onClick={() => {
-          dispatch({ type: ACTIONS.SET_ENGINE_CONFIG_PATCH, patch: { injection: 'direct' } });
-          dispatch({ type: ACTIONS.SET_BUILD_FIELD, field: 'portKit', value: { injIdx: 3, ecuInjectorCc: S.INJECTOR_OPTS[3].cc } });
-        }}>fit-kit</button>
-        {oldSave && (
-          <button type="button" onClick={() => {
-            const next = JSON.parse(JSON.stringify(tune.ecu));
-            delete next.injector.portShare;
-            dispatch({ type: ACTIONS.SET_ECU, value: next, label: 'old save' });
-          }}>load-old-save</button>
-        )}
-      </>
+      <button type="button" onClick={() => {
+        dispatch({ type: ACTIONS.SET_ENGINE_CONFIG_PATCH, patch: { injection: 'direct' } });
+        dispatch({ type: ACTIONS.SET_BUILD_FIELD, field: 'portKit', value: { injIdx: 3, ecuInjectorCc: S.INJECTOR_OPTS[3].cc } });
+      }}>fit-kit</button>
     );
   }
 
@@ -240,49 +230,6 @@ describe('the port share table', () => {
     expect(screen.queryByText('Port share')).toBeNull();
     fireEvent.click(screen.getByText('fit-kit'));
     expect(screen.getByText('Port share')).toBeTruthy();
-  });
-
-  /** Prints the calibration's port share table, so a test can read what an edit wrote. */
-  function ShareProbe() {
-    const [tune] = useTune();
-    return <output aria-label="port share in calibration">{JSON.stringify(tune.ecu.injector.portShare ?? null)}</output>;
-  }
-  const savedShare = () => JSON.parse(screen.getByLabelText('port share in calibration').textContent);
-
-  it('shows the factory staging, unmodified, for a calibration saved before the table existed', () => {
-    mount(<><FitKit oldSave /><ShareProbe /><EcuSection section="injectors" title="Injectors" /></>);
-    fireEvent.click(screen.getByText('load-old-save'));
-    fireEvent.click(screen.getByText('fit-kit'));
-    expect(screen.getByText(/All factory settings/)).toBeTruthy();
-    expect(screen.queryByLabelText('modified')).toBeNull();
-    expect(savedShare()).toBeNull();
-    // Opening the table must not throw on the missing one, and must draw the factory cells.
-    const summary = screen.getByRole('button', { name: /Port share/ });
-    fireEvent.click(summary);
-    expect(summary.getAttribute('aria-expanded')).toBe('true');
-    expect(screen.getAllByRole('button', { name: /^Port share at RPM \d+, MAP kPa \d+: \d+ %$/ }).length).toBeGreaterThan(0);
-    // Only looking: nothing has been written.
-    expect(savedShare()).toBeNull();
-  });
-
-  it('writes the whole table into a calibration saved before it existed, when one cell is edited', () => {
-    mount(<><FitKit oldSave /><ShareProbe /><EcuSection section="injectors" title="Injectors" /></>);
-    fireEvent.click(screen.getByText('load-old-save'));
-    fireEvent.click(screen.getByText('fit-kit'));
-    fireEvent.click(screen.getByRole('button', { name: /Port share/ }));
-    const factory = S.defaultEcuCalibration({}).injector.portShare;
-    const cell = screen.getAllByRole('button', { name: /^Port share at RPM \d+, MAP kPa \d+: \d+ %$/ })[0];
-    fireEvent.pointerDown(cell);
-    fireEvent.click(screen.getByRole('button', { name: 'Increase' }));
-    const saved = savedShare();
-    // The factory table's shape, with the one edit in it: not a table of one cell.
-    expect(saved.x).toEqual(factory.x);
-    expect(saved.y).toEqual(factory.y);
-    expect(saved.z).toHaveLength(factory.z.length);
-    expect(saved.z.every((row, i) => row.length === factory.z[i].length)).toBe(true);
-    const edited = saved.z.flat().filter((v, i) => v !== factory.z.flat()[i]);
-    expect(edited).toHaveLength(1);
-    expect(screen.getAllByLabelText('modified').length).toBeGreaterThan(0);
   });
 
   it('Factory writes no port share table into a calibration with no kit fitted', () => {

@@ -63,8 +63,9 @@ export function factoryPortSharePct(mapKpa) {
 }
 
 /**
- * The port share the ECU applies at an operating point, read from its table at the load
- * it believes. A calibration saved before the table existed gets the factory staging.
+ * The port share the ECU's table asks for at an operating point, read at the load it
+ * believes. What the kit then really carries depends on the pulse that makes
+ * (`stagedPortShare` in point.js).
  *
  * @param {object} cal
  * @param {number} rpm
@@ -72,9 +73,21 @@ export function factoryPortSharePct(mapKpa) {
  * @returns {number} share, 0–1
  */
 export function portShareAt(cal, rpm, mapKpa) {
-  const table = cal.injector?.portShare;
-  const pct = table ? read2(table, rpm, mapKpa) : factoryPortSharePct(mapKpa);
-  return clamp(pct, 0, 100) / 100;
+  return clamp(read2(cal.injector.portShare, rpm, mapKpa), 0, 100) / 100;
+}
+
+/**
+ * A fitted port kit's staging on a calibration, for code that evaluates the engine without
+ * an ECU (the advisor): the share the table asks for, the size the ECU has been told, and
+ * the minimum opening below which the ECU hands the share to the direct injectors.
+ *
+ * @param {object} cal
+ * @param {{ecuInjectorCc: number}|null} kit the kit as `portKitOf` gives it
+ * @returns {{shareAt: (rpm: number, mapKpa: number) => number, ecuInjectorCc: number, minOpenMs: number}|null}
+ */
+export function portStagingOf(cal, kit) {
+  if (!kit) return null;
+  return { shareAt: (rpm, mapKpa) => portShareAt(cal, rpm, mapKpa), ecuInjectorCc: kit.ecuInjectorCc, minOpenMs: cal.injector.portMinPwMs };
 }
 
 /**
@@ -141,6 +154,7 @@ export function defaultEcuCalibration({ derived = {}, gate = { type: 'electronic
       maxDutyPct: 90,
       // Only read when a port kit is fitted (BUILD → FUEL SYSTEM, direct-injected engines).
       portShare: map2(rpmAx, mapAx, (_, m) => factoryPortSharePct(m)),
+      portMinPwMs: E.PORT_MIN_OPEN_MS,
     },
     ignition: {
       iatCorr: curve(IAT_AXIS, () => 0),
@@ -395,6 +409,8 @@ export const ECU_META = [
     help: 'The longest pulse the ECU will command as a share of the cycle. Past about 90% an injector never fully closes between events and stops metering.' },
   { path: 'injector.portShare', section: 'injectors', group: 'Port injection kit', label: 'Port share', kind: 'map', unit: '%', xLabel: 'RPM', yLabel: 'MAP kPa', min: 0, max: 100, step: 1, needs: 'portKit',
     help: 'How much of each cycle\'s fuel goes through the port injectors; the direct injectors carry the rest. The factory stages the port set in only on boost. Port fuel at idle means short port pulses, deep in the ballistic region, and port fuel cools the valve rather than the charge, so every percent here gives back some of direct injection\'s knock margin.' },
+  { path: 'injector.portMinPwMs', section: 'injectors', group: 'Port injection kit', label: 'Port kit minimum pulse', kind: 'number', unit: 'ms', min: 0, max: 1, step: 0.05, decimals: 2, needs: 'portKit',
+    help: 'The shortest opening the ECU will give the port injectors. Where the port share would open them for less, the ECU hands that share to the direct injectors instead, because below about 0.35 ms on a stock injector, and longer on bigger ones, the port set is ballistic and delivers less than calculated. The factory value clears it for every kit on BUILD → FUEL SYSTEM.' },
 
   // ---- SPARK ----
   { path: 'ignition.iatCorr', section: 'spark', group: 'Corrections', label: 'Intake temperature', kind: 'curve', unit: '°', xLabel: 'IAT °C', min: -15, max: 10, step: 0.5, decimals: 1,

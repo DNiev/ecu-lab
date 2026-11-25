@@ -107,9 +107,10 @@ import { chargeTempK, exhaustTempK } from './thermo.js';
  *   injector reality versus belief: real flow from the pressure across it and the
  *   pump's capacity, the flow the ECU assumes, true and assumed dead time, the shortest
  *   pulse the ECU will command, and the duty ceiling
- * @property {{injectorCc: number, ecuInjectorCc: number, share: number}} [portKit] a port
- *   injection kit staged over direct injection: its fitted and believed sizes, and the
- *   share (0–1) of this cycle's fuel the ECU sends through it
+ * @property {{injectorCc: number, ecuInjectorCc: number, share: number, minOpenMs?: number}} [portKit] a
+ *   port injection kit staged over direct injection: its fitted and believed sizes, the
+ *   share (0–1) of this cycle's fuel the port share table asks of it, and the shortest
+ *   opening the ECU will give it (`stagedPortShare`)
  * @property {{retardDeg?: number, deadbandDeg?: number, falseRetardDeg?: number,
  *   maxRetardDeg?: number, enabled?: boolean, stepDeg?: number}} [knock] knock control. `retardDeg` is a
  *   live controller's current retard; without it the steady-state controller settles at
@@ -130,12 +131,13 @@ import { chargeTempK, exhaustTempK } from './thermo.js';
  * @param {PointInput} input
  * @returns {object} the full datalog record for this point
  */
-export function evaluatePoint({
-  rpm, mapKpa, boostPsi, veVal, veActualVal, timingVal, afrCommanded,
-  fuel, mods, mafScalar, mafErrorBase,
-  injectorCc, ecuInjectorCc, derived, compressor, turbine = null,
-  empKpa: empOverride, wastegateRelief = 0, ecu: E = null, blower = null, nitrous = null, cam = null,
-}) {
+export function evaluatePoint(input) {
+  const {
+    rpm, mapKpa, boostPsi, veVal, veActualVal, timingVal, afrCommanded,
+    fuel, mods, mafScalar, mafErrorBase,
+    injectorCc, ecuInjectorCc, derived, compressor, turbine = null,
+    empKpa: empOverride, wastegateRelief = 0, ecu: E = null, blower = null, nitrous = null, cam = null,
+  } = input;
   // A port kit on a direct-injected engine carries this share of the fuel; the direct
   // injectors carry the rest. Zero without a kit, and zero off boost on factory staging.
   // A kit only exists on a direct-injected engine: the VE scaling below divides out
@@ -223,18 +225,29 @@ export function evaluatePoint({
   // whatever pressure it assumes; the injector flows at whatever pressure is there.
   const inj = E?.inj;
   const cycleTimeMs = 120000 / rpm;
+  // A share whose port pulse would be shorter than the kit's minimum opening is handed to
+  // the direct injectors instead (`stagedPortShare`). The point is then the engine with
+  // the kit carrying nothing, filling and cooling included, so it is solved again that way.
+  if (portShare > 0 && stagedPortShare({
+    share: portShare, fuelG: fuelMassG, ecuCc: portKit.ecuInjectorCc, ecuDensity: ecuFuel.density,
+    ecuFlowScale: inj?.ecuFlowScale ?? 1, minOpenMs: portKit.minOpenMs ?? 0,
+  }) === 0) {
+    return evaluatePoint({ ...input, ecu: { ...E, portKit: { ...portKit, share: 0 } } });
+  }
   // A kit handed all of the fuel leaves the direct injectors shut. Metered anyway, they
   // would still be commanded the minimum pulse for no fuel at all, open inside their
   // ballistic region, and deliver fuel nobody asked for.
   const base = meterBank({
     fuelG: fuelMassG * (1 - portShare), cc: injectorCc, ecuCc: ecuInjectorCc, inj, ecuFuel, fuel, cycleTimeMs, E,
-    shut: portShare >= 1,
+    minPwMs: inj?.minPwMs ?? 0, shut: portShare >= 1,
   });
   // The port set rides on the same rail and the same dead-time table as the direct
-  // injectors (both simplifications, see the spec): only its size and share differ.
+  // injectors (both simplifications, see the spec): only its size and share differ. The
+  // direct injectors' minimum pulse is theirs: the kit's short pulses were handed back above.
   const portBank = portShare > 0
     ? meterBank({
       fuelG: fuelMassG * portShare, cc: portKit.injectorCc, ecuCc: portKit.ecuInjectorCc, inj, ecuFuel, fuel, cycleTimeMs, E,
+      minPwMs: 0,
     })
     : null;
   const { ecuGramsPerMs, deadEcuMs, deadActualMs, pulseWidthMs, dutyPct } = base;
@@ -499,6 +512,44 @@ export function portKitBlend(derived, share) {
 }
 
 /**
+ * The share of a cycle's fuel a port kit really carries: what the port share table asks
+ * of it, or none when that would open the port injectors for less than the kit's minimum
+ * opening. Below it they are ballistic, so the ECU hands the share to the direct injectors,
+ * as a staged secondary injector's minimum pulse does on a real engine computer. Decided on
+ * the opening the ECU calculates (its fuel, the size it has been told), because the ECU
+ * cannot see any other. The point, the factory calibration and the advisor all stage by it.
+ *
+ * @param {object} s
+ * @param {number} s.share the share the port share table asks for, 0–1
+ * @param {number} s.fuelG fuel the ECU wants this cycle, both banks together, g
+ * @param {number} s.ecuCc the kit's flow rating as the ECU has been told it, cc/min
+ * @param {number} s.ecuDensity density of the fuel the ECU believes is in the tank, g/cc
+ * @param {number} [s.ecuFlowScale] the ECU's pressure correction on that flow
+ * @param {number} s.minOpenMs the kit's minimum opening, ms; 0 stages every share in
+ * @returns {number} share, 0–1
+ */
+export function stagedPortShare({ share, fuelG, ecuCc, ecuDensity, ecuFlowScale = 1, minOpenMs }) {
+  const s = clamp(share, 0, 1);
+  if (!(s > 0)) return 0;
+  const openMs = (fuelG * s) / ((ecuCc * ecuDensity) / 60000 * ecuFlowScale);
+  return openMs < minOpenMs ? 0 : s;
+}
+
+/**
+ * The injector bank with the higher duty: the direct injectors, or a staged port kit
+ * (`portPw`/`portDuty` exist only when the kit is sent fuel). Without a kit this is the
+ * direct bank, always. Works on a sweep point or a live engine reading, which share the
+ * field names. Protection, the pull log and every duty readout judge by it.
+ *
+ * @param {{duty: number, pw: number, portDuty?: number, portPw?: number}} p
+ * @returns {{duty: number, pw: number, port: boolean}} `port` is true when the kit is the busier bank
+ */
+export function busiestBank(p) {
+  if ((p.portDuty ?? 0) > p.duty) return { duty: p.portDuty, pw: p.portPw ?? p.pw, port: true };
+  return { duty: p.duty, pw: p.pw, port: false };
+}
+
+/**
  * The open time below which an injector is ballistic: the pintle is still accelerating
  * and never reaches full lift. It grows with the flow rating, because a bigger injector
  * has a heavier armature to lift (`BALLISTIC_FLOW_EXP`), and that is the whole cost of
@@ -544,11 +595,12 @@ export function ballisticOpenMs(openMs, cc = ECU_COEFF.BALLISTIC_REF_CC) {
  * @param {{density: number}} b.fuel the fuel actually in the tank
  * @param {number} b.cycleTimeMs one engine cycle, ms
  * @param {object|null} b.E the ECU context, when there is one
+ * @param {number} b.minPwMs the shortest pulse the ECU will command this bank, ms
  * @param {boolean} [b.shut] the bank is not fired at all this cycle: no pulse, no fuel
  * @returns {{ecuGramsPerMs: number, deadEcuMs: number, deadActualMs: number, pulseWidthMs: number,
  *   dutyPct: number, openMs: number, fuelLimited: boolean, deliveredG: number, ballistic: boolean}}
  */
-function meterBank({ fuelG, cc, ecuCc, inj, ecuFuel, fuel, cycleTimeMs, E, shut = false }) {
+function meterBank({ fuelG, cc, ecuCc, inj, ecuFuel, fuel, cycleTimeMs, E, minPwMs, shut = false }) {
   const ecuGramsPerMs = (ecuCc * ecuFuel.density) / 60000 * (inj?.ecuFlowScale ?? 1);
   const actualGramsPerMs = (cc * fuel.density) / 60000 * (inj?.actualFlowScale ?? 1);
   const deadEcuMs = inj?.deadEcuMs ?? INJ_DEADTIME_MS;
@@ -562,7 +614,7 @@ function meterBank({ fuelG, cc, ecuCc, inj, ecuFuel, fuel, cycleTimeMs, E, shut 
   // The shortest pulse the ECU will command: below it an injector is in its ballistic
   // region, where the needle never reaches full lift and flow stops being proportional
   // to time. Clamping trades a slightly rich idle for a repeatable one.
-  const pulseWidthMs = Math.max(fuelG / ecuGramsPerMs + deadEcuMs, inj?.minPwMs ?? 0);
+  const pulseWidthMs = Math.max(fuelG / ecuGramsPerMs + deadEcuMs, minPwMs);
   const maxPulseMs = cycleTimeMs * (inj?.maxDutyFrac ?? 0.9);
   const cappedPw = Math.min(pulseWidthMs, maxPulseMs);
   const openMs = cappedPw - deadActualMs;
