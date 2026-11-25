@@ -10,7 +10,7 @@ import { Cpu } from 'lucide-react';
 import React from 'react';
 import { Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 
-import { FAULTABLE_SENSORS, LOG_CHANNELS } from '../../../sim/index.js';
+import { FAULTABLE_SENSORS, LOG_CHANNELS, ecuHardwareOf } from '../../../sim/index.js';
 import { CorrectionStack } from '../../components/ecu/CorrectionStack.jsx';
 import { MapSlots } from '../../components/ecu/MapSlots.jsx';
 import { ExpandableInfo } from '../../components/ExpandableInfo.jsx';
@@ -36,6 +36,7 @@ export function LiveEcuPanel() {
   const [build] = useBuild();
   const kit = build.nitrous;
   const blowerFitted = !build.turboOn && !!build.blowerId;
+  const portKitFitted = !!ecuHardwareOf(build).portKit;
   const live = /** @type {Record<string, any>} */ (session.live);
   const e = live.ecu;
   const [channels, setChannels] = React.useState(DEFAULT_CHANNELS);
@@ -119,7 +120,7 @@ export function LiveEcuPanel() {
         <button type="button" className={styles.chip} onClick={exportCsv} disabled={!e?.log?.length}>Export CSV</button>
       </div>
       <div className={styles.channels} role="group" aria-label="Logged channels shown">
-        {LOG_CHANNELS.filter((c) => c.id !== 't' && (kit || !['nitrous', 'bottle'].includes(c.id)) && (blowerFitted || c.id !== 'blowerRpm')).map((c) => (
+        {LOG_CHANNELS.filter((c) => c.id !== 't' && (kit || !['nitrous', 'bottle'].includes(c.id)) && (blowerFitted || c.id !== 'blowerRpm') && (portKitFitted || !['portPw', 'portDuty'].includes(c.id))).map((c) => (
           <button key={c.id} type="button" className={styles.channel} aria-pressed={channels.includes(c.id)} onClick={() => toggleChannel(c.id)}>{c.label}</button>
         ))}
       </div>

@@ -11,7 +11,7 @@ import { COEFF } from './coefficients.js';
 import { clamp, curveAt, groupRuns, mergeNearbyRuns } from './math.js';
 import { solveInduction } from './turbo.js';
 import { chargeTempK, INDUCTION_REF_EXHAUST_K } from './thermo.js';
-import { evaluatePoint } from './point.js';
+import { busiestBank, evaluatePoint } from './point.js';
 import { trappedAirGrams } from './cycle.js';
 import { loadFor, needsAirmass, readEcuTable, truthReader } from './layouts.js';
 import { CURVE_RPM, LOAD, RPM, SPARK_MIN_DEG } from './tables.js';
@@ -147,11 +147,15 @@ function pullBreathing({ ve, veTruth, timing, afr, layout = null }) {
  *
  * @param {object} input `simulateSweep`'s input, which must carry `ecu`, and `rpm`, the
  *   engine speed to read the duty at
- * @returns {number} injector duty, percent, as the datalog rounds it
+ * @returns {number} injector duty, percent, as the datalog rounds it; the busier bank's when
+ *   a port kit is staged in
  */
 export function injectorDutyPreview(input) {
   const { ecu, ve, timing, afr, layout = null, loadKpa, rpm } = input;
-  return ecuDemandPoint({ cal: ecu.cal, hw: pullEcuHardware(input), cond: ecu.cond, tables: { ve, timing, afr, layout }, rpm, loadKpa }).duty;
+  const pt = ecuDemandPoint({ cal: ecu.cal, hw: pullEcuHardware(input), cond: ecu.cond, tables: { ve, timing, afr, layout }, rpm, loadKpa });
+  // The busier bank: a staged port kit has its own duty, and is what runs out first when
+  // the ECU hands it more of the fuel than it can flow.
+  return busiestBank(pt).duty;
 }
 
 /** Engine speed TUNE → INJECTORS previews duty at, RPM. */
@@ -440,14 +444,22 @@ export function simulateSweep({
   });
 
   groupRuns(points, (p) => p.fuelLimited).forEach((run) => {
-    const peak = run.reduce((a, b) => (b.duty > a.duty ? b : a));
+    // Either bank can be the one that ran out: a staged port kit can saturate while the
+    // direct injectors still have room, and judging only the direct bank's duty would
+    // report "maxed" at a duty nowhere near it. Without a kit `portDuty` is absent and
+    // this is the direct bank's duty alone, as it always was.
+    const peak = run.reduce((a, b) => (busiestBank(b).duty > busiestBank(a).duty ? b : a));
+    const { duty: peakDuty, pw: peakPw, port: portLimited } = busiestBank(peak);
+    // The direct bank is "not the one out of room" only if it is under its own limit too:
+    // both can saturate at once (small direct injectors AND a small kit).
+    const directHasRoom = peak.duty <= (ecu?.cal?.injector?.maxDutyPct ?? 90);
     const impact = Math.max(4, Math.round(10 * (0.3 + 0.7 * rangeFrac(run))));
     events.push({
       type: 'fuel', severity: 2, impact,
       rpmStart: run[0].rpm, rpmEnd: run[run.length - 1].rpm,
-      msg: `Injectors maxed across ${rangeLabel(run)} (up to ${peak.duty}% duty) — mixture leaned to ${peak.afr.toFixed(1)}:1`,
-      cause: `Required pulse width (${peak.pw} ms) exceeds 90% of the ${(120000 / peak.rpm).toFixed(1)} ms available per engine cycle at ${peak.rpm} RPM, so the ${injectorLabel} injectors physically cannot deliver the commanded fuel.${fuel.stoich < 12 ? ` ${octaneLabel} needs roughly ${(14.7 / fuel.stoich).toFixed(2)}× the fuel volume of gasoline at the same lambda — a big part of why you ran out here.` : ''}`,
-      fix: `On BUILD → FUEL SYSTEM, fit larger injectors — size them to run about 80–85% duty at peak — then enter their flow rate on TUNE → INJECTORS. Or ${turboOn || blower ? `${blower ? 'fit a larger blower pulley' : 'lower the boost target'} in this range on BUILD → INDUCTION` : 'lower the rev limit'} so demand fits the injectors you have.${fuel.stoich < 12 ? ` ${octaneLabel} needs about ${(14.7 / fuel.stoich).toFixed(1)}× gasoline's fuel volume; gasoline would fit these injectors, but gives up knock margin.` : ''}`,
+      msg: `${portLimited ? 'Port injectors' : 'Injectors'} maxed across ${rangeLabel(run)} (up to ${peakDuty}% duty) — mixture leaned to ${peak.afr.toFixed(1)}:1`,
+      cause: `Required pulse width (${peakPw} ms) exceeds 90% of the ${(120000 / peak.rpm).toFixed(1)} ms available per engine cycle at ${peak.rpm} RPM, so the ${portLimited ? 'port kit' : `${injectorLabel} injectors`} physically cannot deliver the commanded fuel.${portLimited ? ` ${directHasRoom ? 'The direct injectors are not the ones out of room: the port share table is sending the kit more of the fuel than it can flow.' : 'The direct injectors are out of room too, so moving fuel between the banks cannot fix this on its own.'}` : ''}${fuel.stoich < 12 ? ` ${octaneLabel} needs roughly ${(14.7 / fuel.stoich).toFixed(2)}× the fuel volume of gasoline at the same lambda — a big part of why you ran out here.` : ''}`,
+      fix: `${portLimited ? `On BUILD → FUEL SYSTEM, fit a larger port injection kit (then enter its flow rate on TUNE → INJECTORS)${directHasRoom ? ', or lower the port share where it runs out so the direct injectors carry more.' : ' and larger direct injectors, since both banks are out of room.'}` : 'On BUILD → FUEL SYSTEM, fit larger injectors — size them to run about 80–85% duty at peak — then enter their flow rate on TUNE → INJECTORS.'} Or ${turboOn || blower ? `${blower ? 'fit a larger blower pulley' : 'lower the boost target'} in this range on BUILD → INDUCTION` : 'lower the rev limit'} so demand fits the injectors you have.${fuel.stoich < 12 ? ` ${octaneLabel} needs about ${(14.7 / fuel.stoich).toFixed(1)}× gasoline's fuel volume; gasoline would fit these injectors, but gives up knock margin.` : ''}`,
     });
   });
 

@@ -16,7 +16,7 @@ import { FIELD_TIPS, PAGE_GUIDES, tipFor } from '../../src/ui/components/ecu/gui
 import { SetupNote } from '../../src/ui/components/ecu/SetupNote.jsx';
 import { InductionScreen } from '../../src/ui/screens/build/InductionScreen.jsx';
 import { ACTIONS } from '../../src/ui/state/reducer.js';
-import { StoreProvider, useBuild, useHistory } from '../../src/ui/state/StoreProvider.jsx';
+import { StoreProvider, useBuild, useHistory, useTune } from '../../src/ui/state/StoreProvider.jsx';
 
 afterEach(cleanup);
 
@@ -210,5 +210,48 @@ describe('the turbo kit on BUILD', () => {
     expect(screen.getByText(/boost target is 0 psi everywhere/)).toBeTruthy();
     fireEvent.click(screen.getByText('set-boost'));
     expect(screen.queryByText(/boost target is 0 psi everywhere/)).toBeNull();
+  });
+});
+
+describe('the port share table', () => {
+  /** Fits a port kit on a direct engine. */
+  function FitKit() {
+    const [, dispatch] = useBuild();
+    return (
+      <button type="button" onClick={() => {
+        dispatch({ type: ACTIONS.SET_ENGINE_CONFIG_PATCH, patch: { injection: 'direct' } });
+        dispatch({ type: ACTIONS.SET_BUILD_FIELD, field: 'portKit', value: { injIdx: 3, ecuInjectorCc: S.INJECTOR_OPTS[3].cc } });
+      }}>fit-kit</button>
+    );
+  }
+
+  it('is offered only once a port kit is fitted', () => {
+    mount(<><FitKit /><EcuSection section="injectors" title="Injectors" /></>);
+    expect(screen.queryByText('Port share')).toBeNull();
+    fireEvent.click(screen.getByText('fit-kit'));
+    expect(screen.getByText('Port share')).toBeTruthy();
+  });
+
+  it('Factory writes no port share table into a calibration with no kit fitted', () => {
+    function Probe() {
+      const [tune] = useTune();
+      return <output aria-label="has port share">{String('portShare' in tune.ecu.injector)}</output>;
+    }
+    function Edit() {
+      const [tune, dispatch] = useTune();
+      return (
+        <button type="button" onClick={() => {
+          const next = JSON.parse(JSON.stringify(tune.ecu));
+          delete next.injector.portShare;
+          next.injector.maxDutyPct = 85;
+          dispatch({ type: ACTIONS.SET_ECU, value: next, label: 'old save, edited' });
+        }}>old-save-edited</button>
+      );
+    }
+    mount(<><Edit /><Probe /><EcuSection section="injectors" title="Injectors" /></>);
+    fireEvent.click(screen.getByText('old-save-edited'));
+    expect(screen.getByLabelText('has port share').textContent).toBe('false');
+    fireEvent.click(screen.getByRole('button', { name: /Factory/ }));
+    expect(screen.getByLabelText('has port share').textContent).toBe('false');
   });
 });

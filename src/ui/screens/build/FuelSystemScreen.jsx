@@ -15,7 +15,7 @@
 import { Fuel } from 'lucide-react';
 import React from 'react';
 
-import { DEFAULT_ECU_HW, INJECTOR_OPTS, LINEAR_SCALES, FUEL_CHOICES, PUMP_OPTS, REGULATOR_OPTS } from '../../../sim/index.js';
+import { DEFAULT_ECU_HW, INJECTOR_OPTS, LINEAR_SCALES, FUEL_CHOICES, PUMP_OPTS, REGULATOR_OPTS, portKitOf } from '../../../sim/index.js';
 import { Toggle } from '../../primitives/Toggle.jsx';
 import { BuildSection } from '../../components/BuildSection.jsx';
 import { SetupNote } from '../../components/ecu/SetupNote.jsx';
@@ -38,6 +38,9 @@ export function FuelSystemScreen({ active, onToggle }) {
   const { octaneIdx, injIdx } = build;
   const fuelSystem = build.fuelSystem ?? DEFAULT_ECU_HW.fuelSystem;
   const sensorHw = build.sensorHw ?? DEFAULT_ECU_HW.sensorHw;
+  // The port kit as the sim reads it: null on a port engine, and the defaults for a field
+  // an older kit lacks.
+  const kit = portKitOf(build);
   const flexTank = !!FUEL_CHOICES[octaneIdx].flex;
   const setFs = (patch) => dispatch({ type: ACTIONS.SET_BUILD_FIELD, field: 'fuelSystem', value: { ...fuelSystem, ...patch } });
   const setSensors = (patch) => dispatch({ type: ACTIONS.SET_BUILD_FIELD, field: 'sensorHw', value: { ...sensorHw, ...patch } });
@@ -71,6 +74,29 @@ export function FuelSystemScreen({ active, onToggle }) {
 
       <div className={styles.labelSpaced}>Fuel Injectors</div>
       <PickList options={INJECTOR_OPTS.map((o) => ({ label: o.label, value: o.label }))} value={INJECTOR_OPTS[injIdx].label} onChange={(v) => dispatch({ type: ACTIONS.SET_BUILD_FIELD, field: 'injIdx', value: INJECTOR_OPTS.findIndex((o) => o.label === v) })} />
+
+      {build.engineConfig?.injection === 'direct' && (
+        <>
+          <div className={styles.labelSpaced}>Port Injection Kit</div>
+          <PickList
+            options={[{ label: 'None', value: 'none' }, ...INJECTOR_OPTS.map((o) => ({ label: o.label, value: o.label }))]}
+            value={kit ? INJECTOR_OPTS.find((o) => o.cc === kit.injectorCc).label : 'none'}
+            onChange={(v) => dispatch({
+              type: ACTIONS.SET_BUILD_FIELD, field: 'portKit',
+              // A new kit's ECU scaling starts at the stock size, not the fitted one: the
+              // ECU has never been told about it, and telling it is TUNE › INJECTORS.
+              value: v === 'none' ? null : {
+                injIdx: INJECTOR_OPTS.findIndex((o) => o.label === v),
+                ecuInjectorCc: kit?.ecuInjectorCc ?? INJECTOR_OPTS[0].cc,
+              },
+            })}
+          />
+          <ExpandableInfo title="Port injection over direct injection">
+            Direct injectors run out of flow before the rest of a big build does, because they inject against cylinder pressure in a fraction of the cycle. The usual answer is not bigger direct injectors but a <b className={styles.em}>port injection kit</b>: a second set of injectors in the intake runners, staged in by the ECU only where the direct injectors run short.
+            <br /><br />Staging is what lets a large port set live on a street engine. At idle and light load the direct injectors carry everything, so the port injectors never run the short, ballistic pulses an oversized injector cannot meter. Send them fuel at idle (TUNE › INJECTORS, port share) and they will. And port fuel cools the valve rather than the charge, so every percent the port set carries gives back some of direct injection&apos;s knock margin.
+          </ExpandableInfo>
+        </>
+      )}
 
       <div className={styles.labelSpaced}>Fuel Pump</div>
       <PickList options={PUMP_OPTS.map((o) => ({ label: o.label, value: o.id }))} value={PUMP_OPTS[fuelSystem.pumpIdx]?.id} onChange={(v) => setFs({ pumpIdx: PUMP_OPTS.findIndex((o) => o.id === v) })} />

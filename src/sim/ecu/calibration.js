@@ -17,10 +17,12 @@
  */
 
 import { COEFF } from '../coefficients.js';
+import { clamp } from '../math.js';
 import { LOAD, RPM } from '../tables.js';
 import { dutyForHold } from './boost.js';
+import { ECU_COEFF as E } from './ecuCoefficients.js';
 import { injectorDeadTimeMs } from './ecuHardware.js';
-import { curve, map2 } from './ecuTables.js';
+import { curve, map2, read2 } from './ecuTables.js';
 import { factoryKnockThresholdV } from './knockSensor.js';
 
 /** Calibration format version, for saved calibrations. */
@@ -46,6 +48,47 @@ export const DYNO_GEAR = 4;
 /**
  * @typedef {ReturnType<typeof defaultEcuCalibration>} EcuCalibration
  */
+
+/**
+ * The share of each cycle's fuel a factory-staged port kit carries, by manifold pressure:
+ * none off boost, rising to its full share. Staging keeps the port injectors out of the
+ * short pulses where they would be ballistic (#39).
+ *
+ * @param {number} mapKpa
+ * @returns {number} percent, 0–100
+ */
+export function factoryPortSharePct(mapKpa) {
+  const t = clamp((mapKpa - E.PORT_STAGE_START_KPA) / (E.PORT_STAGE_FULL_KPA - E.PORT_STAGE_START_KPA), 0, 1);
+  return t * E.PORT_STAGE_MAX_PCT;
+}
+
+/**
+ * The port share the ECU's table asks for at an operating point, read at the load it
+ * believes. What the kit then really carries depends on the pulse that makes
+ * (`stagedPortShare` in point.js).
+ *
+ * @param {object} cal
+ * @param {number} rpm
+ * @param {number} mapKpa the manifold pressure the ECU reads
+ * @returns {number} share, 0–1
+ */
+export function portShareAt(cal, rpm, mapKpa) {
+  return clamp(read2(cal.injector.portShare, rpm, mapKpa), 0, 100) / 100;
+}
+
+/**
+ * A fitted port kit's staging on a calibration, for code that evaluates the engine without
+ * an ECU (the advisor): the share the table asks for, the size the ECU has been told, and
+ * the minimum opening below which the ECU hands the share to the direct injectors.
+ *
+ * @param {object} cal
+ * @param {{ecuInjectorCc: number}|null} kit the kit as `portKitOf` gives it
+ * @returns {{shareAt: (rpm: number, mapKpa: number) => number, ecuInjectorCc: number, minOpenMs: number}|null}
+ */
+export function portStagingOf(cal, kit) {
+  if (!kit) return null;
+  return { shareAt: (rpm, mapKpa) => portShareAt(cal, rpm, mapKpa), ecuInjectorCc: kit.ecuInjectorCc, minOpenMs: cal.injector.portMinPwMs };
+}
 
 /**
  * A factory calibration for the engine as built.
@@ -109,6 +152,9 @@ export function defaultEcuCalibration({ derived = {}, gate = { type: 'electronic
       pressureComp: 'none',
       refPressureKpa: 300,
       maxDutyPct: 90,
+      // Only read when a port kit is fitted (BUILD → FUEL SYSTEM, direct-injected engines).
+      portShare: map2(rpmAx, mapAx, (_, m) => factoryPortSharePct(m)),
+      portMinPwMs: E.PORT_MIN_OPEN_MS,
     },
     ignition: {
       iatCorr: curve(IAT_AXIS, () => 0),
@@ -284,6 +330,7 @@ export function defaultEcuCalibration({ derived = {}, gate = { type: 'electronic
  * @property {{id: string, label: string}[]} [options]
  * @property {string} help what it physically does — never a promise of power
  * @property {boolean} [pro] an advanced setting, collapsed until asked for
+ * @property {string} [needs] hardware that must be fitted for the setting to apply, e.g. 'portKit'
  */
 
 const onOff = [{ id: 'true', label: 'On' }, { id: 'false', label: 'Off' }];
@@ -352,7 +399,7 @@ export const ECU_META = [
   { path: 'injector.deadTime', section: 'injectors', group: 'Injector data', label: 'Dead time', kind: 'curve', unit: 'ms', xLabel: 'Battery V', min: 0, max: 4, step: 0.02, decimals: 2,
     help: 'The delay between the ECU opening an injector and fuel flowing, while the coil builds enough force to lift the needle. It grows as voltage falls. Get it wrong and every pulse is off by the error — worst at idle and cranking, where pulses are short.' },
   { path: 'injector.minEffPwMs', section: 'injectors', group: 'Injector data', label: 'Minimum effective pulse', kind: 'number', unit: 'ms', min: 0, max: 1, step: 0.05, decimals: 2,
-    help: 'The shortest opening the ECU will command. Below about 0.35 ms an injector is ballistic — the needle never fully lifts and delivers less than its rating predicts.' },
+    help: 'The shortest opening the ECU will command. Below it an injector is ballistic: the needle never fully lifts and delivers less than its rating predicts. About 0.35 ms on a stock 315 cc injector and longer on bigger ones (0.45 ms clears it at 1300 cc), which is why oversized injectors idle badly until this is set.' },
   { path: 'injector.pressureComp', section: 'injectors', group: 'Fuel pressure', label: 'Pressure compensation', kind: 'enum',
     options: [{ id: 'none', label: 'None (assumes constant)' }, { id: 'manifold', label: 'Fixed rail, MAP-referenced' }, { id: 'sensor', label: 'Rail pressure sensor' }],
     help: 'An injector flows as the square root of the pressure across it. A return-style regulator keeps that constant; a returnless rail does not, and under boost the injectors flow less unless the ECU compensates.' },
@@ -360,6 +407,10 @@ export const ECU_META = [
     help: 'The rail pressure the ECU sizes every pulse for: held constant across the injectors with no compensation, or at atmospheric manifold pressure on a fixed rail. Set it to the base pressure on BUILD → FUEL SYSTEM. A rail pressure sensor measures the pressure instead.' },
   { path: 'injector.maxDutyPct', section: 'injectors', group: 'Fuel pressure', label: 'Maximum duty', kind: 'number', unit: '%', min: 50, max: 100, step: 1,
     help: 'The longest pulse the ECU will command as a share of the cycle. Past about 90% an injector never fully closes between events and stops metering.' },
+  { path: 'injector.portShare', section: 'injectors', group: 'Port injection kit', label: 'Port share', kind: 'map', unit: '%', xLabel: 'RPM', yLabel: 'MAP kPa', min: 0, max: 100, step: 1, needs: 'portKit',
+    help: 'How much of each cycle\'s fuel goes through the port injectors; the direct injectors carry the rest. The factory stages the port set in only on boost. Port fuel at idle means short port pulses, deep in the ballistic region, and port fuel cools the valve rather than the charge, so every percent here gives back some of direct injection\'s knock margin.' },
+  { path: 'injector.portMinPwMs', section: 'injectors', group: 'Port injection kit', label: 'Port kit minimum pulse', kind: 'number', unit: 'ms', min: 0, max: 1, step: 0.05, decimals: 2, needs: 'portKit',
+    help: 'The shortest opening the ECU will give the port injectors. Where the port share would open them for less, the ECU hands that share to the direct injectors instead, because below about 0.35 ms on a stock injector, and longer on bigger ones, the port set is ballistic and delivers less than calculated. The factory value clears it for every kit on BUILD → FUEL SYSTEM.' },
 
   // ---- SPARK ----
   { path: 'ignition.iatCorr', section: 'spark', group: 'Corrections', label: 'Intake temperature', kind: 'curve', unit: '°', xLabel: 'IAT °C', min: -15, max: 10, step: 0.5, decimals: 1,

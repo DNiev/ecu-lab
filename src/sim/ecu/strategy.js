@@ -21,12 +21,12 @@ import { trappedAirGrams } from '../cycle.js';
 import { OCTANE_OPTS } from '../hardware.js';
 import { needsAirmass, readEcuTable } from '../layouts.js';
 import { clamp } from '../math.js';
-import { evaluatePoint } from '../point.js';
+import { busiestBank, evaluatePoint } from '../point.js';
 import { CURVE_RPM, RPM } from '../tables.js';
 import { chargeTempK, INDUCTION_REF_EXHAUST_K } from '../thermo.js';
 import { solveInduction } from '../turbo.js';
 import { boostTarget, steadyGate } from './boost.js';
-import { DYNO_GEAR } from './calibration.js';
+import { DYNO_GEAR, portShareAt } from './calibration.js';
 import { ECU_COEFF as E } from './ecuCoefficients.js';
 import {
   COIL_OPTS, coilOutput, fuelRail, INJECTOR_RATED_DP_KPA, injectorDeadTimeMs, injectorFlowScale,
@@ -56,6 +56,8 @@ const NM_PER_LBFT = 1 / 0.7376;
  * @property {number} plugGapMm
  * @property {number} injectorCc
  * @property {number} ecuInjectorCc
+ * @property {{injectorCc: number, ecuInjectorCc: number}|null} [portKit] a port injection kit
+ *   staged over direct injection, when one is fitted
  * @property {object} mods
  * @property {boolean} turboOn
  * @property {number[]} boostCurve
@@ -338,6 +340,9 @@ export function resolveEcuPoint({
   const co = coilOutput(dwell, volts, coil);
 
   const dist = cylIdx != null ? dyn.dist?.[cylIdx] : null;
+  // A port kit's share of this cycle's fuel, read at the load the ECU believes, and the
+  // shortest opening the ECU will give it (point.js hands a shorter one to the direct bank).
+  const portKit = hw.portKit ? { ...hw.portKit, share: portShareAt(cal, rpm, sMap), minOpenMs: cal.injector.portMinPwMs } : null;
   const ctx = {
     env,
     // Nitrous fuel through the injectors — a dry kit's, and the tuner's correction — on top
@@ -358,6 +363,7 @@ export function resolveEcuPoint({
     fuelMult,
     cylinderFuelFactor: dyn.cylinderFuelFactor ?? 1,
     inj,
+    ...(portKit ? { portKit } : {}),
     knock,
     cam,
     chamberOffsetK: dist?.chamberK ?? 0,
@@ -393,8 +399,10 @@ export function resolveEcuPoint({
 }
 
 /** Numeric fields a multi-cylinder result takes the worst of, rather than the mean. */
-const WORST_MAX = new Set(['peakPressure', 'knockPull', 'knockUnheard', 'duty', 'pw', 'egtMax', 'misfire', 'sparkKvNeed']);
-const WORST_MIN = new Set(['threshold', 'margin']);
+const WORST_MAX = new Set(['peakPressure', 'knockPull', 'knockUnheard', 'duty', 'pw', 'portDuty', 'portPw', 'egtMax', 'misfire', 'sparkKvNeed']);
+// An injector opening is ballistic if any cylinder's is, so the opening reported with it is
+// the shortest, not a mean that can sit above the threshold the flag says it is short of.
+const WORST_MIN = new Set(['threshold', 'margin', 'injOpen', 'portOpen']);
 
 /**
  * Combines per-cylinder results into the engine's.
@@ -538,7 +546,7 @@ export function ecuSteadyPoint({ cal, hw, cond, tables, rpm, loadKpa }) {
     if (P.knockEnabled && hw.turboOn && pt.knockPull > P.knockRetardDeg && mod.boostCutPsi < E.BOOST_CUT_STACK_MAX_PSI) {
       mod.boostCutPsi += P.knockBoostCutPsi; changed = true; protect.add('knock');
     }
-    if (P.dutyEnabled && hw.turboOn && pt.duty > P.dutyLimitPct && mod.boostCutPsi < E.BOOST_CUT_STACK_MAX_PSI) {
+    if (P.dutyEnabled && hw.turboOn && busiestBank(pt).duty > P.dutyLimitPct && mod.boostCutPsi < E.BOOST_CUT_STACK_MAX_PSI) {
       mod.boostCutPsi += P.boostCutPsi; changed = true; protect.add('duty');
     }
     if (P.fuelPressEnabled && resolved.sensed.rail.deltaKpa < P.fuelMinDeltaKpa && mod.cutFrac < 1) {

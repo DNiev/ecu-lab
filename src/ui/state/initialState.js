@@ -42,6 +42,9 @@ import {
  * @property {number} compressorIdx index into COMPRESSOR_OPTS
  * @property {number} exhaustDiaIdx index into EXHAUST_DIA_OPTS
  * @property {number} ecuInjectorCc injector size the ECU is calibrated for, cc/min
+ * @property {{injIdx: number, ecuInjectorCc: number}|null} portKit a port injection kit
+ *   staged over direct injection: its INJECTOR_OPTS index and the size the ECU is told.
+ *   Direct-injected engines only
  * @property {boolean} [engineReady] false until the player has chosen a prebuilt engine or entered
  *   their own engine's specs. Until then the figures below are placeholders no screen shows: SANDBOX
  *   gates TUNE, LIVE, DYNO and DRAG on it. Absent (a saved state from before it existed) means ready
@@ -289,6 +292,7 @@ export function makeInitialState({ blank = false } = {}) {
       // silently change which pipe a new build starts with.
       exhaustDiaIdx: EXHAUST_DIA_OPTS.findIndex((o) => o.dia === 3.0),
       ecuInjectorCc: 315,
+      portKit: null,
       engineReady: !blank,
       assumed: [],
       presetId: null,

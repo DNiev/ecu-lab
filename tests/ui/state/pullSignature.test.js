@@ -54,6 +54,7 @@ describe('pullSignature', () => {
     ['compressorIdx', { compressorIdx: 0 }],
     ['exhaustDiaIdx', { exhaustDiaIdx: 0 }],
     ['ecuInjectorCc', { ecuInjectorCc: 550 }],
+    ['portKit', { portKit: { injIdx: 6, ecuInjectorCc: 1300 } }],
   ];
   for (const [field, build] of measuredBuildChanges) {
     it(`changes when ${field} does`, () => {

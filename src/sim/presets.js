@@ -29,11 +29,12 @@ import { exhaustManifoldKpa } from './friction.js';
 import { bestPowerAfr, peakMapKpaOf, reachableKpa } from './manifold.js';
 import { mafErrorFactor } from './sweep.js';
 import { chargeTempK, exhaustTempK } from './thermo.js';
-import { defaultEcuCalibration } from './ecu/calibration.js';
-import { DEFAULT_ECU_HW, factoryIntakeSchedule, intakeCamAt, scheduledVeAt, tankFuel } from './ecu/context.js';
+import { defaultEcuCalibration, portShareAt } from './ecu/calibration.js';
+import { DEFAULT_ECU_HW, factoryIntakeSchedule, intakeCamAt, portKitOf, scheduledVeAt, tankFuel } from './ecu/context.js';
 import { deriveEngine, valveFloatRpm } from './engine.js';
 import { BOTTOM_END_OPTS, DEFAULT_BOTTOM_END } from './bottomEnd.js';
 import { clamp, curveAt } from './math.js';
+import { portKitBlend, stagedPortShare } from './point.js';
 import { inductionAtMap } from './turbo.js';
 import {
   CURVE_RPM, effectiveMafFactor, interpolationRoomDeg, OPEN_LOOP_KPA, RPM, SPARK_MAX_DEG,
@@ -768,13 +769,22 @@ export function presetLayout(preset, depth = {}) {
  * manifold pressure that traps that much air at that speed, which is the cell an engine
  * computer reading its own airmass looks up.
  *
+ * A direct-injected engine with a port injection kit (`opts.portKit`) is calibrated for the
+ * kit on the staging this calibration ships (`ecu.injector.portShare`, and the minimum
+ * opening below which the ECU hands the share to the direct injectors, `stagedPortShare`):
+ * where the kit carries fuel, the cylinder fills and cools as port fuel lets it
+ * (`portKitBlend`, exactly as the running engine does), and every table is written for
+ * that. Without a kit nothing here changes.
+ *
  * @param {Preset} preset
  * @param {import('./layouts.js').Layout|string|null} [layout] the engine-sized layout when absent
+ * @param {{portKit?: {ecuInjectorCc: number}|null}} [opts] `portKit`: the port injection kit
+ *   fitted, as `portKitOf` gives it
  * @returns {{ve: number[][], timing: number[][], afr: number[][], mafScalar: number, layout: import('./layouts.js').Layout,
  *   ecu: ReturnType<typeof defaultEcuCalibration>, boost: number[]}} `ecu` is the engine management the
  *   tables go with; `boost` the boost target curve the factory runs them at
  */
-export function factoryCalibration(preset, layout = null) {
+export function factoryCalibration(preset, layout = null, opts = {}) {
   const L = layout ? layoutById(layout) : presetLayout(preset);
   const derived = deriveEngine(preset.engine);
   const fuel = presetFuel(preset);
@@ -785,7 +795,7 @@ export function factoryCalibration(preset, layout = null) {
   const ecu = defaultEcuCalibration({ derived, gate: DEFAULT_ECU_HW.gate, axes: L.timing });
   const schedule = factoryIntakeSchedule(preset.engine, preset.mods, hw, ecu.vvt.intakeTarget.x, ecu.vvt.intakeTarget.y);
   if (schedule) ecu.vvt.intakeTarget = { ...ecu.vvt.intakeTarget, z: schedule };
-  const veAt = scheduledVeAt(preset.engine, preset.mods, hw, schedule ? ecu.vvt : null);
+  const veHw = scheduledVeAt(preset.engine, preset.mods, hw, schedule ? ecu.vvt : null);
   const camAt = schedule ? intakeCamAt(preset.engine, ecu.vvt) : null;
 
   // Boost actually present at a cell, read off the MAP the cell is indexed by rather than
@@ -811,7 +821,7 @@ export function factoryCalibration(preset, layout = null) {
     if (!memo.has(key)) {
       memo.set(key, inductionAtMap({
         rpm, mapKpa: kpa, boostTargetPsi: curveAt(preset.induction.boost, rpm), turbine,
-        compressor: presetCompressor(preset), veAt: (m) => veAt(rpm, m), derived,
+        compressor: presetCompressor(preset), veAt: (m) => veHw(rpm, m), derived,
         intakeKAt: (b) => chargeTempK(b, preset.mods.intercooler),
       }));
     }
@@ -820,6 +830,26 @@ export function factoryCalibration(preset, layout = null) {
   const boostPsiAt = (rpm, kpa) => inductionAt(rpm, kpa)?.boostPsi ?? boostAt(kpa);
   const sweptM3 = (derived.displacementL / derived.cyl) / 1000;
   const chargeKAt = (rpm, kpa) => chargeTempK(boostPsiAt(rpm, kpa), preset.mods.intercooler);
+  const fuelAfrAt = (rpm, kpa) => (kpa < OPEN_LOOP_KPA ? 14.7 : bestPowerAfr(boostPsiAt(rpm, kpa)));
+  // A port kit's share of the fuel at a cell, staged as the ECU stages it: the share this
+  // calibration's table asks for, unless the pulse that makes for the fuel the cell wants
+  // is under the kit's minimum opening. Then, and without a kit, null.
+  const kitAt = opts.portKit && derived.injection === 'direct'
+    ? (rpm, kpa) => {
+      const asked = portShareAt(ecu, rpm, kpa);
+      const blend = portKitBlend(derived, asked);
+      if (blend.evapInCylinder == null) return null;
+      const airG = trappedAirGrams({ veActual: veHw(rpm, kpa) * blend.veScale, mapKpa: kpa, chargeK: chargeKAt(rpm, kpa), sweptM3 });
+      const share = stagedPortShare({
+        share: asked, fuelG: airG / (fuel.stoich * (fuelAfrAt(rpm, kpa) / 14.7)),
+        ecuCc: opts.portKit.ecuInjectorCc, ecuDensity: fuel.density, minOpenMs: ecu.injector.portMinPwMs,
+      });
+      return share > 0 ? blend : null;
+    }
+    : null;
+  // The cylinder's real filling: the hardware's, less the direct-injection gain the kit's
+  // share does not earn. This is what the VE table is written to and the spark solved on.
+  const veAt = kitAt ? (rpm, kpa) => veHw(rpm, kpa) * (kitAt(rpm, kpa)?.veScale ?? 1) : veHw;
   const airAt = (rpm, kpa) => trappedAirGrams({ veActual: veAt(rpm, kpa), mapKpa: kpa, chargeK: chargeKAt(rpm, kpa), sweptM3 });
   /** Manifold pressure for a load-axis value: itself, or the pressure trapping that air. */
   const kpaOf = (axes, rpm, v) => {
@@ -838,7 +868,7 @@ export function factoryCalibration(preset, layout = null) {
   // VE: the engine's breathing at each cell. FUEL: stoichiometric where a real ECU runs
   // closed loop, best-power enrichment above.
   const ve = grid(L.ve, (rpm, kpa) => Number(veAt(rpm, kpa).toFixed(1)));
-  const afr = grid(L.afr, (rpm, kpa) => (kpa < OPEN_LOOP_KPA ? 14.7 : Number(bestPowerAfr(boostPsiAt(rpm, kpa)).toFixed(2))));
+  const afr = grid(L.afr, (rpm, kpa) => (kpa < OPEN_LOOP_KPA ? 14.7 : Number(fuelAfrAt(rpm, kpa).toFixed(2))));
 
   // SPARK: MBT where there is margin for it, knock-limited minus the factory safety
   // margin where there is not. That is what a production calibration is. Knock is
@@ -872,9 +902,12 @@ export function factoryCalibration(preset, layout = null) {
     const deliveredFuelG = airChargeG / (fuel.stoich * lambda);
     // At the cam phase the schedule puts the intake cam: advance closes the intake valve
     // earlier, raising effective compression, which is what the knock limit answers to.
+    // Fuel through a kit evaporates off the valve, so cools this charge less.
+    const kit = kitAt ? kitAt(rpm, kpa) : null;
     const cyc = cycleInputsFor({
       rpm, mapKpa: kpa, empKpa, intakeK: chargeK, airChargeG,
-      burnedFuelG: Math.min(deliveredFuelG, airChargeG / fuel.stoich), fuelMassG: deliveredFuelG, lambda, fuel, derived,
+      burnedFuelG: Math.min(deliveredFuelG, airChargeG / fuel.stoich), fuelMassG: deliveredFuelG, lambda, fuel,
+      derived: kit ? { ...derived, evapInCylinder: kit.evapInCylinder } : derived,
       ...(camAt ? { cam: { intakeAdvDeg: camAt(rpm, kpa) } } : {}),
     });
     return { safe: knockLimitedSpark(cyc) - FACTORY_KNOCK_MARGIN_DEG, mbt: mbtFromBurn(cyc.burnDeg) };
@@ -929,7 +962,7 @@ export function factoryCalibration(preset, layout = null) {
   // took boost out, the calibration is generated again at the limited curve (once — the
   // limit is already met there), so RESET, which starts from that curve, gives it back.
   if (boost.some((b, i) => b !== preset.induction.boost[i])) {
-    return factoryCalibration({ ...preset, induction: { ...preset.induction, boost } }, layout);
+    return factoryCalibration({ ...preset, induction: { ...preset.induction, boost } }, layout, opts);
   }
   return { ve, timing, afr, mafScalar, layout: L, ecu, boost };
 }
@@ -1178,11 +1211,14 @@ export function stockModsOf(build) {
  * The factory-style calibration for the hardware on the bench, with its bolt-ons taken off
  * (`stockModsOf`): what RESET ALL TO STOCK writes. Generated from the physics for THIS engine, fuel and
  * boost, exactly as a catalogue preset's own is, so it is knock-safe on a turbo or a big V8
- * as much as on the Nissan V6 the generic tables were drawn for.
+ * as much as on the Nissan V6 the generic tables were drawn for. A port injection kit on a
+ * direct-injected engine is part of the hardware on the bench, so the tables are written
+ * for it on factory staging, the port share and minimum opening RESET ALL writes with them.
  *
  * @param {{engineConfig: object, turboOn: boolean, boostCurve: number[], turbineIdx: number,
  *   turbineCount?: number, compressorIdx: number, injIdx: number, exhaustDiaIdx: number,
- *   octaneIdx: number, ethanolPct?: number, mods?: object, blowerId?: string|null}} build the BUILD
+ *   octaneIdx: number, ethanolPct?: number, mods?: object, blowerId?: string|null,
+ *   portKit?: {injIdx: number, ecuInjectorCc: number}|null}} build the BUILD
  *   slice (or the fields of it named)
  * @param {import('./layouts.js').Layout|string|null} [layout] the breakpoints to write on: the
  *   tune's own, so a reset changes the numbers and not the axes the player is looking at
@@ -1202,7 +1238,7 @@ export function stockCalibrationFor(build, layout = null) {
     mods: stockModsOf(build),
     fuel: tankFuel(/** @type {any} */ (build)),
   };
-  return factoryCalibration(hardware, layout);
+  return factoryCalibration(hardware, layout, { portKit: portKitOf(build) });
 }
 
 /**

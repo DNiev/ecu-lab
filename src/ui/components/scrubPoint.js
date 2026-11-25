@@ -11,6 +11,7 @@
  * test can reach.
  */
 
+import { busiestBank } from '../../sim/index.js';
 import { utilisationTone } from '../theme.js';
 
 /**
@@ -77,6 +78,10 @@ export function initialScrubRpm(points, logFocusRpm) {
  * @property {'neutral'|'ok'|'warn'|'danger'} tone
  */
 
+// The injector bank with the higher duty (point.js): the gauges read the bank the ECU's
+// protection judges, so they cannot disagree with it.
+export { busiestBank };
+
 /**
  * The eight readings a single number can carry.
  *
@@ -93,13 +98,17 @@ export function initialScrubRpm(points, logFocusRpm) {
  */
 export function pointGauges(p) {
   const mixture = p.leanRisk || p.richRisk ? 'danger' : 'neutral';
+  // The busier of the two injector banks: a staged port kit can be at its limit while the
+  // direct injectors are not, and one DUTY reading should not hide that. The pulse width
+  // beside it has to come from the same bank, or the two gauges describe different injectors.
+  const { duty, pw } = busiestBank(p);
   return [
     { key: 'maf', label: 'AIRFLOW', value: p.maf, unit: 'g/s', tone: 'neutral' },
     { key: 'map', label: 'MAP', value: p.map, unit: 'kPa', tone: 'neutral' },
     { key: 'iat', label: 'IAT', value: p.iat, unit: '°C', tone: 'neutral' },
     { key: 'lambda', label: 'LAMBDA', value: p.lambda, unit: 'λ', tone: mixture },
-    { key: 'duty', label: 'DUTY', value: p.duty, unit: '%', tone: utilisationTone(p.duty) },
-    { key: 'pw', label: 'INJ PW', value: p.pw, unit: 'ms', tone: p.fuelLimited ? 'danger' : 'neutral' },
+    { key: 'duty', label: 'DUTY', value: duty, unit: '%', tone: utilisationTone(duty) },
+    { key: 'pw', label: 'INJ PW', value: pw, unit: 'ms', tone: p.fuelLimited ? 'danger' : 'neutral' },
     { key: 'egt', label: 'EGT', value: p.egt, unit: '°C', tone: p.egtRisk ? 'danger' : 'neutral' },
     { key: 'peakPressure', label: 'PEAK P', value: p.peakPressure, unit: 'bar', tone: p.pressureRisk ? 'danger' : 'neutral' },
   ];
